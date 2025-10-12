@@ -313,26 +313,29 @@ def windows():
             "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full-shared.7z"
         )
 
+        MANUAL_INSTALL_MSG = (
+            "You can still manually install.\n"
+            + "Please rerun this script after downloading and extracting"
+            + f" FFmpeg to `{FFMPEG_DIR_LOCAL}`"
+            + f" from the link below (or anywhere):\n{FFMPEG_DOWNLOAD_URL}"
+        )
+
         if not confirm(
             "You don't have FFmpeg installed locally yet."
             + " Do you want to download FFmpeg from the internet now?"
         ):
-            fatal(
-                "Skipping auto-download. You can still manually install.\n"
-                + "Please rerun this script after downloading and extracting"
-                + f" FFmpeg to `{FFMPEG_DIR_LOCAL}` from here:\n"
-                + FFMPEG_DOWNLOAD_URL
-            )
+            fatal(f"Skipping auto-download. {MANUAL_INSTALL_MSG}")
 
         info(
             "Installing FFmpeg. This may take a while... ",
             end="",
             flush=True,
         )
-        urllib.request.urlretrieve(
-            FFMPEG_DOWNLOAD_URL,
-            FFMPEG_ZIP_PATH,
-        )
+
+        try:
+            urllib.request.urlretrieve(FFMPEG_DOWNLOAD_URL, FFMPEG_ZIP_PATH)
+        except:
+            fatal(f"\nDownload failed. {MANUAL_INSTALL_MSG}")
         print("Done.")
         info("FFmpeg zip file downloaded.")
 
