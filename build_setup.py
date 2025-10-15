@@ -110,7 +110,7 @@ def action_needed(*args, **kwargs) -> bool:
         print(f"{response}{Color.RESET} (auto)")
     print(f"{Color.RESET}", end="", flush=True)
 
-    if not response.isspace():
+    if len(response) != 0 and not response.isspace():
         run_cmd(response, shell=True)
 
 
@@ -431,14 +431,20 @@ def windows() -> None:
                 + f" `{ffmpeg_dir_list[0]}`."
                 + " Attempt auto-fix?"
             ):
-                nested_dir = f"{ffmpeg_dir}\\{ffmpeg_dir_list[0]}"
-                for nested_child in os.listdir(nested_dir):
-                    shutil.move(
-                        f"{nested_dir}\\{nested_child}",
-                        f"{ffmpeg_dir}\\{nested_child}",
-                    )
-                os.rmdir(nested_dir)
-                info("FFmpeg directory structure fix attempted.")
+                try:
+                    nested_dir = f"{ffmpeg_dir}\\{ffmpeg_dir_list[0]}"
+                    for nested_child in os.listdir(nested_dir):
+                        shutil.move(
+                            f"{nested_dir}\\{nested_child}",
+                            f"{ffmpeg_dir}\\{nested_child}",
+                        )
+                    os.rmdir(nested_dir)
+                except:
+                    warning("FFmpeg directory structure fix failed.")
+                    if not confirm("Auto-fix failed. Continue anyway?"):
+                        fatal("Not continuing.")
+                else:
+                    info("FFmpeg directory structure fix attempted.")
 
             ensure_path_exists(f"{ffmpeg_dir}\\include")
             ensure_path_exists(f"{ffmpeg_dir}\\lib")
