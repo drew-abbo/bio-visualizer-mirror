@@ -9,7 +9,7 @@ use ffmpeg_next::media::Type;
 use ffmpeg_next::software::scaling::{context::Context, flag::Flags};
 use ffmpeg_next::util::frame::video::Video;
 
-fn main() -> Result<(), ffmpeg_next::Error> {
+pub fn media_processing() -> Result<(), ffmpeg_next::Error> {
     // We always need to do this to set up FFmpeg.
     ffmpeg_next::init().unwrap();
 

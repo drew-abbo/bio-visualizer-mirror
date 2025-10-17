@@ -1,7 +1,7 @@
 [workspace]
 members = [
   "crates/app",
-  "crates/engine", "crates/media",
+  "crates/engine", 
+  "crates/media",
 ]
 resolver = "2"
-
