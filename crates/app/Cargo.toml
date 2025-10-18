@@ -5,3 +5,5 @@ edition = "2021"
 
 [dependencies]
 media = { version = "0.1.0", path = "../media" }
+ui = { version = "0.1.0", path = "../ui" }
+util = { version = "0.1.0", path = "../util" }

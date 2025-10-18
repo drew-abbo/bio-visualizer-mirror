@@ -3,11 +3,46 @@ use std::fs::{self, File};
 use std::io::prelude::*;
 use std::path::Path;
 use std::process;
+use std::{time::Duration};
+use std::thread;
 
 use ffmpeg_next::format::{self, Pixel};
 use ffmpeg_next::media::Type;
 use ffmpeg_next::software::scaling::{context::Context, flag::Flags};
 use ffmpeg_next::util::frame::video::Video;
+use util::Mailbox;
+use util::messages::{UiToMedia, MediaToUi};
+
+// testing a media worker that responds to messages from the UI
+pub fn start_media_worker(inbox: Mailbox<UiToMedia>, outbox: Mailbox<MediaToUi>) -> thread::JoinHandle<()> {
+    thread::spawn(move || {
+        while let Ok(msg) = inbox.recv() {
+            match msg {
+                UiToMedia::LoadVideo(path) => {
+                    let _ = outbox.send(MediaToUi::Status(format!("Loading {:?}", path)));
+                    thread::sleep(Duration::from_millis(200));
+                    let _ = outbox.send(MediaToUi::Status("Ready".into()));
+                }
+
+                UiToMedia::ExtractAllFrames => {
+                    let total = 5;
+                    for i in 0..total {
+                        thread::sleep(Duration::from_millis(100));
+                        let _ = outbox.send(MediaToUi::Progress { done: i + 1, total });
+                    }
+                    let _ = outbox.send(MediaToUi::Finished);
+                }
+
+                UiToMedia::Shutdown => {
+                    let _ = outbox.send(MediaToUi::Status("Media shutting down".into()));
+                    break;
+                }
+            }
+        }
+
+        println!("[Media] Worker exited");
+    })
+}
 
 pub fn media_processing() -> Result<(), ffmpeg_next::Error> {
     // We always need to do this to set up FFmpeg.
