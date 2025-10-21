@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 anyhow = "1"
 crossbeam-channel = "0.5"
+thiserror = "2"
