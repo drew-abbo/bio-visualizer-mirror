@@ -1,6 +1,6 @@
-[package]
-name = "bio-visualizer"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
+[workspace]
+members = [
+  "crates/app",
+  "crates/util",
+]
+resolver = "2"
