@@ -1,6 +1,5 @@
 use anyhow::Result;
 use crossbeam_channel as cb;
-use std::thread;
 pub mod messages;
 
 // This is going to house the logic for our mailbox/thread-per-component design
@@ -28,9 +27,15 @@ impl<T> Mailbox<T> {
         let (b_to_a_tx, b_to_a_rx) = cb::bounded::<T>(cap);
 
         // Endpoint A: sends to B, receives from B
-        let a = Mailbox { tx: a_to_b_tx, rx: b_to_a_rx };
+        let a = Mailbox {
+            tx: a_to_b_tx,
+            rx: b_to_a_rx,
+        };
         // Endpoint B: sends to A, receives from A
-        let b = Mailbox { tx: b_to_a_tx, rx: a_to_b_rx };
+        let b = Mailbox {
+            tx: b_to_a_tx,
+            rx: a_to_b_rx,
+        };
 
         (a, b)
     }
@@ -49,38 +54,10 @@ impl<T> Mailbox<T> {
         self.rx.try_recv()
     }
 
-    pub fn sender(&self) -> cb::Sender<T> { self.tx.clone() }
-    pub fn receiver(&self) -> cb::Receiver<T> { self.rx.clone() }
-}
-
-// this is just a generic listener with a shutdown
-pub struct ListenerHandle {
-    stop_tx: cb::Sender<()>,
-    join: thread::JoinHandle<()>
-}
-
-impl ListenerHandle {
-    pub fn stop(self) {
-        let _ = self.stop_tx.send(());
-        let _ = self.join.join();
+    pub fn sender(&self) -> cb::Sender<T> {
+        self.tx.clone()
     }
-}
-
-pub fn start_listener<T, F>(mb: Mailbox<T>, mut on_msg: F) -> ListenerHandle where T: Send + 'static, F: FnMut(T) + Send + 'static, {
-    let (stop_tx, stop_rx) = cb::bounded::<()>(1);
-    let rx = mb.receiver(); // clone handle for the thread
-
-    let join = thread::spawn(move || {
-        loop {
-            crossbeam_channel::select! {
-                recv(rx) -> msg => match msg {
-                    Ok(m) => on_msg(m),
-                    Err(_) => break, // peer closed
-                },
-                recv(stop_rx) -> _ => break,
-            }
-        }
-    });
-
-    ListenerHandle { stop_tx, join }
+    pub fn receiver(&self) -> cb::Receiver<T> {
+        self.rx.clone()
+    }
 }
