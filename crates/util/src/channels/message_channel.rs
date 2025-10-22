@@ -183,24 +183,33 @@ pub struct Outbox<T> {
 }
 
 impl<T> Outbox<T> {
-    /// Sends a message to the inbox.
+    /// Sends a message to the inbox, returning the number of messages that have
+    /// been sent but not received (after sending the message).
     ///
     /// A [ChannelError::ConnectionDropped] error is returned if the other end
     /// of the connection was dropped.
-    pub fn send(&self, msg: T) -> ChannelResult<()> {
+    pub fn send(&self, msg: T) -> ChannelResult<usize> {
         super::ensure_connection_not_dropped(&self.channel)?;
 
-        self.channel
-            .queue
-            .lock()
-            .expect(THREAD_PANIC_MSG)
-            .push_back(msg);
+        let mut queue = self.channel.queue.lock().expect(THREAD_PANIC_MSG);
+        queue.push_back(msg);
+        let in_flight = queue.len();
 
         // We need to notify the inbox that a message has arrived if it's
         // waiting.
         self.channel.notifier.notify_one();
 
-        Ok(())
+        Ok(in_flight)
+    }
+
+    /// The number of messages that have been sent but not received.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped.
+    pub fn messages_in_flight(&self) -> ChannelResult<usize> {
+        super::ensure_connection_not_dropped(&self.channel)?;
+
+        Ok(self.channel.queue.lock().expect(THREAD_PANIC_MSG).len())
     }
 
     /// Whether the other party still has their end of the connection alive, the

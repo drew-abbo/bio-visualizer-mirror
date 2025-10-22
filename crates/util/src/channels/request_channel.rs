@@ -139,7 +139,16 @@ impl<Q, A> Client<Q, A> {
     /// A [ChannelError::ConnectionDropped] error is returned if the other end
     /// of the connection was dropped.
     pub fn alert(&self, request: Q) -> ChannelResult<()> {
-        self.channel.send((request, None))
+        self.channel.send((request, None)).map(|_| ())
+    }
+
+    /// The number of requests that have been sent but not received. Received
+    /// does not necessarily mean responded to.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped.
+    pub fn messages_in_flight(&self) -> ChannelResult<usize> {
+        self.channel.messages_in_flight()
     }
 
     /// Whether the other party still has their end of the connection alive, the
@@ -400,7 +409,7 @@ impl<A> Request<A> {
 
 /// Create a two-way message channel's [Server] and [Client].
 ///
-/// `Q` is request type. `A` is the response type.
+/// `Q` is the request type. `A` is the response type.
 ///
 /// - The server will be able to receive requests as long as the client hasn't
 ///   been dropped.
@@ -425,7 +434,7 @@ pub fn new<Q, A>() -> (Server<Q, A>, Client<Q, A>) {
 /// `capacity` can still sit in the inbox at a time (the channel is not
 /// bounded).
 ///
-/// `Q` is request type. `A` is the response type.
+/// `Q` is the request type. `A` is the response type.
 ///
 /// - The server will be able to receive requests as long as the client hasn't
 ///   been dropped.
