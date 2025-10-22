@@ -159,6 +159,18 @@ impl<T> Inbox<T> {
             },
         }
     }
+
+    /// Whether the other party still has their end of the connection alive, the
+    /// inverse of [Self::connection_closed].
+    pub fn connection_open(&self) -> bool {
+        super::connection_not_dropped(&self.channel)
+    }
+
+    /// Whether the other party has dropped their end of the connection, the
+    /// inverse of [Self::connection_open].
+    pub fn connection_closed(&self) -> bool {
+        !self.connection_open()
+    }
 }
 
 /// The outbox (message sender) of a one-way message channel (single producer
@@ -189,6 +201,18 @@ impl<T> Outbox<T> {
         self.channel.notifier.notify_one();
 
         Ok(())
+    }
+
+    /// Whether the other party still has their end of the connection alive, the
+    /// inverse of [Self::connection_closed].
+    pub fn connection_open(&self) -> bool {
+        super::connection_not_dropped(&self.channel)
+    }
+
+    /// Whether the other party has dropped their end of the connection, the
+    /// inverse of [Self::connection_open].
+    pub fn connection_closed(&self) -> bool {
+        !self.connection_open()
     }
 }
 

@@ -94,6 +94,18 @@ impl<Q, A> Server<Q, A> {
     pub fn check_non_blocking(&self) -> ChannelResult<Option<ReqRes<Q, A>>> {
         self.channel.check_non_blocking()
     }
+
+    /// Whether the other party still has their end of the connection alive, the
+    /// inverse of [Self::connection_closed].
+    pub fn connection_open(&self) -> bool {
+        self.channel.connection_open()
+    }
+
+    /// Whether the other party has dropped their end of the connection, the
+    /// inverse of [Self::connection_open].
+    pub fn connection_closed(&self) -> bool {
+        self.channel.connection_closed()
+    }
 }
 
 /// The client (request sender/receiver) of a two-way message channel (single
@@ -129,6 +141,18 @@ impl<Q, A> Client<Q, A> {
     pub fn alert(&self, request: Q) -> ChannelResult<()> {
         self.channel.send((request, None))
     }
+
+    /// Whether the other party still has their end of the connection alive, the
+    /// inverse of [Self::connection_closed].
+    pub fn connection_open(&self) -> bool {
+        self.channel.connection_open()
+    }
+
+    /// Whether the other party has dropped their end of the connection, the
+    /// inverse of [Self::connection_open].
+    pub fn connection_closed(&self) -> bool {
+        self.channel.connection_closed()
+    }
 }
 
 /// A handle to use for responding to a request from a [Client].
@@ -154,6 +178,18 @@ impl<A> ResponseHandle<A> {
         self.0.notifier.notify_one();
 
         Ok(())
+    }
+
+    /// Whether the other party still has their end of the connection alive, the
+    /// inverse of [Self::connection_closed].
+    pub fn connection_open(&self) -> bool {
+        super::connection_not_dropped(&self.0)
+    }
+
+    /// Whether the other party has dropped their end of the connection, the
+    /// inverse of [Self::connection_open].
+    pub fn connection_closed(&self) -> bool {
+        !self.connection_open()
     }
 }
 
@@ -337,6 +373,28 @@ impl<A> Request<A> {
     /// Whether or not a response to this request has already been received.
     pub fn response_received(&self) -> bool {
         self.0.is_none()
+    }
+
+    /// Whether the other party still has their end of the connection alive, the
+    /// inverse of [Self::connection_closed].
+    ///
+    /// A [ChannelError::ResponseAlreadyReceived] is returned if this request
+    /// has already been responded to.
+    pub fn connection_open(&self) -> ChannelResult<bool> {
+        Ok(super::connection_not_dropped(
+            self.0
+                .as_ref()
+                .ok_or(ChannelError::ResponseAlreadyReceived)?,
+        ))
+    }
+
+    /// Whether the other party has dropped their end of the connection, the
+    /// inverse of [Self::connection_open].
+    ///
+    /// A [ChannelError::ResponseAlreadyReceived] is returned if this request
+    /// has already been responded to.
+    pub fn connection_closed(&self) -> ChannelResult<bool> {
+        self.connection_open().map(|open| !open)
     }
 }
 
