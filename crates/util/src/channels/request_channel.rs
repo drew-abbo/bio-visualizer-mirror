@@ -309,7 +309,7 @@ impl<A> Request<A> {
     /// not block.
     ///
     /// Note that [None] being returned *does not* always mean there are no
-    /// response waiting. If the client is currently adding an item, [None] will
+    /// response waiting. If the server is currently adding an item, [None] will
     /// still be returned (even if there are items in the queue). If you don't
     /// want this behavior, see [Self::check]. If you want to wait for a
     /// response to appear, see [Self::wait] or [Self::wait_timeout].
@@ -349,7 +349,8 @@ impl<A> Request<A> {
 /// - The client will be able to send requests as long as the server hasn't been
 ///   dropped.
 /// - Requests will be able to be replied to as long as both the server and
-///   client have not dropped the request.
+///   client request objects ([ResponseHandle], and [Request] respectively) have
+///   not been dropped.
 pub fn new<Q, A>() -> (Server<Q, A>, Client<Q, A>) {
     let (inbox, outbox) = message_channel::new();
     (
@@ -373,7 +374,8 @@ pub fn new<Q, A>() -> (Server<Q, A>, Client<Q, A>) {
 /// - The client will be able to send requests as long as the server hasn't been
 ///   dropped.
 /// - Requests will be able to be replied to as long as both the server and
-///   client have not dropped the request.
+///   client request objects ([ResponseHandle], and [Request] respectively) have
+///   not been dropped.
 pub fn with_capacity<Q, A>(capacity: usize) -> (Server<Q, A>, Client<Q, A>) {
     let (inbox, outbox) = message_channel::with_capacity(capacity);
     (
