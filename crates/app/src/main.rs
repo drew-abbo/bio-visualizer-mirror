@@ -1,3 +1,3 @@
 fn main() {
-    engine::engine::run().unwrap();
+    engine::run().unwrap();
 }
