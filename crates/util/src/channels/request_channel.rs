@@ -3,6 +3,7 @@
 //! producer single consumer) requesting system, useful in situations with a
 //! single thread making requests and another single thread responding.
 
+use std::collections::VecDeque;
 use std::marker::PhantomData;
 use std::sync::{Arc, Condvar, Mutex, TryLockError};
 use std::time::{Duration, Instant};
@@ -28,11 +29,17 @@ pub struct Server<Q, A> {
 impl<Q, A> Server<Q, A> {
     /// Waits for a request from the client until one appears.
     ///
-    /// For a version with a maximum wait time, see [Self::wait_timeout]. If you
-    /// just want to check without waiting, see [Self::check].
-    ///
     /// A [ChannelError::ConnectionDropped] error is returned if the other end
     /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait_timeout]
+    /// - [Self::check]
+    /// - [Self::check_non_blocking]
+    /// - [Self::wait_all]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_all]
+    /// - [Self::check_non_blocking_all]
     ///
     /// # Example
     ///
@@ -56,11 +63,17 @@ impl<Q, A> Server<Q, A> {
     /// that this function's execution may take slightly longer than `timeout`
     /// time.
     ///
-    /// For a version without a maximum waiting time, see [Self::wait]. If you
-    /// just want to check without waiting, see [Self::check].
-    ///
     /// A [ChannelError::ConnectionDropped] error is returned if the other end
     /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::check]
+    /// - [Self::check_non_blocking]
+    /// - [Self::wait_all]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_all]
+    /// - [Self::check_non_blocking_all]
     pub fn wait_timeout(&self, timeout: Duration) -> ChannelResult<ReqRes<Q, A>> {
         self.channel.wait_timeout(timeout)
     }
@@ -69,12 +82,19 @@ impl<Q, A> Server<Q, A> {
     /// [None] otherwise. This function may still block slightly.
     ///
     /// This function will block if the client is currently sending a new
-    /// request. For a function that will never block at all, see
-    /// [Self::check_non_blocking]. If you want to wait for a request to appear,
-    /// see [Self::wait] or [Self::wait_timeout].
+    /// request.
     ///
     /// A [ChannelError::ConnectionDropped] error is returned if the other end
     /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::wait_timeout]
+    /// - [Self::check_non_blocking]
+    /// - [Self::wait_all]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_all]
+    /// - [Self::check_non_blocking_all]
     pub fn check(&self) -> ChannelResult<Option<ReqRes<Q, A>>> {
         self.channel.check()
     }
@@ -85,14 +105,113 @@ impl<Q, A> Server<Q, A> {
     ///
     /// Note that [None] being returned *does not* always mean there are no
     /// request waiting. If the client is currently adding an item, [None] will
-    /// still be returned (even if there are items in the queue). If you don't
-    /// want this behavior, see [Self::check]. If you want to wait for a request
-    /// to appear, see [Self::wait] or [Self::wait_timeout].
+    /// still be returned (even if there are items in the queue).
     ///
     /// A [ChannelError::ConnectionDropped] error is returned if the other end
     /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::wait_timeout]
+    /// - [Self::check]
+    /// - [Self::wait_all]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_all]
+    /// - [Self::check_non_blocking_all]
     pub fn check_non_blocking(&self) -> ChannelResult<Option<ReqRes<Q, A>>> {
         self.channel.check_non_blocking()
+    }
+
+    /// Waits for a request from the client until one appears, returning all
+    /// requests if multiple have built up.
+    ///
+    /// The returned [VecDeque] is guaranteed to have at least 1 element.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::wait_timeout]
+    /// - [Self::check]
+    /// - [Self::check_non_blocking]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_all]
+    /// - [Self::check_non_blocking_all]
+    pub fn wait_all(&self) -> ChannelResult<VecDeque<ReqRes<Q, A>>> {
+        self.channel.wait_all()
+    }
+
+    /// Waits for a request from the client for up to `timeout` time, returning
+    /// all requests if multiple have built up.
+    ///
+    /// After `timeout` time, a [ChannelError::Timeout] error is returned. Note
+    /// that this function's execution may take slightly longer than `timeout`
+    /// time.
+    ///
+    /// The returned [VecDeque] is guaranteed to have at least 1 element.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::wait_timeout]
+    /// - [Self::check]
+    /// - [Self::check_non_blocking]
+    /// - [Self::wait_all]
+    /// - [Self::check_all]
+    /// - [Self::check_non_blocking_all]
+    pub fn wait_timeout_all(&self, timeout: Duration) -> ChannelResult<VecDeque<ReqRes<Q, A>>> {
+        self.channel.wait_timeout_all(timeout)
+    }
+
+    /// Receives all requests from the client if requests are waiting, returning
+    /// [None] otherwise. This function may still block slightly.
+    ///
+    /// This function will block if the client is currently sending a new
+    /// request.
+    ///
+    /// The returned [VecDeque] is guaranteed to have at least 1 element.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::wait_timeout]
+    /// - [Self::check]
+    /// - [Self::check_non_blocking]
+    /// - [Self::wait_all]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_non_blocking_all]
+    pub fn check_all(&self) -> ChannelResult<Option<VecDeque<ReqRes<Q, A>>>> {
+        self.channel.check_all()
+    }
+
+    /// Receives all request from the client if the queue is not locked and a
+    /// requests are waiting. [None] is returned otherwise. This function will
+    /// not block.
+    ///
+    /// Note that [None] being returned *does not* always mean there are no
+    /// request waiting. If the client is currently adding an item, [None] will
+    /// still be returned (even if there are items in the queue).
+    ///
+    /// The returned [VecDeque] is guaranteed to have at least 1 element.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::wait_timeout]
+    /// - [Self::check]
+    /// - [Self::check_non_blocking]
+    /// - [Self::wait_all]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_all]
+    pub fn check_non_blocking_all(&self) -> ChannelResult<Option<VecDeque<ReqRes<Q, A>>>> {
+        self.channel.check_non_blocking_all()
     }
 
     /// Whether the other party still has their end of the connection alive, the
