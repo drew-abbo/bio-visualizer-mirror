@@ -1,3 +1,3 @@
 fn main() {
-    println!("Hello, world!");
+    let engine_result = engine::engine::run().unwrap();
 }

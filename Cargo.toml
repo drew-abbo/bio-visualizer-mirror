@@ -2,6 +2,6 @@
 members = [
   "crates/app",
   "crates/util", 
-  "engine",
+  "crates/engine",
 ]
 resolver = "2"
