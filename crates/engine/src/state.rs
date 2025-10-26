@@ -1,3 +1,4 @@
+use image::GenericImageView;
 use std::sync::Arc;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::Window};
 
@@ -51,11 +52,7 @@ impl State {
                 label: None,
                 required_features: wgpu::Features::empty(),
                 experimental_features: wgpu::ExperimentalFeatures::disabled(),
-                required_limits: if cfg!(target_arch = "wasm32") {
-                    wgpu::Limits::downlevel_webgl2_defaults()
-                } else {
-                    wgpu::Limits::default()
-                },
+                required_limits: wgpu::Limits::default(),
                 memory_hints: Default::default(),
                 trace: wgpu::Trace::Off,
             })
@@ -149,47 +146,69 @@ impl State {
         })
     }
 
-    #[inline]
-    fn create_instance_and_surface(
-        window: &Arc<Window>,
-    ) -> anyhow::Result<(wgpu::Instance, wgpu::Surface<'static>)> {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            #[cfg(not(target_arch = "wasm32"))]
-            backends: wgpu::Backends::PRIMARY,
-            #[cfg(target_arch = "wasm32")]
-            backends: wgpu::Backends::GL,
-            ..Default::default()
+    pub fn submit_rgba_frame(&mut self, frame: &crate::video::RgbaFrame) {
+        // (Re)create texture if size changed
+        let needs_new_tex = self.frame_tex.as_ref().map_or(true, |t| {
+            let s = t.size();
+            s.width != frame.width || s.height != frame.height
         });
-
-        // Safety: window outlives surface via Arc<Window>
-        let surface = instance.create_surface(window.clone())?;
-        Ok((instance, surface))
-    }
-
-    #[inline]
-    fn make_surface_config(
-        surface: &wgpu::Surface<'static>,
-        adapter: &wgpu::Adapter,
-        size: winit::dpi::PhysicalSize<u32>,
-    ) -> wgpu::SurfaceConfiguration {
-        let caps = surface.get_capabilities(adapter);
-        let format = caps
-            .formats
-            .iter()
-            .copied()
-            .find(|f| f.is_srgb())
-            .unwrap_or(caps.formats[0]);
-
-        wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format,
-            width: size.width,
-            height: size.height,
-            present_mode: caps.present_modes[0],
-            alpha_mode: caps.alpha_modes[0],
-            view_formats: vec![],
-            desired_maximum_frame_latency: 2,
+        if needs_new_tex {
+            let tex = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("tex/stream-frame"),
+                size: wgpu::Extent3d {
+                    width: frame.width,
+                    height: frame.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+            self.frame_tex = Some(tex);
+            self.frame_view = Some(view);
+            self.bind_group = Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("bg/stream-frame"),
+                layout: &self.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(
+                            self.frame_view.as_ref().unwrap(),
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    },
+                ],
+            }));
+            self.frame_size = (frame.width, frame.height);
         }
+
+        // Upload
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: self.frame_tex.as_ref().unwrap(),
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &frame.data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(frame.bpr),
+                rows_per_image: Some(frame.height),
+            },
+            wgpu::Extent3d {
+                width: frame.width,
+                height: frame.height,
+                depth_or_array_layers: 1,
+            },
+        );
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -243,9 +262,13 @@ impl State {
         render_pass.set_pipeline(&self.render_pipeline);
         if let Some(bg) = &self.bind_group {
             render_pass.set_bind_group(0, bg, &[]);
+            render_pass.draw(0..3, 0..1);
+        } else {
+            // No frame bound yet — just clear this frame (no draw).
+            // (Nothing else to do; we already cleared the target color above.)
         }
 
-        render_pass.draw(0..3, 0..1);
+        // render_pass.draw(0..3, 0..1);
 
         drop(render_pass);
 
@@ -260,39 +283,35 @@ impl State {
         }
     }
 
-    /// Upload an RGBA8 frame (width x height x 4 bytes) to a GPU texture.
-    /// Rebuilds the bind group if the resolution changes.
-    pub fn upload_rgba_frame(&mut self, width: u32, height: u32, rgba: &[u8]) {
-        let needs_new_tex = self
-            .frame_tex
-            .as_ref()
-            .map(|t| {
-                let s = t.size();
-                s.width != width || s.height != height
-            })
-            .unwrap_or(true);
+    pub fn load_image_from_bytes(&mut self, bytes: &[u8]) -> anyhow::Result<()> {
+        let img = image::load_from_memory(bytes)?;
+        let (w, h) = img.dimensions();
+        let rgba = img.to_rgba8();
+        let (padded, bpr) = Self::pad_rows_rgba(&rgba, w, h);
 
+        // (re)create texture/bind group if needed
+        let needs_new_tex = self.frame_tex.as_ref().map_or(true, |t| {
+            let s = t.size();
+            s.width != w || s.height != h
+        });
         if needs_new_tex {
             let tex = self.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("tex/frame"),
+                label: Some("tex/image"),
                 size: wgpu::Extent3d {
-                    width,
-                    height,
+                    width: w,
+                    height: h,
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8Unorm, // linear for now
+                format: wgpu::TextureFormat::Rgba8Unorm,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             });
             let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
-
             self.frame_tex = Some(tex);
             self.frame_view = Some(view);
-            self.frame_size = (width, height);
-
             let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some(labels::FRAME_BIND_GROUP),
                 layout: &self.bind_group_layout,
@@ -310,46 +329,104 @@ impl State {
                 ],
             });
             self.bind_group = Some(bg);
+            self.frame_size = (w, h);
         }
 
-        let (w, _h) = (width, height);
         self.queue.write_texture(
-            // Keep the same API you’re already using
             wgpu::TexelCopyTextureInfo {
                 texture: self.frame_tex.as_ref().unwrap(),
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            rgba,
+            &padded,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(4 * w),
-                rows_per_image: None,
+                bytes_per_row: Some(bpr),
+                rows_per_image: Some(h),
             },
             wgpu::Extent3d {
-                width,
-                height,
+                width: w,
+                height: h,
                 depth_or_array_layers: 1,
             },
         );
+        Ok(())
     }
 
     pub fn update(&mut self) {
-        // Seed a synthetic frame once so we can see pixels immediately.
+        // purely for testing: load a test image once
         if self.frame_tex.is_none() {
-            let (w, h) = (640, 360);
-            let mut data = vec![0u8; (w * h * 4) as usize];
-            for y in 0..h {
-                for x in 0..w {
-                    let i = ((y * w + x) * 4) as usize;
-                    data[i + 0] = (x % 256) as u8;
-                    data[i + 1] = (y % 256) as u8;
-                    data[i + 2] = ((x + y) % 256) as u8;
-                    data[i + 3] = 255;
-                }
+            let bytes = include_bytes!("./assets/test.png");
+            if let Err(e) = self.load_image_from_bytes(bytes) {
+                eprintln!("load_image_from_bytes failed: {e}");
             }
-            self.upload_rgba_frame(w, h, &data);
         }
+    }
+
+    #[inline]
+    fn create_instance_and_surface(
+        window: &Arc<Window>,
+    ) -> anyhow::Result<(wgpu::Instance, wgpu::Surface<'static>)> {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::PRIMARY,
+            ..Default::default()
+        });
+
+        // Safety: window outlives surface via Arc<Window>
+        let surface = instance.create_surface(window.clone())?;
+        Ok((instance, surface))
+    }
+
+    #[inline]
+    fn make_surface_config(
+        surface: &wgpu::Surface<'static>,
+        adapter: &wgpu::Adapter,
+        size: winit::dpi::PhysicalSize<u32>,
+    ) -> wgpu::SurfaceConfiguration {
+        let caps = surface.get_capabilities(adapter);
+        let format = caps
+            .formats
+            .iter()
+            .copied()
+            .find(|f| f.is_srgb())
+            .unwrap_or(caps.formats[0]);
+
+        wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width: size.width,
+            height: size.height,
+            present_mode: caps.present_modes[0],
+            alpha_mode: caps.alpha_modes[0],
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        }
+    }
+
+    /// Pads RGBA image data so that each row is aligned to wgpu::COPY_BYTES_PER_ROW_ALIGNMENT.
+    /// Returns the padded data and the new bytes_per_row value.
+    ///
+    fn pad_rows_rgba(src: &[u8], width: u32, height: u32) -> (Vec<u8>, u32) {
+        let bytes_per_pixel = 4u32;
+        let unpadded_bpr = width * bytes_per_pixel;
+
+        // WebGPU requires bytes_per_row % 256 == 0
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded_bpr = ((unpadded_bpr + align - 1) / align) * align;
+
+        if padded_bpr == unpadded_bpr {
+            // Already aligned; no copy needed
+            return (src.to_vec(), unpadded_bpr);
+        }
+
+        let mut out = vec![0u8; padded_bpr as usize * height as usize];
+        for y in 0..height {
+            let src_off = (y * unpadded_bpr) as usize;
+            let dst_off = (y * padded_bpr) as usize;
+            out[dst_off..dst_off + unpadded_bpr as usize]
+                .copy_from_slice(&src[src_off..src_off + unpadded_bpr as usize]);
+        }
+        (out, padded_bpr)
     }
 }
