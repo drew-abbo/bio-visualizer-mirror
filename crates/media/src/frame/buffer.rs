@@ -154,8 +154,8 @@ impl Frame {
     {
         let mut index = 0;
         Self::from_fill_with(dimensions, || {
-            let row = index / dimensions.height();
-            let col = index % dimensions.height();
+            let row = index / dimensions.width();
+            let col = index % dimensions.width();
             index += 1;
             f(row, col)
         })
@@ -284,9 +284,9 @@ impl Frame {
     ///
     /// Also see [Self::fill], [Self::fill_with], and [Self::fill_from_frame].
     pub fn fill_with_coords<F: FnMut(usize, usize) -> Pixel>(&mut self, mut f: F) {
-        let height = self.dimensions().height();
+        let width = self.dimensions().width();
         for (index, pixel) in self.pixels_mut().iter_mut().enumerate() {
-            *pixel = f(index / height, index % height);
+            *pixel = f(index / width, index % width);
         }
     }
 
