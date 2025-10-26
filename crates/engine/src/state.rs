@@ -1,4 +1,3 @@
-use image::GenericImageView;
 use std::sync::Arc;
 use winit::{event_loop::ActiveEventLoop, keyboard::KeyCode, window::Window};
 
@@ -11,7 +10,6 @@ mod labels {
     pub const PIPELINE: &str = "pipeline/frame-blit";
     pub const ENCODER: &str = "encoder/render";
     pub const PASS_PRESENT: &str = "pass/present";
-    pub const FRAME_BIND_GROUP: &str = "bg/frame";
 }
 
 pub struct State {
@@ -146,12 +144,14 @@ impl State {
         })
     }
 
+    // Some version of this function will be used
     pub fn submit_rgba_frame(&mut self, frame: &crate::video::RgbaFrame) {
         // (Re)create texture if size changed
         let needs_new_tex = self.frame_tex.as_ref().map_or(true, |t| {
             let s = t.size();
             s.width != frame.width || s.height != frame.height
         });
+
         if needs_new_tex {
             let tex = self.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("tex/stream-frame"),
@@ -163,7 +163,7 @@ impl State {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8Unorm,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             });
@@ -260,15 +260,8 @@ impl State {
         });
 
         render_pass.set_pipeline(&self.render_pipeline);
-        if let Some(bg) = &self.bind_group {
-            render_pass.set_bind_group(0, bg, &[]);
-            render_pass.draw(0..3, 0..1);
-        } else {
-            // No frame bound yet — just clear this frame (no draw).
-            // (Nothing else to do; we already cleared the target color above.)
-        }
-
-        // render_pass.draw(0..3, 0..1);
+        render_pass.set_bind_group(0, &self.bind_group, &[]); //bind group must exist if we got this far
+        render_pass.draw(0..3, 0..1);
 
         drop(render_pass);
 
@@ -281,78 +274,6 @@ impl State {
         if (code, is_pressed) == (KeyCode::Escape, true) {
             event_loop.exit();
         }
-    }
-
-    // I think this makes the most sense for our frame loading needs?
-    pub fn load_image_from_bytes(&mut self, bytes: &[u8]) -> anyhow::Result<()> {
-        let img = image::load_from_memory(bytes)?;
-        let (w, h) = img.dimensions();
-        let rgba = img.to_rgba8();
-        let (padded, bpr) = Self::pad_rows_rgba(&rgba, w, h);
-
-        // (re)create texture/bind group if needed
-        let needs_new_tex = self.frame_tex.as_ref().map_or(true, |t| {
-            let s = t.size();
-            s.width != w || s.height != h
-        });
-        if needs_new_tex {
-            let tex = self.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("tex/image"),
-                size: wgpu::Extent3d {
-                    width: w,
-                    height: h,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8Unorm,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            });
-            let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
-            self.frame_tex = Some(tex);
-            self.frame_view = Some(view);
-            let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some(labels::FRAME_BIND_GROUP),
-                layout: &self.bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(
-                            self.frame_view.as_ref().unwrap(),
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
-                ],
-            });
-            self.bind_group = Some(bg);
-            self.frame_size = (w, h);
-        }
-
-        self.queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: self.frame_tex.as_ref().unwrap(),
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &padded,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(bpr),
-                rows_per_image: Some(h),
-            },
-            wgpu::Extent3d {
-                width: w,
-                height: h,
-                depth_or_array_layers: 1,
-            },
-        );
-        Ok(())
     }
 
     pub fn update(&mut self) {
@@ -401,6 +322,7 @@ impl State {
 
     // Pads RGBA image data so that each row is aligned to wgpu::COPY_BYTES_PER_ROW_ALIGNMENT.
     // Returns the padded data and the new bytes_per_row value.
+    // should not need to be done here. Should be done before sending frames to the engine hopefully.
     fn pad_rows_rgba(src: &[u8], width: u32, height: u32) -> (Vec<u8>, u32) {
         let bytes_per_pixel = 4u32;
         let unpadded_bpr = width * bytes_per_pixel;
