@@ -9,7 +9,9 @@ use winit::{
 };
 
 pub struct App {
+    // Option because the window may not be created yet
     state: Option<State>,
+    // Incoming RGBA frames to display
     receiver: Inbox<RgbaFrame>,
 }
 
@@ -21,17 +23,17 @@ impl App {
         }
     }
     fn pump_frames(&mut self) {
+        // Make sure we have a state to submit to
         let Some(state) = self.state.as_mut() else {
             return;
         };
 
-        // Drain everything available right now; keep only the newest.
+        // Drain everything available right now
         let mut last: Option<RgbaFrame> = None;
         loop {
-            match self.receiver.check() {
+            match self.receiver.check_non_blocking() {
                 Ok(Some(f)) => last = Some(f),
-                Ok(None) => break,
-                Err(_) => break, // producer gone—fine
+                Ok(None) => break, // no more frames right now
                 Err(e) => {
                     log::warn!("frame inbox error: {e:?}");
                     break;

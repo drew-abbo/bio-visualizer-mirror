@@ -1,5 +1,4 @@
-
-
+// Public RGBA frame structure used for video frames. Will probably change depengding on ffmpeg usage.
 #[derive(Clone)]
 pub struct RgbaFrame {
     pub width: u32,

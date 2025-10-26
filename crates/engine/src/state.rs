@@ -283,6 +283,7 @@ impl State {
         }
     }
 
+    // I think this makes the most sense for our frame loading needs?
     pub fn load_image_from_bytes(&mut self, bytes: &[u8]) -> anyhow::Result<()> {
         let img = image::load_from_memory(bytes)?;
         let (w, h) = img.dimensions();
@@ -355,13 +356,7 @@ impl State {
     }
 
     pub fn update(&mut self) {
-        // purely for testing: load a test image once
-        if self.frame_tex.is_none() {
-            let bytes = include_bytes!("./assets/test.png");
-            if let Err(e) = self.load_image_from_bytes(bytes) {
-                eprintln!("load_image_from_bytes failed: {e}");
-            }
-        }
+        // Placeholder for per-frame update logic
     }
 
     #[inline]
@@ -404,9 +399,8 @@ impl State {
         }
     }
 
-    /// Pads RGBA image data so that each row is aligned to wgpu::COPY_BYTES_PER_ROW_ALIGNMENT.
-    /// Returns the padded data and the new bytes_per_row value.
-    ///
+    // Pads RGBA image data so that each row is aligned to wgpu::COPY_BYTES_PER_ROW_ALIGNMENT.
+    // Returns the padded data and the new bytes_per_row value.
     fn pad_rows_rgba(src: &[u8], width: u32, height: u32) -> (Vec<u8>, u32) {
         let bytes_per_pixel = 4u32;
         let unpadded_bpr = width * bytes_per_pixel;
