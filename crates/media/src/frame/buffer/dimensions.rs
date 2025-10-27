@@ -1,13 +1,13 @@
 //! Declares the [Dimensions] type, a type that [super::Frame] depends on.
 
 use std::fmt::{self, Display, Formatter};
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU32};
 
 /// A width and a height, both guaranteed to be non-zero.
 ///
 /// # Example
 ///
-/// [From<(usize, usize)>] is implemented for [Dimensions]. If either side is
+/// [From] is implemented for `(u32, u32)` and [Dimensions]. If either side is
 /// `0`, the thread will panic. [Into::into] should really only be used if
 /// you're providing the side lengths as literals (e.g. `(1920, 1080).into()`).
 ///
@@ -20,8 +20,10 @@ use std::num::NonZeroUsize;
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Dimensions {
-    width: NonZeroUsize,
-    height: NonZeroUsize,
+    // NOTE: It's common for most libraries to use `u32` for dimensions instead
+    // of `usize`, so that's what we're doing here.
+    width: NonZeroU32,
+    height: NonZeroU32,
 }
 
 impl Dimensions {
@@ -29,11 +31,11 @@ impl Dimensions {
     ///
     /// This function will return [None] if the width or height are 0. Also see
     /// [Self::from_non_zero].
-    pub const fn new(width: usize, height: usize) -> Option<Self> {
-        let Some(width) = NonZeroUsize::new(width) else {
+    pub const fn new(width: u32, height: u32) -> Option<Self> {
+        let Some(width) = NonZeroU32::new(width) else {
             return None;
         };
-        let Some(height) = NonZeroUsize::new(height) else {
+        let Some(height) = NonZeroU32::new(height) else {
             return None;
         };
 
@@ -43,8 +45,8 @@ impl Dimensions {
     /// Construct from a non-zero width and a height.
     ///
     /// Unlike [Self::new], this function will always succeed (since
-    /// [NonZeroUsize] ensures the sides are both non-zero at compile time).
-    pub const fn from_non_zero(width: NonZeroUsize, height: NonZeroUsize) -> Self {
+    /// [NonZeroU32] ensures the sides are both non-zero at compile time).
+    pub const fn from_non_zero(width: NonZeroU32, height: NonZeroU32) -> Self {
         Self { width, height }
     }
 
@@ -54,13 +56,13 @@ impl Dimensions {
     /// # Safety
     ///
     /// Either parameter being `0` will invoke undefined behavior.
-    pub const unsafe fn new_unchecked(width: usize, height: usize) -> Self {
+    pub const unsafe fn new_unchecked(width: u32, height: u32) -> Self {
         // SAFETY: It's on the caller to ensure that `width` and `height` are
         // both non-zero.
         unsafe {
             Self::from_non_zero(
-                NonZeroUsize::new(width).unwrap_unchecked(),
-                NonZeroUsize::new(height).unwrap_unchecked(),
+                NonZeroU32::new(width).unwrap_unchecked(),
+                NonZeroU32::new(height).unwrap_unchecked(),
             )
         }
     }
@@ -68,38 +70,38 @@ impl Dimensions {
     /// The dimensions' width.
     ///
     /// This will never be `0`. Also see [Self::width_non_zero].
-    pub const fn width(&self) -> usize {
+    pub const fn width(&self) -> u32 {
         self.width.get()
     }
 
-    /// The dimensions' width as a [NonZeroUsize].
-    pub const fn width_non_zero(&self) -> NonZeroUsize {
+    /// The dimensions' width as a [NonZeroU32].
+    pub const fn width_non_zero(&self) -> NonZeroU32 {
         self.width
     }
 
     /// The dimensions' height.
     ///
     /// This will never be `0`. Also see [Self::height_non_zero].
-    pub const fn height(&self) -> usize {
+    pub const fn height(&self) -> u32 {
         self.height.get()
     }
 
-    /// The dimensions' height as a [NonZeroUsize].
-    pub const fn height_non_zero(&self) -> NonZeroUsize {
+    /// The dimensions' height as a [NonZeroU32].
+    pub const fn height_non_zero(&self) -> NonZeroU32 {
         self.height
     }
 
     /// The area a rectangle would have with the dimensions' width and height.
     ///
     /// This will never be `0`. Also see [Self::area_non_zero].
-    pub const fn area(&self) -> usize {
+    pub const fn area(&self) -> u32 {
         self.width.get() * self.height.get()
     }
 
     /// The area a rectangle would have with the dimensions' width and height as
-    /// a [NonZeroUsize].
-    pub const fn area_non_zero(&self) -> NonZeroUsize {
-        NonZeroUsize::new(self.area()).unwrap()
+    /// a [NonZeroU32].
+    pub const fn area_non_zero(&self) -> NonZeroU32 {
+        NonZeroU32::new(self.area()).unwrap()
     }
 
     /// Find the aspect ratio of these dimensions.
@@ -134,7 +136,7 @@ impl Dimensions {
     /// let ratio = d.rescale_height(720).unwrap();
     /// assert_eq!(ratio, (1280, 720).into());
     /// ```
-    pub fn rescale_height(&self, new_height: usize) -> Option<Self> {
+    pub fn rescale_height(&self, new_height: u32) -> Option<Self> {
         let scaled_width = self.width.get() * new_height;
         if !scaled_width.is_multiple_of(self.height.get()) {
             return None;
@@ -156,9 +158,9 @@ impl Dimensions {
     /// let ratio = d.rescale_height_rounded(721).unwrap();
     /// assert_eq!(ratio, (1282, 721).into());
     /// ```
-    pub fn rescale_height_rounded(&self, new_height: usize) -> Option<Self> {
+    pub fn rescale_height_rounded(&self, new_height: u32) -> Option<Self> {
         let new_width =
-            (((self.width.get() * new_height) as f64 / self.height.get() as f64).round() as usize)
+            (((self.width.get() * new_height) as f64 / self.height.get() as f64).round() as u32)
                 .max(1);
         Self::new(new_width, new_height)
     }
@@ -175,7 +177,7 @@ impl Dimensions {
     /// let ratio = d.rescale_width(1280).unwrap();
     /// assert_eq!(ratio, (1280, 720).into());
     /// ```
-    pub fn rescale_width(&self, new_width: usize) -> Option<Self> {
+    pub fn rescale_width(&self, new_width: u32) -> Option<Self> {
         let scaled_height = self.height.get() * new_width;
         if !scaled_height.is_multiple_of(self.width.get()) {
             return None;
@@ -197,9 +199,9 @@ impl Dimensions {
     /// let ratio = d.rescale_width_rounded(1281).unwrap();
     /// assert_eq!(ratio, (1281, 721).into());
     /// ```
-    pub fn rescale_width_rounded(&self, new_width: usize) -> Option<Self> {
+    pub fn rescale_width_rounded(&self, new_width: u32) -> Option<Self> {
         let new_height =
-            (((self.height.get() * new_width) as f64 / self.width.get() as f64).round() as usize)
+            (((self.height.get() * new_width) as f64 / self.width.get() as f64).round() as u32)
                 .max(1);
         Self::new(new_width, new_height)
     }
@@ -229,31 +231,31 @@ impl Display for Dimensions {
 /// If either side is `0`, the thread will panic. [Into::into] should really
 /// only be used if you're providing the side lengths as literals (e.g.
 /// `(1920, 1080).into()`).
-impl From<(usize, usize)> for Dimensions {
-    fn from(dimensions: (usize, usize)) -> Self {
+impl From<(u32, u32)> for Dimensions {
+    fn from(dimensions: (u32, u32)) -> Self {
         Self::new(dimensions.0, dimensions.1).expect("Both sides must be non-zero.")
     }
 }
 
-impl From<Dimensions> for (usize, usize) {
+impl From<Dimensions> for (u32, u32) {
     fn from(dimensions: Dimensions) -> Self {
         (dimensions.width(), dimensions.height())
     }
 }
 
-impl From<(NonZeroUsize, NonZeroUsize)> for Dimensions {
-    fn from(dimensions: (NonZeroUsize, NonZeroUsize)) -> Self {
+impl From<(NonZeroU32, NonZeroU32)> for Dimensions {
+    fn from(dimensions: (NonZeroU32, NonZeroU32)) -> Self {
         Self::from_non_zero(dimensions.0, dimensions.1)
     }
 }
 
-impl From<Dimensions> for (NonZeroUsize, NonZeroUsize) {
+impl From<Dimensions> for (NonZeroU32, NonZeroU32) {
     fn from(dimensions: Dimensions) -> Self {
         (dimensions.width_non_zero(), dimensions.height_non_zero())
     }
 }
 
-const fn greatest_common_divisor(mut a: usize, mut b: usize) -> usize {
+const fn greatest_common_divisor(mut a: u32, mut b: u32) -> u32 {
     while b != 0 {
         (b, a) = (a % b, b)
     }

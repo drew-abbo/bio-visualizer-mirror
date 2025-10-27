@@ -124,7 +124,7 @@ impl Frame {
     /// Also see [Self::from_fill_with] and [Self::from_fill_with_coords].
     pub fn from_fill(dimensions: Dimensions, fill_pixel: Pixel) -> Self {
         Self::from_buffer(BasicFrame {
-            pixels: vec![fill_pixel; dimensions.area()].into_boxed_slice(),
+            pixels: vec![fill_pixel; dimensions.area() as usize].into_boxed_slice(),
             dimensions,
         })
     }
@@ -155,10 +155,10 @@ impl Frame {
     where
         F: FnMut(usize, usize) -> Pixel,
     {
-        let mut index = 0;
+        let mut index: usize = 0;
         Self::from_fill_with(dimensions, || {
-            let row = index / dimensions.width();
-            let col = index % dimensions.width();
+            let row = index / dimensions.width() as usize;
+            let col = index % dimensions.width() as usize;
             index += 1;
             f(row, col)
         })
@@ -175,7 +175,7 @@ impl Frame {
         pixels: Box<[Pixel]>,
         dimensions: Dimensions,
     ) -> Result<Self, TryFromSliceError> {
-        if pixels.len() != dimensions.area() {
+        if pixels.len() != dimensions.area() as usize {
             Err(TryFromSliceError::LenError)
         } else {
             // SAFETY: We just checked that the data is long enough.
@@ -191,7 +191,7 @@ impl Frame {
         data: Box<[u8]>,
         dimensions: Dimensions,
     ) -> Result<Self, TryFromSliceError> {
-        if data.len() != dimensions.area() * size_of::<Pixel>() {
+        if data.len() != dimensions.area() as usize * size_of::<Pixel>() {
             Err(TryFromSliceError::LenError)
         } else if data.as_ptr().align_offset(mem::align_of::<Pixel>()) != 0 {
             Err(TryFromSliceError::AlignmentError)
@@ -244,25 +244,25 @@ impl Frame {
 
     /// An iterator over rows of pixels in the frame.
     pub fn pixel_rows(&self) -> Chunks<'_, Pixel> {
-        self.pixels().chunks(self.dimensions.width())
+        self.pixels().chunks(self.dimensions.width() as usize)
     }
 
     /// An iterator over *mutable* rows of pixels in the frame.
     pub fn pixel_rows_mut(&mut self) -> ChunksMut<'_, Pixel> {
-        let width = self.dimensions.width();
+        let width = self.dimensions.width() as usize;
         self.pixels_mut().chunks_mut(width)
     }
 
     /// An iterator over rows of the raw data in the underlying buffer.
     pub fn raw_data_rows(&self) -> Chunks<'_, u8> {
         self.raw_data()
-            .chunks(self.dimensions.width() * size_of::<Pixel>())
+            .chunks(self.dimensions.width() as usize * size_of::<Pixel>())
     }
 
     /// An iterator over *mutable* rows of the raw data in the underlying
     /// buffer.
     pub fn raw_data_rows_mut(&mut self) -> ChunksMut<'_, u8> {
-        let width = self.dimensions.width();
+        let width = self.dimensions.width() as usize;
         self.raw_data_mut().chunks_mut(width * size_of::<Pixel>())
     }
 
@@ -287,7 +287,7 @@ impl Frame {
     ///
     /// Also see [Self::fill], [Self::fill_with], and [Self::fill_from_frame].
     pub fn fill_with_coords<F: FnMut(usize, usize) -> Pixel>(&mut self, mut f: F) {
-        let width = self.dimensions().width();
+        let width = self.dimensions().width() as usize;
         for (index, pixel) in self.pixels_mut().iter_mut().enumerate() {
             *pixel = f(index / width, index % width);
         }
@@ -609,7 +609,7 @@ impl Frame {
             pixels: unsafe {
                 Box::from_raw(slice::from_raw_parts_mut(
                     Box::into_raw(data) as *mut Pixel,
-                    dimensions.area(),
+                    dimensions.area() as usize,
                 ))
             },
             dimensions,
@@ -628,7 +628,7 @@ impl Frame {
     where
         F: FnOnce(&mut [MaybeUninit<Pixel>]),
     {
-        let mut uninit_pixels = Box::new_uninit_slice(dimensions.area());
+        let mut uninit_pixels = Box::new_uninit_slice(dimensions.area() as usize);
         // SAFETY:
         // 1. It's on the caller to ensure their callback initializes all of the
         //    memory.
@@ -677,7 +677,7 @@ impl Frame {
         let pixels = buffer.pixels_mut();
 
         assert_eq!(
-            dimensions.area(),
+            dimensions.area() as usize,
             pixels.len(),
             "The frame buffer's dimensions are not right for its buffer's length."
         );
