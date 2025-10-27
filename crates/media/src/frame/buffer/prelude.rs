@@ -20,9 +20,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// you're providing the side lengths as literals (e.g. `(1920, 1080).into()`).
 ///
 /// ```
+/// use media::frame::Dimensions;
+///
 /// let d: Dimensions = (1920, 1080).into();
 /// assert_eq!(d.width(), 1920);
-/// assert_eq!(d.width(), 1080);
+/// assert_eq!(d.height(), 1080);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Dimensions {
@@ -113,8 +115,10 @@ impl Dimensions {
     /// # Example
     ///
     /// ```
+    /// use media::frame::Dimensions;
+    ///
     /// let d: Dimensions = (1920, 1080).into();
-    /// let ratio = d.aspect_ratio().unwrap();
+    /// let ratio = d.aspect_ratio();
     /// assert_eq!(ratio, (16, 9).into());
     /// ```
     pub const fn aspect_ratio(&self) -> Self {
@@ -132,6 +136,8 @@ impl Dimensions {
     /// # Example
     ///
     /// ```
+    /// use media::frame::Dimensions;
+    ///
     /// let d: Dimensions = (1920, 1080).into();
     /// let ratio = d.rescale_height(720).unwrap();
     /// assert_eq!(ratio, (1280, 720).into());
@@ -152,6 +158,8 @@ impl Dimensions {
     /// # Example
     ///
     /// ```
+    /// use media::frame::Dimensions;
+    ///
     /// let d: Dimensions = (1920, 1080).into();
     /// let ratio = d.rescale_height_rounded(721).unwrap();
     /// assert_eq!(ratio, (1282, 721).into());
@@ -169,6 +177,8 @@ impl Dimensions {
     /// # Example
     ///
     /// ```
+    /// use media::frame::Dimensions;
+    ///
     /// let d: Dimensions = (1920, 1080).into();
     /// let ratio = d.rescale_width(1280).unwrap();
     /// assert_eq!(ratio, (1280, 720).into());
@@ -189,6 +199,8 @@ impl Dimensions {
     /// # Example
     ///
     /// ```
+    /// use media::frame::Dimensions;
+    ///
     /// let d: Dimensions = (1920, 1080).into();
     /// let ratio = d.rescale_width_rounded(1281).unwrap();
     /// assert_eq!(ratio, (1281, 721).into());
