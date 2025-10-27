@@ -9,7 +9,9 @@
 //! comments explaining things). If you're going to modify this module (or its
 //! `preulude` sub-module), be *extremely* careful.
 
-mod prelude;
+mod dimensions;
+mod pixel;
+mod uid;
 
 use std::any::Any;
 use std::fmt::{self, Debug, Formatter};
@@ -21,8 +23,9 @@ use std::slice::{self, Chunks, ChunksMut};
 
 use thiserror::Error;
 
-pub use crate::pixel;
-pub use prelude::*;
+pub use dimensions::*;
+pub use pixel::*;
+pub use uid::*;
 
 /// A buffer of data representing all of the [Pixel]s in a frame, along with the
 /// frame's dimensions, meant to be stored in a [Frame] object.
