@@ -277,8 +277,8 @@ pub enum OnStreamEndError {
     #[error("`Loop` is invalid for streams without a known length.")]
     LoopWithoutKnownLength,
     #[error(
-        "{} (expected {expected} but got {actual}).",
-        "The hold frame must have the same dimensions as the stream"
+        "The hold frame must have the same dimensions as the stream \
+        (expected {expected} but got {actual})."
     )]
     InvalidHoldFrameDimensions {
         expected: Dimensions,

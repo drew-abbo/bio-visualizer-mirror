@@ -25,10 +25,10 @@
 #[macro_export]
 macro_rules! pixel {
     ($s: literal) => {{
-        $crate::frame::Pixel::from_hex_str($s).expect(concat!(
-            "Invalid hex string format. Expected something like ",
-            "`pixel!(\"#RRGGBB\")` or `pixel!(\"#RRGGBBAA\")`."
-        ))
+        $crate::frame::Pixel::from_hex_str($s).expect(
+            "Invalid hex string format. Expected something like \
+            `pixel!(\"#RRGGBB\")` or `pixel!(\"#RRGGBBAA\")`.",
+        )
     }};
 }
 
