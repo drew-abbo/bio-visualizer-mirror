@@ -113,7 +113,7 @@ impl Frame {
     /// will panic.
     pub fn from_internal(buffer: Box<dyn FrameBuffer>) -> Self {
         // CONTRACT: The provided UID is unique because it's brand new.
-        Self::from_parts(buffer, Uid::new())
+        Self::from_parts(buffer, Uid::generate_new())
     }
 
     /// Creates a new frame with all pixels set to `fill_pixel`.

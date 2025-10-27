@@ -824,7 +824,7 @@ impl Uid {
     /// The first UID generated on a thread requires some synchronization (an
     /// atomic fetch-add). All subsequent UIDs will be able to be generated
     /// entirely thread-locally.
-    pub fn new() -> Self {
+    pub fn generate_new() -> Self {
         // `Uid`s hold a major ID (`major_id`) and a minor ID (`minor_id`).
         //
         // The major ID uniquely identifies the thread that the `Uid` came from

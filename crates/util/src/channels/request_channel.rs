@@ -596,7 +596,7 @@ mod tests {
             }
 
             for (request, i) in requests.into_iter().zip(1..=3) {
-                assert!((&request).is_ok());
+                assert!((request).is_ok());
                 let mut request = request.unwrap();
 
                 assert_eq!(request.wait(), Ok(-i));
