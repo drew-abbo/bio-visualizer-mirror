@@ -841,6 +841,13 @@ impl Uid {
         // then use a thread local cache to store its major ID (`MAJOR_ID`) and
         // a thread local counter for the minor ID (`NEXT_MINOR_ID`) so that it
         // never has to synchronize again.
+
+        thread_local! {
+            static MAJOR_ID: OnceCell<usize> = const { OnceCell::new() };
+            static NEXT_MINOR_ID: RefCell<usize> = const { RefCell::new(0) };
+        }
+        static NEXT_MAJOR_ID: AtomicUsize = const { AtomicUsize::new(0) };
+
         Uid {
             major_id: MAJOR_ID.with(|thread_id| {
                 *thread_id.get_or_init(|| NEXT_MAJOR_ID.fetch_add(1, Ordering::SeqCst))
@@ -854,15 +861,6 @@ impl Uid {
         }
     }
 }
-
-thread_local! {
-    /// See [Uid::new].
-    static MAJOR_ID: OnceCell<usize> = const { OnceCell::new() };
-    /// See [Uid::new].
-    static NEXT_MINOR_ID: RefCell<usize> = const { RefCell::new(0) };
-}
-/// See [Uid::new].
-static NEXT_MAJOR_ID: AtomicUsize = const { AtomicUsize::new(0) };
 
 const fn greatest_common_divisor(mut a: usize, mut b: usize) -> usize {
     while b != 0 {
