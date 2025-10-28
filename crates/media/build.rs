@@ -14,39 +14,29 @@ fn main() {
 
 fn windows() {
     // This is needed because we need to copy our FFmpeg DLLs from `./ffmpeg`
-    // into the directory where the executable will be generated so that it can
-    // link to them at runtime.
+    // into the target directory so executable can link to them at runtime.
 
-    // Rerun if `FFMPEG_DIR` changes.
     println!("cargo:rerun-if-env-changed=FFMPEG_DIR");
-
-    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-    let exe_dir = out_dir
-        .ancestors()
-        .find(|path| {
-            let dir_name = path.file_name().unwrap();
-            dir_name == "debug" || dir_name == "release"
-        })
-        .expect("Couldn't find exe directory.");
 
     let ffmpeg_dir = env::var("FFMPEG_DIR")
         .expect("`FFMPEG_DIR` environment variable unset. Please run `build_setup.py`.");
+
     let ffmpeg_bin_dir = Path::new(&ffmpeg_dir).join("bin");
 
-    let dlls = fs::read_dir(&ffmpeg_bin_dir)
-        .expect("FFmpeg directory missing. Please run `build_setup.py`.")
-        .map(|dir_entry| dir_entry.unwrap())
-        .filter(|dir_entry| {
-            dir_entry
-                .path()
-                .extension()
-                .map(|ext| ext.eq_ignore_ascii_case("dll"))
-                .unwrap_or(false)
-        })
-        .map(|dir_entry| dir_entry.file_name());
+    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let target_dir = out_dir.ancestors().nth(3).unwrap();
 
-    for dll in dlls {
-        let dest = Path::new(&exe_dir).join(&dll);
-        fs::copy(ffmpeg_bin_dir.join(&dll), &dest).unwrap();
+    for entry in fs::read_dir(&ffmpeg_bin_dir).unwrap() {
+        let entry_path = entry.unwrap().path();
+
+        if entry_path.extension().and_then(|s| s.to_str()) == Some("dll") {
+            let dll_file_name = entry_path.file_name().unwrap();
+
+            let dest = target_dir.join(dll_file_name);
+            fs::copy(&entry_path, &dest).unwrap();
+
+            let dest_deps = target_dir.join("deps").join(dll_file_name);
+            fs::copy(&entry_path, &dest_deps).unwrap();
+        }
     }
 }
