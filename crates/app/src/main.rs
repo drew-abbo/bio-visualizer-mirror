@@ -39,12 +39,12 @@ fn main() -> anyhow::Result<()> {
             }
 
             // Wrap the raw bytes into a frame object and send to the renderer
-            let frame = engine::video::RgbaFrame {
-                width: width,
-                height: height,
-                bpr: bytes_per_row,
-                data: std::sync::Arc::from(full_frame_bytes.into_boxed_slice()),
-                pts_ns: None,
+            let frame = engine::types::RgbaFrame {
+                pts: None,
+                width,
+                height,
+                stride: bytes_per_row,
+                pixels: std::sync::Arc::from(full_frame_bytes),
             };
 
             // Send to app — ignore send errors if receiver was closed

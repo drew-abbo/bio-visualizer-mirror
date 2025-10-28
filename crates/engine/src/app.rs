@@ -1,59 +1,49 @@
 use std::sync::Arc;
-
-use super::state::State;
-use super::video::RgbaFrame;
-use util::channels::message_channel::Inbox;
+use super::types::RgbaFrame;
 use winit::{
-    application::ApplicationHandler, event::*, event_loop::ActiveEventLoop, keyboard::PhysicalKey,
+    application::ApplicationHandler,
+    event::*,
+    event_loop::ActiveEventLoop,
+    keyboard::PhysicalKey,
     window::WindowAttributes,
 };
 
+use crate::state::State;
+
 pub struct App {
-    // Option because the window may not be created yet
     state: Option<State>,
-    // Incoming RGBA frames to display
-    receiver: Inbox<RgbaFrame>,
+    receiver: Option<util::channels::message_channel::Inbox<RgbaFrame>>,
 }
 
 impl App {
     pub fn new(receiver: util::channels::message_channel::Inbox<RgbaFrame>) -> Self {
         Self {
             state: None,
-            receiver,
-        }
-    }
-    fn pump_frames(&mut self) {
-        // Make sure we have a state to submit to
-        let Some(state) = self.state.as_mut() else {
-            return;
-        };
-
-        // Drain everything available right now
-        let mut last: Option<RgbaFrame> = None;
-        loop {
-            match self.receiver.check_non_blocking() {
-                Ok(Some(f)) => last = Some(f),
-                Ok(None) => break, // no more frames right now
-                Err(e) => {
-                    log::warn!("frame inbox error: {e:?}");
-                    break;
-                }
-            }
-        }
-        if let Some(f) = last.as_ref() {
-            state.submit_rgba_frame(f);
+            receiver: Some(receiver),
         }
     }
 }
 
 impl ApplicationHandler<()> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        // Only initialize once; guard against spurious resume events
+        if self.state.is_some() { return; }
+
         let window = Arc::new(
             event_loop
                 .create_window(WindowAttributes::default())
                 .expect("failed to create window"),
         );
-        self.state = Some(pollster::block_on(State::new(window)).expect("State::new failed"));
+
+        let inbox = self
+            .receiver
+            .take()
+            .expect("App::resumed called twice before State init (inbox already moved)");
+
+        self.state = Some(
+            State::new(inbox, window)
+                .expect("failed to initialize State"),
+        );
     }
 
     fn window_event(
@@ -64,32 +54,19 @@ impl ApplicationHandler<()> for App {
     ) {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
+
             WindowEvent::Resized(size) => {
-                let Some(state) = self.state.as_mut() else {
-                    return;
-                };
-                state.resize(size.width, size.height);
-            }
-            WindowEvent::RedrawRequested => {
-                // accept any frames produced since last tick
-                self.pump_frames();
-
-                let Some(state) = self.state.as_mut() else {
-                    return;
-                };
-
-                // Optional per-frame logic
-                state.update();
-
-                match state.render() {
-                    Ok(()) => {}
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                        let size = state.window.inner_size();
-                        state.resize(size.width, size.height);
-                    }
-                    Err(e) => log::error!("render error: {e}"),
+                if let Some(state) = self.state.as_mut() {
+                    state.on_resize(size.width, size.height);
                 }
             }
+
+            WindowEvent::RedrawRequested => {
+                if let Some(state) = self.state.as_mut() {
+                    state.frame(); // handles inbox drain + render
+                }
+            }
+
             WindowEvent::KeyboardInput {
                 event:
                     KeyEvent {
