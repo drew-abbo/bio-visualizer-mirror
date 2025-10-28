@@ -244,6 +244,71 @@ impl Frame {
         unsafe { cast_slice::cast_slice_mut(self.pixels_mut()) }
     }
 
+    /// Returns a copy of the underlying raw data buffer where the start of each
+    /// row is aligned to `ALIGNMENT` bytes and each row is padded to be a
+    /// multiple of `ALIGNMENT` bytes long. This can leave empty (zeroed out)
+    /// space on the end of each row. The newly formatted buffer, and the
+    /// *padded* row length (in bytes) is returned.
+    ///
+    /// `ALIGNMENT` must be non-zero and a power of 2.
+    pub fn raw_data_row_aligned<const ALIGNMENT: usize>(&self) -> (Box<[u8]>, usize) {
+        assert!(
+            ALIGNMENT != 0 && ALIGNMENT.is_power_of_two(),
+            "Alignment must be non-zero and a power of 2."
+        );
+
+        let old_row_len = self.dimensions().width() as usize * size_of::<Pixel>();
+        let new_row_len = old_row_len + ((old_row_len + ALIGNMENT) % ALIGNMENT);
+
+        // SAFETY: We allocate a slice of `[u8; ALIGNMENT]` (arrays of `u8`s
+        // with `ALIGNMENT` elements) to guarentee the allocated memory is
+        // aligned to `ALIGNMENT`. We then cast this to just be a `u8` slice.
+        // Either way, it's just a contiguous array of `u8`s.
+        let mut buffer: Box<[MaybeUninit<u8>]> = unsafe {
+            let aligned_chunks = Box::<[[u8; ALIGNMENT]]>::new_uninit_slice(
+                (new_row_len / ALIGNMENT) * self.dimensions().height() as usize,
+            );
+
+            debug_assert!((aligned_chunks.as_ptr() as usize).is_multiple_of(ALIGNMENT));
+
+            Box::from_raw(cast_slice::cast_slice_mut(&mut *Box::into_raw(
+                aligned_chunks,
+            )))
+        };
+
+        for (i, old_row) in self.raw_data_rows().enumerate() {
+            let new_row_start = new_row_len * i;
+            let new_row_end = new_row_start + old_row_len;
+
+            let new_row = &mut buffer[new_row_start..new_row_end];
+
+            // SAFETY: We're copying the entire old buffer into the new one. The
+            // memory won't overlap since we just allocated the new buffer. Both
+            // buffers exist for at least `old_row_len` bytes.
+            unsafe {
+                ptr::copy_nonoverlapping(
+                    old_row.as_ptr(),
+                    new_row.as_mut_ptr() as *mut u8,
+                    old_row_len,
+                );
+            }
+
+            let new_row_tail_start = new_row_end;
+            let new_row_tail_end = new_row_start + new_row_len;
+
+            // We need to make sure to initialze the padding that's after the
+            // copied row data (not doing this technically be UB).
+            let new_row_tail = &mut buffer[new_row_tail_start..new_row_tail_end];
+            new_row_tail.fill(MaybeUninit::new(0));
+        }
+
+        // SAFETY: We initialized the entire buffer. All memory has been either
+        // copied from the old buffer or zeroed out.
+        let buffer = unsafe { buffer.assume_init() };
+
+        (buffer, new_row_len)
+    }
+
     /// An iterator over rows of pixels in the frame.
     pub fn pixel_rows(&self) -> Chunks<'_, Pixel> {
         self.pixels().chunks(self.dimensions.width() as usize)
