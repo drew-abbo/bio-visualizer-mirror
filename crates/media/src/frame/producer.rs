@@ -18,8 +18,8 @@ use util::channels::message_channel::{self, Inbox, Outbox};
 use util::channels::{ChannelError, ChannelResult};
 
 use super::*;
-use streams::still_frame::StillFrame;
-use streams::{FrameStream, StreamError, StreamStats};
+use streams::StillFrame;
+use streams::{FrameStream, OnStreamEnd, OnStreamEndError, StreamError, StreamStats};
 
 /// The maximum amount of time a [Producer] will wait for a frame when
 /// [Producer::fetch_frame] is called.
@@ -205,47 +205,15 @@ impl Drop for Producer {
     /// A [Drop] implementation is needed to join the worker thread that caches
     /// frames.
     fn drop(&mut self) {
+        self.buffered_frames.take();
+        self.frame_fetched_signal.take();
+        self.recycled_frames.take();
+
         self.worker
             .take()
             .expect("The worker join handle should be present.")
             .join()
             .expect(THREAD_PANIC_MSG);
-    }
-}
-
-/// What a [Producer] should do when a [FrameStream] ends.
-///
-/// - [HoldLastFrame](OnStreamEnd::HoldLastFrame) and [Loop](OnStreamEnd::Loop)
-///   are invalid options for streams without a
-///   [length](StreamStats::stream_length).
-/// - The [Dimensions] of the [Frame] provided with
-///   [HoldFrame](OnStreamEnd::HoldLastFrame) must match the [Dimensions] of the
-///   [FrameStream].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum OnStreamEnd {
-    /// The last frame that was produced will be repeated forever. If the stream
-    /// produces no frames it will produce completely black frames.
-    HoldLastFrame,
-    /// The first frame that was produced will be repeated forever. If the
-    /// stream produces no frames it will produce completely black frames.
-    HoldFirstFrame,
-    /// Repeat some arbitrary frame forever.
-    HoldFrame(Frame),
-    /// The stream will produce completely black frames.
-    HoldSolidBlack,
-    /// The stream will loop from the beginning. If the stream produces no
-    /// frames it will produce completely black frames.
-    Loop,
-    /// Return a [ProducerError::UnexpectedStreamEnd] error.
-    Error,
-    /// Panic.
-    Unreachable,
-}
-
-/// The default is [HoldSolidBlack](OnStreamEnd::HoldSolidBlack).
-impl Default for OnStreamEnd {
-    fn default() -> Self {
-        Self::HoldSolidBlack
     }
 }
 
@@ -267,23 +235,6 @@ pub enum ProducerError {
     InvalidOnStreamEnd(#[from] OnStreamEndError),
     #[error("The producer is permanently stuck in an error state.")]
     PermanentErrorState,
-}
-
-/// Indicates that something was wrong with an [OnStreamEnd] configuration.
-#[derive(Error, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum OnStreamEndError {
-    #[error("`HoldLastFrame` is invalid for streams without a known length.")]
-    HoldLastFrameWithoutKnownLength,
-    #[error("`Loop` is invalid for streams without a known length.")]
-    LoopWithoutKnownLength,
-    #[error(
-        "The hold frame must have the same dimensions as the stream \
-        (expected {expected} but got {actual})."
-    )]
-    InvalidHoldFrameDimensions {
-        expected: Dimensions,
-        actual: Dimensions,
-    },
 }
 
 const THREAD_PANIC_MSG: &str = "The thread that holds the other end of a channel panicked.";

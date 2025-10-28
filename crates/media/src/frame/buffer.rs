@@ -23,6 +23,8 @@ use std::slice::{self, Chunks, ChunksMut};
 
 use thiserror::Error;
 
+use crate::cast_slice;
+
 pub use dimensions::*;
 pub use pixel::*;
 pub use uid::*;
@@ -232,14 +234,14 @@ impl Frame {
     pub const fn raw_data(&self) -> &[u8] {
         // SAFETY: We're just casting one slice type to another. This is fine
         // since both `Pixel` and `u8` are just plain old data.
-        unsafe { cast_slice(self.pixels()) }
+        unsafe { cast_slice::cast_slice(self.pixels()) }
     }
 
     /// A *mutable* reference to the raw data in the underlying buffer.
     pub const fn raw_data_mut(&mut self) -> &mut [u8] {
         // SAFETY: We're just casting one slice type to another. This is fine
         // since both `Pixel` and `u8` are just plain old data.
-        unsafe { cast_slice_mut(self.pixels_mut()) }
+        unsafe { cast_slice::cast_slice_mut(self.pixels_mut()) }
     }
 
     /// An iterator over rows of pixels in the frame.
@@ -656,7 +658,7 @@ impl Frame {
         //    slice.
         unsafe {
             Self::from_uninitialized_pixels(dimensions, |pixels| {
-                initializer(cast_slice_mut(pixels));
+                initializer(cast_slice::cast_slice_mut(pixels));
             })
         }
     }
@@ -904,40 +906,6 @@ impl FrameBuffer for BasicFrame {
 
     fn pixels_mut(&mut self) -> &mut [Pixel] {
         &mut self.pixels
-    }
-}
-
-/// Cast one kind of slice to another.
-///
-/// # Safety
-///
-/// It's on the caller to ensure this does not invoke undefined behavior.
-const unsafe fn cast_slice<Src, Dest>(slice: &[Src]) -> &[Dest] {
-    // SAFETY: We're casting one slice type to another, taking into account the
-    // fact that `Src` may not be be the same size as `Dest`. It's on the caller
-    // to ensure this cast is ok.
-    unsafe {
-        slice::from_raw_parts(
-            slice.as_ptr() as *const Dest,
-            size_of_val(slice) / size_of::<Dest>(),
-        )
-    }
-}
-
-/// Cast one kind of *mutable* slice to another.
-///
-/// # Safety
-///
-/// It's on the caller to ensure this does not invoke undefined behavior.
-const unsafe fn cast_slice_mut<Src, Dest>(slice: &mut [Src]) -> &mut [Dest] {
-    // SAFETY: We're casting one slice type to another, taking into account the
-    // fact that `Src` may not be be the same size as `Dest`. It's on the caller
-    // to ensure this cast is ok.
-    unsafe {
-        slice::from_raw_parts_mut(
-            slice.as_mut_ptr() as *mut Dest,
-            size_of_val(slice) / size_of::<Dest>(),
-        )
     }
 }
 

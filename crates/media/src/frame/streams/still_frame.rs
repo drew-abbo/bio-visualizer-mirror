@@ -1,7 +1,7 @@
 //! Defines [FrameStream], a simple [super::FrameStream] that just spits out the
 //! same [Frame] indefinitely.
 
-pub use super::{FrameStream, StreamError, StreamStats};
+use super::{FrameStream, StreamError, StreamStats};
 use crate::frame::Frame;
 
 /// A [FrameStream] that just outputs a single frame forever.

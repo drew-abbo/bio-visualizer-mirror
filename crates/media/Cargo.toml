@@ -4,5 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+ctor = "0.6.0"
+ffmpeg-next = "8.0.0"
 thiserror = "2"
 util = { path = "../util" }
