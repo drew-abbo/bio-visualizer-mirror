@@ -7,9 +7,7 @@ use winit::window::Window;
 // 3. present() → Display it on screen
 
 pub struct SurfaceMgr {
-    pub instance: wgpu::Instance,
     pub surface: wgpu::Surface<'static>,
-    pub adapter: wgpu::Adapter,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration,
@@ -67,9 +65,7 @@ impl SurfaceMgr {
         surface.configure(&device, &config);
 
         Ok(Self {
-            instance,
             surface,
-            adapter,
             device,
             queue,
             config,
@@ -101,7 +97,7 @@ impl SurfaceMgr {
     }
 
     pub fn size(&self) -> (u32, u32) { 
-        (self.config.width, self.config.height) 
+        (self.config.width, self.config.height)
     }
     
     pub fn device(&self) -> &wgpu::Device { &self.device }

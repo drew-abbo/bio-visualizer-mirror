@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use super::types::RgbaFrame;
+use media::frame;
 use winit::{
     application::ApplicationHandler,
     event::*,
@@ -8,18 +8,18 @@ use winit::{
     window::WindowAttributes,
 };
 
-use crate::state::State;
+use crate::{frame_librarian, state::State};
 
 pub struct App {
     state: Option<State>,
-    receiver: Option<util::channels::message_channel::Inbox<RgbaFrame>>,
+    producer: media::frame::Producer,
 }
 
 impl App {
-    pub fn new(receiver: util::channels::message_channel::Inbox<RgbaFrame>) -> Self {
+    pub fn new(producer: media::frame::Producer) -> Self {
         Self {
             state: None,
-            receiver: Some(receiver),
+            producer,
         }
     }
 }
@@ -35,10 +35,14 @@ impl ApplicationHandler<()> for App {
                 .expect("failed to create window"),
         );
 
-        let inbox = self
-            .receiver
-            .take()
-            .expect("App::resumed called twice before State init (inbox already moved)");
+        // let inbox = self
+        //     .receiver
+        //     .take()
+        //     .expect("App::resumed called twice before State init (inbox already moved)");
+
+        // create a frame librarian, this will handle things between the state and the prooducer.
+
+        let frame_librarian = frame_librarian::FrameLibrarian::new(self.producer);
 
         self.state = Some(
             State::new(inbox, window)

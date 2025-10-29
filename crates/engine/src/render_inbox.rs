@@ -12,27 +12,30 @@ impl RenderInbox {
     }
 
     pub fn drain(&mut self, store: &mut FrameStore, playback: &mut Playback) {
-        let mut last: Option<RgbaFrame> = None;
-
+        let mut count = 0;
+        
         loop {
             match self.inbox.check_non_blocking() {
                 Ok(Some(f)) => {
-                    last = Some(f);
+                    count += 1;
+                    
+                    // Push EVERY frame to the store (FrameStore handles overflow)
+                    store.push(Arc::new(RgbaFrame { 
+                        pixels: f.pixels, 
+                        ..f 
+                    }));
                 }
                 Ok(None) => break,
-                Err(_) => {
+                Err(e) => {
+                    log::warn!("inbox error: {e:?}");
                     break;
                 }
             }
         }
-
-        // If we received any frames, push only the last one to the store
-        if let Some(f) = last {
-            store.push(Arc::new(RgbaFrame {
-                pixels: f.pixels,
-                ..f
-            }));
-
+        
+        if count > 0 {
+            log::info!("Drained {} frames from inbox, store now has {} frames", 
+                      count, store.len());
             playback.on_new_frame(store);
         }
     }

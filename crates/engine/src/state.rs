@@ -1,14 +1,15 @@
 use crate::{
     frame_store::FrameStore,
     playback::Playback,
-    render_inbox::RenderInbox,
     renderer::{FrameRenderer, Renderer},
+    frame_librarian::FrameLibrarian,
 };
 use std::sync::Arc;
+use media::frame;
 use winit::window::Window;
 
 pub struct State {
-    render_inbox: RenderInbox,
+    frame_librarian: FrameLibrarian,
     store: FrameStore,
     playback: Playback,
     renderer: Renderer,
@@ -17,11 +18,11 @@ pub struct State {
 
 impl State {
     pub fn new(
-        inbox: util::channels::message_channel::Inbox<crate::types::RgbaFrame>,
+        frame_librarian: FrameLibrarian,
         window: std::sync::Arc<winit::window::Window>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
-            render_inbox: RenderInbox::new(inbox),
+            frame_librarian: frame_librarian,
             store: FrameStore::with_capacity(240), // ~4s @ 60fps
             playback: Playback::new(),
             renderer: Renderer::new(window.clone())?,
@@ -35,25 +36,30 @@ impl State {
 
     // Called every winit redraw.
     pub fn frame(&mut self) {
-        self.render_inbox.drain(&mut self.store, &mut self.playback);
-        self.playback.tick(&self.store);
 
-        if let Some(idx) = self.playback.current_index() {
-            if let Some(f) = self.store.get(idx) {
-                log::info!("Rendering frame {} - First pixel: [{}, {}, {}, {}]", 
-                          idx, f.pixels[0], f.pixels[1], f.pixels[2], f.pixels[3]);
-                self.renderer.render_rgba(&f);
-            } else {
-                log::warn!("Playback index {} not found in store", idx);
-            }
-        } else {
-            log::warn!("No current playback index");
-        }
+        let some_frame = self.frame_librarian.something();
+
         
-        // Request another frame if playing
-        if self.playback.is_playing() {
-            self.window.request_redraw();
-        }
+
+        // self.render_inbox.drain(&mut self.store, &mut self.playback);
+        // self.playback.tick(&self.store);
+
+        // if let Some(idx) = self.playback.current_index() {
+        //     if let Some(f) = self.store.get(idx) {
+        //         log::info!("Rendering frame {} - First pixel: [{}, {}, {}, {}]", 
+        //                   idx, f.pixels[0], f.pixels[1], f.pixels[2], f.pixels[3]);
+        //         self.renderer.render_rgba(&f);
+        //     } else {
+        //         log::warn!("Playback index {} not found in store", idx);
+        //     }
+        // } else {
+        //     log::warn!("No current playback index");
+        // }
+        
+        // // Request another frame if playing
+        // if self.playback.is_playing() {
+        //     self.window.request_redraw();
+        // }
     }
 
     // UI controls

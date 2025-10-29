@@ -6,6 +6,7 @@ pub struct FrameStore {
     cap: usize,
 }
 
+// in the future we will have to handle live streaming. So when we reach a capacity, we drop the oldest frames and store them if need be
 impl FrameStore {
     pub fn with_capacity(cap: usize) -> Self {
         Self {

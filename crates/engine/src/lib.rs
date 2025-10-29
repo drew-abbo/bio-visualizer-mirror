@@ -6,14 +6,15 @@ mod render_inbox;
 mod frame_store;
 mod playback;
 mod renderer;
+mod frame_librarian;
 pub mod types;
 pub use state::State;
 pub use app::App;
 
-pub fn run(receiver: util::channels::message_channel::Inbox<types::RgbaFrame>) -> anyhow::Result<()> {
+pub fn run(producer: media::frame::Producer) -> anyhow::Result<()> {
     // Not sure if this will affect the front end usage at all. Might need to be integrated there.
     let event_loop = EventLoop::new()?;
-    let mut app = crate::app::App::new(receiver);
+    let mut app = crate::app::App::new(producer);
     event_loop.run_app(&mut app)?;
     Ok(())
 }

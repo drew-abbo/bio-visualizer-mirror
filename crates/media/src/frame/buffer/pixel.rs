@@ -447,7 +447,10 @@ impl Pixel {
     ///
     /// Also see [Self::normalize_channel].
     pub const fn denormalize_channel(channel: f64) -> u8 {
-        (channel.clamp(0.0, 1.0) * 255.0).round() as u8
+        // Use adding 0.5 and truncating instead of `round()` because `round`
+        // is not yet a const fn; for non-negative values this reproduces
+        // standard rounding-to-nearest behavior.
+        (channel.clamp(0.0, 1.0) * 255.0 + 0.5) as u8
     }
 }
 
