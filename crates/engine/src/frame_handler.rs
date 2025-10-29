@@ -1,9 +1,9 @@
 
-pub struct FrameLibrarian {
+pub struct FrameHandler {
     producer: media::frame::Producer,
 }
 
-impl FrameLibrarian {
+impl FrameHandler {
     pub fn new(producer: media::frame::Producer) -> Self {
         Self { producer }
     }

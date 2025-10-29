@@ -2,7 +2,7 @@ use crate::{
     frame_store::FrameStore,
     playback::Playback,
     renderer::{FrameRenderer, Renderer},
-    frame_librarian::FrameLibrarian,
+    frame_handler::FrameLibrarian,
 };
 use std::sync::Arc;
 use media::frame;

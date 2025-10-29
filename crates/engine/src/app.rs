@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use media::frame;
 use winit::{
     application::ApplicationHandler,
     event::*,
@@ -8,7 +7,7 @@ use winit::{
     window::WindowAttributes,
 };
 
-use crate::{frame_librarian, state::State};
+use crate::{frame_handler, state::State};
 
 pub struct App {
     state: Option<State>,
@@ -42,7 +41,7 @@ impl ApplicationHandler<()> for App {
 
         // create a frame librarian, this will handle things between the state and the prooducer.
 
-        let frame_librarian = frame_librarian::FrameLibrarian::new(self.producer);
+        let frame_librarian = frame_handler::FrameLibrarian::new(self.producer);
 
         self.state = Some(
             State::new(inbox, window)

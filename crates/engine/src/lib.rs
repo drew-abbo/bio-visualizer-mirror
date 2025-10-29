@@ -2,11 +2,8 @@ use winit::event_loop::EventLoop;
 
 mod app;
 mod state;
-mod render_inbox;
-mod frame_store;
-mod playback;
 mod renderer;
-mod frame_librarian;
+mod frame_handler;
 pub mod types;
 pub use state::State;
 pub use app::App;
