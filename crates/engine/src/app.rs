@@ -39,12 +39,12 @@ impl ApplicationHandler<()> for App {
         //     .take()
         //     .expect("App::resumed called twice before State init (inbox already moved)");
 
-        // create a frame librarian, this will handle things between the state and the prooducer.
+        // create a frame handler, this will handle things between the state and the producer.
 
-        let frame_librarian = frame_handler::FrameLibrarian::new(self.producer);
+        let frame_handler = frame_handler::FrameHandler::new(self.producer);
 
         self.state = Some(
-            State::new(inbox, window)
+            State::new(frame_handler, window)
                 .expect("failed to initialize State"),
         );
     }
