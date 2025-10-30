@@ -8,8 +8,9 @@ pub use state::State;
 pub use app::App;
 
 pub fn run(producer: media::frame::Producer) -> anyhow::Result<()> {
-    // Not sure if this will affect the front end usage at all. Might need to be integrated there.
-    let event_loop = EventLoop::new()?;
+    // Build an event loop that’s ready for ApplicationHandler
+    let event_loop = winit::event_loop::EventLoop::with_user_event().build()?;
+
     let mut app = crate::app::App::new(producer);
     event_loop.run_app(&mut app)?;
     Ok(())

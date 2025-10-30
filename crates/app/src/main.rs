@@ -68,12 +68,17 @@ use std::time::{Duration, Instant};
 //     engine::run(frame_receiver)
 // }
 
+use std::path::PathBuf;
 fn main() {
-    let video = media::frame::streams::Video::new("./rick.mp4").unwrap();
-    let producer = media::frame::Producer::new(
-        video, 
-        media::frame::streams::OnStreamEnd::HoldLastFrame
-    ).unwrap();
-    
-    _ = engine::run(producer).unwrap();
+    let mut path = std::env::current_dir().unwrap();
+    path.push("crates/app/src/rick.mp4");
+    println!("Full path: {}", path.display());
+    let video = media::frame::streams::Video::new(&path).expect("open video");
+    let producer =
+        media::frame::Producer::new(video, media::frame::streams::OnStreamEnd::HoldLastFrame)
+            .expect("create producer");
+
+    if let Err(e) = engine::run(producer) {
+        eprintln!("engine failed: {e:?}");
+    }
 }

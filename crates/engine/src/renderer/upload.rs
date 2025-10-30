@@ -46,17 +46,19 @@ impl UploadStager {
         self.view = Some(view);
     }
 
-    // Takes a REFERENCE to frame (we don't own it, just borrowing to upload)
     pub fn blit_rgba(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         width: u32,
         height: u32,
-        stride: u32,
         data: &[u8],
     ) -> &wgpu::TextureView {
         self.ensure_texture(device, width, height);
+
+        // Calculate aligned bytes per row (same as before)
+        const BYTES_PER_PIXEL: u32 = 4; // RGBA
+        let bytes_per_row = ((width * BYTES_PER_PIXEL + 255) / 256) * 256;
 
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -68,7 +70,7 @@ impl UploadStager {
             data,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(stride), // Use the frame's stride!
+                bytes_per_row: Some(bytes_per_row),
                 rows_per_image: Some(height),
             },
             self.extent,

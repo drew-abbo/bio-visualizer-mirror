@@ -4,7 +4,7 @@ pub mod upload;
 
 pub trait FrameRenderer {
     fn resize(&mut self, width: u32, height: u32);
-    fn render_frame(&mut self, frame: media::frame::Frame); // uploads + draws + presents
+    fn render_frame(&mut self, frame: &media::frame::Frame); // uploads + draws + presents
 }
 
 pub struct Renderer {
@@ -30,10 +30,18 @@ impl FrameRenderer for Renderer {
         self.surface.configure(w, h);
     }
 
-    fn render_frame(&mut self, frame: media::frame::Frame) {
-        let texture_view =
-            self.upload
-                .upload_frame_data(self.surface.device(), self.surface.queue(), frame);
+    fn render_frame(&mut self, frame: &media::frame::Frame) {
+        let dimensions = frame.dimensions();
+        let buffer = frame.raw_data();
+        
+        // Pass individual components, not the whole frame
+        let texture_view = self.upload.blit_rgba(
+            self.surface.device(),
+            self.surface.queue(),
+            dimensions.width(),
+            dimensions.height(),
+            buffer, // This is &[u8]
+        );
 
         let (surface_texture, surface_view) = match self.surface.acquire() {
             Ok(frame) => frame,
