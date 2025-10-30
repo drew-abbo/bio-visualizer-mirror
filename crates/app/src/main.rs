@@ -70,9 +70,10 @@ use std::time::{Duration, Instant};
 
 fn main() {
     let video = media::frame::streams::Video::new("./rick.mp4").unwrap();
-
-    //get the video and create a producer
-    let producer = media::frame::Producer::new(video, media::frame::streams::OnStreamEnd::HoldLastFrame).unwrap();
-
+    let producer = media::frame::Producer::new(
+        video, 
+        media::frame::streams::OnStreamEnd::HoldLastFrame
+    ).unwrap();
     
+    _ = engine::run(producer).unwrap();
 }

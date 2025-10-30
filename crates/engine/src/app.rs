@@ -1,24 +1,21 @@
 use std::sync::Arc;
 use winit::{
-    application::ApplicationHandler,
-    event::*,
-    event_loop::ActiveEventLoop,
-    keyboard::PhysicalKey,
+    application::ApplicationHandler, event::*, event_loop::ActiveEventLoop, keyboard::PhysicalKey,
     window::WindowAttributes,
 };
 
-use crate::{frame_handler, state::State};
+use crate::state::State;
 
 pub struct App {
     state: Option<State>,
-    producer: media::frame::Producer,
+    producer: Option<media::frame::Producer>,
 }
 
 impl App {
     pub fn new(producer: media::frame::Producer) -> Self {
         Self {
             state: None,
-            producer,
+            producer: Some(producer),
         }
     }
 }
@@ -26,7 +23,9 @@ impl App {
 impl ApplicationHandler<()> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         // Only initialize once; guard against spurious resume events
-        if self.state.is_some() { return; }
+        if self.state.is_some() {
+            return;
+        }
 
         let window = Arc::new(
             event_loop
@@ -34,19 +33,12 @@ impl ApplicationHandler<()> for App {
                 .expect("failed to create window"),
         );
 
-        // let inbox = self
-        //     .receiver
-        //     .take()
-        //     .expect("App::resumed called twice before State init (inbox already moved)");
+        let producer = self
+            .producer
+            .take()
+            .expect("App::resumed called twice before State init");
 
-        // create a frame handler, this will handle things between the state and the producer.
-
-        let frame_handler = frame_handler::FrameHandler::new(self.producer);
-
-        self.state = Some(
-            State::new(frame_handler, window)
-                .expect("failed to initialize State"),
-        );
+        self.state = Some(State::new(producer, window).expect("failed to initialize State"));
     }
 
     fn window_event(

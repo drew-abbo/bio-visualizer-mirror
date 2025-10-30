@@ -3,7 +3,6 @@ use winit::event_loop::EventLoop;
 mod app;
 mod state;
 mod renderer;
-mod frame_handler;
 pub mod types;
 pub use state::State;
 pub use app::App;
