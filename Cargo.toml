@@ -1,6 +1,3 @@
 [workspace]
-members = [
-  "crates/app",
-  "crates/util",
-]
+members = ["crates/app", "crates/util", "crates/media"]
 resolver = "2"

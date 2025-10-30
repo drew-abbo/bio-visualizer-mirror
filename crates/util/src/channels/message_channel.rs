@@ -3,7 +3,7 @@
 //! with a single thread producing data and another single thread reading it.
 
 use std::collections::VecDeque;
-use std::sync::{Arc, Condvar, Mutex, TryLockError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, TryLockError};
 use std::time::{Duration, Instant};
 
 use super::{ChannelError, ChannelResult, THREAD_PANIC_MSG};
@@ -20,16 +20,200 @@ pub struct Inbox<T> {
 impl<T> Inbox<T> {
     /// Waits for a message from the outbox until one appears.
     ///
-    /// For a version with a maximum wait time, see [Self::wait_timeout]. If you
-    /// just want to check without waiting, see [Self::check].
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait_timeout]
+    /// - [Self::check]
+    /// - [Self::check_non_blocking]
+    /// - [Self::wait_all]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_all]
+    /// - [Self::check_non_blocking_all]
+    pub fn wait(&self) -> ChannelResult<T> {
+        self.wait_for_queue(Self::queue_pop)
+    }
+
+    /// Waits for a message from the outbox for up to `timeout` time.
+    ///
+    /// After `timeout` time, a [ChannelError::Timeout] error is returned. Note
+    /// that this function's execution may take slightly longer than `timeout`
+    /// time.
     ///
     /// A [ChannelError::ConnectionDropped] error is returned if the other end
     /// of the connection was dropped and there are no more items in the queue.
-    pub fn wait(&self) -> ChannelResult<T> {
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::check]
+    /// - [Self::check_non_blocking]
+    /// - [Self::wait_all]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_all]
+    /// - [Self::check_non_blocking_all]
+    pub fn wait_timeout(&self, timeout: Duration) -> ChannelResult<T> {
+        self.wait_for_queue_timeout(timeout, Self::queue_pop)
+    }
+
+    /// Receives a message from the outbox if a message is waiting, returning
+    /// [None] otherwise. This function may still block slightly.
+    ///
+    /// This function will block if the outbox is currently sending a new
+    /// message.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::wait_timeout]
+    /// - [Self::check_non_blocking]
+    /// - [Self::wait_all]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_all]
+    /// - [Self::check_non_blocking_all]
+    pub fn check(&self) -> ChannelResult<Option<T>> {
+        self.check_for_queue(Self::queue_pop)
+    }
+
+    /// Receives a message from the outbox if the queue is not locked and a
+    /// message is waiting. [None] is returned otherwise. This function will not
+    /// block.
+    ///
+    /// Note that [None] being returned *does not* always mean there are no
+    /// messages in the inbox. If the outbox is currently adding an item, [None]
+    /// will still be returned (even if there are items in the queue).
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::wait_timeout]
+    /// - [Self::check]
+    /// - [Self::wait_all]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_all]
+    /// - [Self::check_non_blocking_all]
+    pub fn check_non_blocking(&self) -> ChannelResult<Option<T>> {
+        self.check_for_queue_non_blocking(Self::queue_pop)
+    }
+
+    /// Waits for a message from the outbox until one appears, returning all
+    /// messages if multiple have built up.
+    ///
+    /// The returned [VecDeque] is guaranteed to have at least 1 element.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::wait_timeout]
+    /// - [Self::check]
+    /// - [Self::check_non_blocking]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_all]
+    /// - [Self::check_non_blocking_all]
+    pub fn wait_all(&self) -> ChannelResult<VecDeque<T>> {
+        self.wait_for_queue(Self::queue_pop_all)
+    }
+
+    /// Waits for a message from the outbox for up to `timeout` time, returning
+    /// all messages if multiple have built up.
+    ///
+    /// After `timeout` time, a [ChannelError::Timeout] error is returned. Note
+    /// that this function's execution may take slightly longer than `timeout`
+    /// time.
+    ///
+    /// The returned [VecDeque] is guaranteed to have at least 1 element.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::wait_timeout]
+    /// - [Self::check]
+    /// - [Self::check_non_blocking]
+    /// - [Self::wait_all]
+    /// - [Self::check_all]
+    /// - [Self::check_non_blocking_all]
+    pub fn wait_timeout_all(&self, timeout: Duration) -> ChannelResult<VecDeque<T>> {
+        self.wait_for_queue_timeout(timeout, Self::queue_pop_all)
+    }
+
+    /// Receives all messages from the outbox if at least one message is
+    /// waiting, returning [None] otherwise. This function may still block
+    /// slightly.
+    ///
+    /// This function will block if the outbox is currently sending a new
+    /// message.
+    ///
+    /// The returned [VecDeque] is guaranteed to have at least 1 element.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::wait_timeout]
+    /// - [Self::check]
+    /// - [Self::check_non_blocking]
+    /// - [Self::wait_all]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_non_blocking_all]
+    pub fn check_all(&self) -> ChannelResult<Option<VecDeque<T>>> {
+        self.check_for_queue(Self::queue_pop_all)
+    }
+
+    /// Receives all messages from the outbox if the queue is not locked and at
+    /// least one message is waiting. [None] is returned otherwise. This
+    /// function will not block.
+    ///
+    /// Note that [None] being returned *does not* always mean there are no
+    /// messages in the inbox. If the outbox is currently adding an item, [None]
+    /// will still be returned (even if there are items in the queue).
+    ///
+    /// The returned [VecDeque] is guaranteed to have at least 1 element.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::wait_timeout]
+    /// - [Self::check]
+    /// - [Self::check_non_blocking]
+    /// - [Self::wait_all]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_all]
+    pub fn check_non_blocking_all(&self) -> ChannelResult<Option<VecDeque<T>>> {
+        self.check_for_queue_non_blocking(Self::queue_pop_all)
+    }
+
+    /// Whether the other party still has their end of the connection alive, the
+    /// inverse of [Self::connection_closed].
+    pub fn connection_open(&self) -> bool {
+        super::connection_not_dropped(&self.channel)
+    }
+
+    /// Whether the other party has dropped their end of the connection, the
+    /// inverse of [Self::connection_open].
+    pub fn connection_closed(&self) -> bool {
+        !self.connection_open()
+    }
+
+    /// Wait for the queue to have at least 1 item in it, then return the queue.
+    fn wait_for_queue<F, R>(&self, f: F) -> ChannelResult<R>
+    where
+        F: FnOnce(MutexGuard<'_, VecDeque<T>>) -> R,
+    {
         let mut queue = self.channel.queue.lock().expect(THREAD_PANIC_MSG);
 
-        if let Some(msg) = queue.pop_front() {
-            return Ok(msg);
+        if !queue.is_empty() {
+            return Ok(f(queue));
         }
 
         // If there are no messages we need to make sure the other end hasn't
@@ -39,8 +223,8 @@ impl<T> Inbox<T> {
         loop {
             queue = self.channel.notifier.wait(queue).expect(THREAD_PANIC_MSG);
 
-            if let Some(msg) = queue.pop_front() {
-                return Ok(msg);
+            if !queue.is_empty() {
+                return Ok(f(queue));
             }
 
             // No messages after waking up means one of two things:
@@ -50,22 +234,16 @@ impl<T> Inbox<T> {
         }
     }
 
-    /// Waits for a message from the outbox for up to `timeout` time.
-    ///
-    /// After `timeout` time, a [ChannelError::Timeout] error is returned. Note
-    /// that this function's execution may take slightly longer than `timeout`
-    /// time.
-    ///
-    /// For a version without a maximum waiting time, see [Self::wait]. If you
-    /// just want to check without waiting, see [Self::check].
-    ///
-    /// A [ChannelError::ConnectionDropped] error is returned if the other end
-    /// of the connection was dropped and there are no more items in the queue.
-    pub fn wait_timeout(&self, timeout: Duration) -> ChannelResult<T> {
+    /// Wait for the queue to have at least 1 item in it for up to `duration`,
+    /// then return the queue.
+    fn wait_for_queue_timeout<F, R>(&self, timeout: Duration, f: F) -> ChannelResult<R>
+    where
+        F: FnOnce(MutexGuard<'_, VecDeque<T>>) -> R,
+    {
         let mut queue = self.channel.queue.lock().expect(THREAD_PANIC_MSG);
 
-        if let Some(msg) = queue.pop_front() {
-            return Ok(msg);
+        if !queue.is_empty() {
+            return Ok(f(queue));
         }
 
         // If there are no messages we need to make sure the other end hasn't
@@ -84,12 +262,12 @@ impl<T> Inbox<T> {
                 .expect(THREAD_PANIC_MSG);
             queue = returned_queue;
 
-            match queue.pop_front() {
-                Some(msg) => return Ok(msg),
-                None if wait_result.timed_out() => {
-                    return Err(ChannelError::Timeout { timeout });
-                }
-                None => {}
+            if !queue.is_empty() {
+                return Ok(f(queue));
+            }
+
+            if wait_result.timed_out() {
+                return Err(ChannelError::Timeout { timeout });
             }
 
             // No messages after waking up means one of two things:
@@ -99,52 +277,35 @@ impl<T> Inbox<T> {
         }
     }
 
-    /// Receives a message from the outbox if a message is waiting, returning
-    /// [None] otherwise. This function may still block slightly.
-    ///
-    /// This function will block if the outbox is currently sending a new
-    /// message. For a function that will never block at all, see
-    /// [Self::check_non_blocking]. If you want to wait for a message to appear,
-    /// see [Self::wait] or [Self::wait_timeout].
-    ///
-    /// A [ChannelError::ConnectionDropped] error is returned if the other end
-    /// of the connection was dropped and there are no more items in the queue.
-    pub fn check(&self) -> ChannelResult<Option<T>> {
-        let potential_msg = self
-            .channel
-            .queue
-            .lock()
-            .expect(THREAD_PANIC_MSG)
-            .pop_front();
-        match potential_msg {
-            Some(msg) => Ok(Some(msg)),
-            None => {
-                // If there are no messages we need to make sure the other end
-                // hasn't hung up.
-                super::ensure_connection_not_dropped(&self.channel)?;
+    /// See if the queue has at least 1 item in it. If it does, return the
+    /// queue.
+    fn check_for_queue<F, R>(&self, f: F) -> ChannelResult<Option<R>>
+    where
+        F: FnOnce(MutexGuard<'_, VecDeque<T>>) -> R,
+    {
+        let queue = self.channel.queue.lock().expect(THREAD_PANIC_MSG);
 
-                Ok(None)
-            }
+        if !queue.is_empty() {
+            return Ok(Some(f(queue)));
         }
+
+        // If there are no messages we need to make sure the other end hasn't
+        // hung up.
+        super::ensure_connection_not_dropped(&self.channel)?;
+
+        Ok(None)
     }
 
-    /// Receives a message from the outbox if the queue is not locked and a
-    /// message is waiting. [None] is returned otherwise. This function will not
-    /// block.
-    ///
-    /// Note that [None] being returned *does not* always mean there are no
-    /// messages in the inbox. If the outbox is currently adding an item, [None]
-    /// will still be returned (even if there are items in the queue). If you
-    /// don't want this behavior, see [Self::check]. If you want to wait for a
-    /// message to appear, see [Self::wait] or [Self::wait_timeout].
-    ///
-    /// A [ChannelError::ConnectionDropped] error is returned if the other end
-    /// of the connection was dropped and there are no more items in the queue.
-    pub fn check_non_blocking(&self) -> ChannelResult<Option<T>> {
+    /// See if the queue's mutx is unlocked and the queue has at least 1 item in
+    /// it. If it does, return the queue.
+    fn check_for_queue_non_blocking<F, R>(&self, f: F) -> ChannelResult<Option<R>>
+    where
+        F: FnOnce(MutexGuard<'_, VecDeque<T>>) -> R,
+    {
         match self.channel.queue.try_lock() {
-            Ok(mut queue) => {
-                if let Some(msg) = queue.pop_front() {
-                    Ok(Some(msg))
+            Ok(queue) => {
+                if !queue.is_empty() {
+                    Ok(Some(f(queue)))
                 } else {
                     // If there are no messages we need to make sure the other
                     // end hasn't hung up.
@@ -160,16 +321,12 @@ impl<T> Inbox<T> {
         }
     }
 
-    /// Whether the other party still has their end of the connection alive, the
-    /// inverse of [Self::connection_closed].
-    pub fn connection_open(&self) -> bool {
-        super::connection_not_dropped(&self.channel)
+    fn queue_pop(mut queue: MutexGuard<'_, VecDeque<T>>) -> T {
+        queue.pop_front().expect("The queue should be non-empty.")
     }
 
-    /// Whether the other party has dropped their end of the connection, the
-    /// inverse of [Self::connection_open].
-    pub fn connection_closed(&self) -> bool {
-        !self.connection_open()
+    fn queue_pop_all(mut queue: MutexGuard<'_, VecDeque<T>>) -> VecDeque<T> {
+        queue.split_off(0)
     }
 }
 
