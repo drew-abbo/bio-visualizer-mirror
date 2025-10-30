@@ -4,19 +4,25 @@ struct VsOut {
 };
 
 @vertex
-fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> VsOut {
-  // Fullscreen triangle
-  var pos = array<vec2<f32>, 3>(
-    vec2<f32>(-1.0, -3.0),
-    vec2<f32>(-1.0,  1.0),
-    vec2<f32>( 3.0,  1.0),
-  );
-  let p = pos[vi];
-  var out: VsOut;
-  out.pos = vec4<f32>(p, 0.0, 1.0);
-  // Map NDC [-1,1] to UV [0,1]
-  out.uv = 0.5 * (p + vec2<f32>(1.0, 1.0));
-  return out;
+fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VsOut {
+    var out: VsOut;
+    
+    // Generate a fullscreen triangle
+    // Vertex 0: (-1, -1) bottom-left
+    // Vertex 1: ( 3, -1) bottom-right (off-screen)
+    // Vertex 2: (-1,  3) top-left (off-screen)
+    let x = f32(i32(vertex_index & 1u) * 4 - 1);
+    let y = f32(i32(vertex_index & 2u) * 2 - 1);
+    
+    out.pos = vec4<f32>(x, y, 0.0, 1.0);
+    
+    // UV coordinates (flipped Y for upside-down fix)
+    out.uv = vec2<f32>(
+        (x + 1.0) * 0.5,
+        1.0 - (y + 1.0) * 0.5
+    );
+    
+    return out;
 }
 
 @group(0) @binding(0) var tex0: texture_2d<f32>;
@@ -24,6 +30,5 @@ fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @fragment
 fn fs_blit(in: VsOut) -> @location(0) vec4<f32> {
-  // For UNORM source texture; if your source is SRGB, adjust formats accordingly.
   return textureSampleLevel(tex0, samp, in.uv, 0.0);
 }

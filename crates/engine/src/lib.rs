@@ -1,5 +1,3 @@
-use winit::event_loop::EventLoop;
-
 mod app;
 mod state;
 mod renderer;

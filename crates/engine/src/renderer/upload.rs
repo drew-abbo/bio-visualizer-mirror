@@ -1,5 +1,3 @@
-use media::frame::Frame;
-
 pub struct UploadStager {
     tex: Option<wgpu::Texture>,
     view: Option<wgpu::TextureView>,

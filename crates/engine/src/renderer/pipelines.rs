@@ -1,7 +1,6 @@
 pub struct Pipelines {
     pub sampler: wgpu::Sampler,
     pub bgl: wgpu::BindGroupLayout,
-    pub pipeline_layout: wgpu::PipelineLayout,
     pub pipeline: wgpu::RenderPipeline,
 }
 
@@ -64,7 +63,7 @@ impl Pipelines {
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: Some("vs_fullscreen"),
+                entry_point: Some("vs_main"),
                 buffers: &[],
                 compilation_options: Default::default(),
             },
@@ -88,7 +87,6 @@ impl Pipelines {
         Ok(Self {
             sampler,
             bgl,
-            pipeline_layout,
             pipeline,
         })
     }
