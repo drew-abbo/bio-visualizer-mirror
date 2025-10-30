@@ -1,7 +1,6 @@
 mod app;
 mod state;
 mod renderer;
-pub mod types;
 pub use state::State;
 pub use app::App;
 
