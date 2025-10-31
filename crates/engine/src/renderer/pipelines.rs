@@ -1,7 +1,12 @@
+use crate::renderer;
+use wgpu::util::DeviceExt;
+use crate::renderer::ParamsUbo;
+
 pub struct Pipelines {
     pub sampler: wgpu::Sampler,
     pub bgl: wgpu::BindGroupLayout,
     pub pipeline: wgpu::RenderPipeline,
+    pub params_buf: wgpu::Buffer,
 }
 
 impl Pipelines {
@@ -21,22 +26,35 @@ impl Pipelines {
 
         // Declares "I need a texture and a sampler" (like declaring function parameters)
         let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("bgl/texture+sampler"),
+            label: Some("bgl/video+params"),
             entries: &[
+                // binding 0: sampler  (Filtering if you use textureSample)
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                // binding 1: texture_2d<f32>  (filterable: true if you use textureSample)
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
                         multisampled: false,
                         view_dimension: wgpu::TextureViewDimension::D2,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
                     },
                     count: None,
                 },
+                // binding 2: uniform buffer
                 wgpu::BindGroupLayoutEntry {
-                    binding: 1,
+                    binding: 2,
                     visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
                     count: None,
                 },
             ],
@@ -53,7 +71,7 @@ impl Pipelines {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("shader/frame-blit"),
             source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
-                "shader.wgsl"
+                "shaders/test.wgsl"
             ))),
         });
 
@@ -69,7 +87,7 @@ impl Pipelines {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: Some("fs_blit"),
+                entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_format,
                     blend: Some(wgpu::BlendState::REPLACE),
@@ -84,10 +102,34 @@ impl Pipelines {
             cache: None,
         });
 
+        let params = renderer::ParamsUbo {
+            exposure: 0.25, contrast: 1.1, saturation: 0.9, vignette: 0.2, time: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs_f32(),
+            _pad0: 0.0,
+            surface_h: 5.0,
+            surface_w: 20.0,
+        };
+
+        let bytes = unsafe {
+            std::slice::from_raw_parts(
+                (&params as *const ParamsUbo) as *const u8,
+                std::mem::size_of::<ParamsUbo>(),
+            )
+        };
+
+        let params_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("ubo/params"),
+            contents: bytes,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
         Ok(Self {
             sampler,
             bgl,
             pipeline,
+            params_buf
         })
     }
 
@@ -101,13 +143,20 @@ impl Pipelines {
             label: Some("bg/frame"),
             layout: &self.bgl,
             entries: &[
+                // binding 0: sampler
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(tex_view),
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
                 },
+                // binding 1: texture
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    resource: wgpu::BindingResource::TextureView(tex_view),
+                },
+                // binding 2: params UBO
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: self.params_buf.as_entire_binding(),
                 },
             ],
         })
