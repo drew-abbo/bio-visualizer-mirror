@@ -1,6 +1,6 @@
 fn main() {
     let mut path = std::env::current_dir().unwrap();
-    path.push("app\\src\\rick.mp4");
+    path.push("crates\\app\\src\\rick.mp4");
     println!("Opening video at path: {:?}", path);
     let video = media::frame::streams::Video::new(path).expect("open video");
     let producer =

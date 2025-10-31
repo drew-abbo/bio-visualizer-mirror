@@ -40,7 +40,7 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
 }
 
 // helpers
-fn apply_exposure(c: vec3<f32>, exp: f32) -> vec3<f32> { return c * pow(2.0, exp); }
+fn apply_exposure(c: vec3<f32>, exp: f32) -> vec3<f32> { return c * pow(3.0, exp); }
 fn apply_contrast(c: vec3<f32>, k: f32) -> vec3<f32> { let m = vec3<f32>(0.5); return (c - m)*k + m; }
 fn apply_saturation(c: vec3<f32>, s: f32) -> vec3<f32> {
   let luma = dot(c, vec3<f32>(0.299, 0.587, 0.114));

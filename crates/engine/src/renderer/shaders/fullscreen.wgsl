@@ -1,3 +1,14 @@
+struct Params {
+  exposure:  f32,
+  contrast:  f32,
+  saturation:f32,
+  vignette:  f32,
+  time:      f32,
+  surface_w: f32,   // window/swapchain width (pixels)
+  surface_h: f32,   // window/swapchain height (pixels)
+  _pad0:     f32,
+};
+
 struct VsOut {
   @builtin(position) pos: vec4<f32>,
   @location(0) uv: vec2<f32>,
@@ -25,10 +36,11 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VsOut {
     return out;
 }
 
-@group(0) @binding(0) var tex0: texture_2d<f32>;
-@group(0) @binding(1) var samp: sampler;
+@group(0) @binding(0) var samp: sampler;
+@group(0) @binding(1) var vid_tex: texture_2d<f32>;
+@group(0) @binding(2) var<uniform> params: Params;
 
 @fragment
 fn fs_blit(in: VsOut) -> @location(0) vec4<f32> {
-  return textureSampleLevel(tex0, samp, in.uv, 0.0);
+  return textureSampleLevel(vid_tex, samp, in.uv, 0.0);
 }
