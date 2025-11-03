@@ -15,7 +15,7 @@ struct VsOut {
 };
 
 @vertex
-fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VsOut {
+fn main_vs(@builtin(vertex_index) vertex_index: u32) -> VsOut {
     var out: VsOut;
     
     // Generate a fullscreen triangle
@@ -41,6 +41,6 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VsOut {
 @group(0) @binding(2) var<uniform> params: Params;
 
 @fragment
-fn fs_blit(in: VsOut) -> @location(0) vec4<f32> {
+fn main_fs(in: VsOut) -> @location(0) vec4<f32> {
   return textureSampleLevel(vid_tex, samp, in.uv, 0.0);
 }

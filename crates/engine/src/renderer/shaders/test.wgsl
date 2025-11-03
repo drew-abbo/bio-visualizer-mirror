@@ -19,7 +19,7 @@ struct VsOut {
 };
 
 @vertex
-fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
+fn main_vs(@builtin(vertex_index) vid: u32) -> VsOut {
   // Fullscreen triangle (covers whole NDC)
   let V = array<vec4<f32>, 3>(
     vec4<f32>(-1.0, -1.0, 0.0, 1.0),
@@ -54,7 +54,7 @@ fn apply_vignette(c: vec3<f32>, uv01: vec2<f32>, strength: f32) -> vec3<f32> {
 }
 
 @fragment
-fn fs_main(@location(0) uv_in: vec2<f32>) -> @location(0) vec4<f32> {
+fn main_fs(@location(0) uv_in: vec2<f32>) -> @location(0) vec4<f32> {
   // Remap 0..2 -> 0..1 and flip vertically
   var uv01 = uv_in * 0.5;
   uv01.y = 1.0 - uv01.y;
