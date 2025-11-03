@@ -1,6 +1,6 @@
 use crate::renderer;
-use wgpu::util::DeviceExt;
 use crate::renderer::ParamsUbo;
+use wgpu::util::DeviceExt;
 
 pub struct Pipelines {
     pub sampler: wgpu::Sampler,
@@ -103,7 +103,11 @@ impl Pipelines {
         });
 
         let params = renderer::ParamsUbo {
-            exposure: 0.25, contrast: 1.1, saturation: 0.9, vignette: 0.2, time: std::time::SystemTime::now()
+            exposure: 0.25,
+            contrast: 1.1,
+            saturation: 0.9,
+            vignette: 0.2,
+            time: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs_f32(),
@@ -129,7 +133,7 @@ impl Pipelines {
             sampler,
             bgl,
             pipeline,
-            params_buf
+            params_buf,
         })
     }
 
@@ -160,5 +164,15 @@ impl Pipelines {
                 },
             ],
         })
+    }
+
+    pub fn update_params(&self, queue: &wgpu::Queue, params: &ParamsUbo) {
+        let bytes = unsafe {
+            std::slice::from_raw_parts(
+                (params as *const ParamsUbo) as *const u8,
+                std::mem::size_of::<ParamsUbo>(),
+            )
+        };
+        queue.write_buffer(&self.params_buf, 0, bytes);
     }
 }

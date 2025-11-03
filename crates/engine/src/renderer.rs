@@ -17,12 +17,18 @@ pub struct ParamsUbo {
 pub trait FrameRenderer {
     fn resize(&mut self, width: u32, height: u32);
     fn render_frame(&mut self, frame: &media::frame::Frame); // uploads + draws + presents
+    fn params_mut(&mut self) -> &mut ParamsUbo;
+    fn set_exposure(&mut self, value: f32);
+    fn set_contrast(&mut self, value: f32);
+    fn set_saturation(&mut self, value: f32);
+    fn set_vignette(&mut self, value: f32);
 }
 
 pub struct Renderer {
     surface: surface::SurfaceMgr, // Represents the window and the GPU connection
     upload: upload::UploadStager, // (CPU → GPU Transfer) Manages staging buffers for texture uploads. Handles the annoying alignment requirements wgpu has
     pipes: pipelines::Pipelines, // Contains the shader that draws on the surface texture. Tells GPU how to read pixels
+    params: ParamsUbo,           // current rendering parameters
 }
 
 impl Renderer {
@@ -33,6 +39,16 @@ impl Renderer {
             surface,
             upload: upload::UploadStager::new(),
             pipes,
+            params: ParamsUbo {
+                exposure: 1.0,
+                contrast: 1.0,
+                saturation: 1.0,
+                vignette: 0.5,
+                time: 0.0,
+                surface_w: 0.0,
+                surface_h: 0.0,
+                _pad0: 0.0,
+            },
         })
     }
 }
@@ -47,6 +63,18 @@ impl FrameRenderer for Renderer {
         let buffer = frame.raw_data();
 
         // Pass individual components, not the whole frame
+
+        let t = std::time::SystemTime::now();
+        self.params.time = t
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f32();
+        self.params.surface_w = self.surface.width() as f32;
+        self.params.surface_h = self.surface.height() as f32;
+
+        self.set_contrast(t.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f32().sin() * 0.5 + 2.0); // Example of dynamic parameter change
+        self.pipes.update_params(self.surface.queue(), &self.params);
+
         let texture_view = self.upload.blit_rgba(
             self.surface.device(),
             self.surface.queue(),
@@ -106,5 +134,25 @@ impl FrameRenderer for Renderer {
 
         // Present the frame to the screen
         self.surface.present(surface_texture);
+    }
+    
+    fn set_exposure(&mut self, value: f32) {
+        self.params.exposure = value;
+    }
+
+    fn set_contrast(&mut self, value: f32) {
+        self.params.contrast = value;
+    }
+
+    fn set_saturation(&mut self, value: f32) {
+        self.params.saturation = value;
+    }
+
+    fn set_vignette(&mut self, value: f32) {
+        self.params.vignette = value;
+    }
+
+    fn params_mut(&mut self) -> &mut ParamsUbo {
+        &mut self.params
     }
 }

@@ -103,4 +103,6 @@ impl SurfaceMgr {
     pub fn device(&self) -> &wgpu::Device { &self.device }
     pub fn queue(&self) -> &wgpu::Queue { &self.queue }
     pub fn format(&self) -> wgpu::TextureFormat { self.format }
+    pub fn width(&self) -> u32 { self.config.width }
+    pub fn height(&self) -> u32 { self.config.height }
 }
