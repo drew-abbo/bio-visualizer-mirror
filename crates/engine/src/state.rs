@@ -1,4 +1,3 @@
-// state.rs
 use crate::{
     renderer::{FrameRenderer, Renderer},
 };
@@ -28,8 +27,6 @@ impl State {
         let fps = producer.stats().fps;
         let target_frame_duration = Duration::from_secs_f64(1.0 / fps);
         
-        println!("Video FPS: {}, Frame duration: {:?}", fps, target_frame_duration);
-        
         Ok(Self {
             producer,
             current_frame: None,
@@ -55,6 +52,7 @@ impl State {
         }
 
         // Check if enough time has passed for the next frame
+        // this is just a simple approach, more advanced timing could be done soon (still testing)
         let now = Instant::now();
         if let Some(last_time) = self.last_frame_time {
             let elapsed = now - last_time;
@@ -65,7 +63,7 @@ impl State {
             }
         }
 
-        // Time to fetch and render the next frame
+        // Time to fetch and render the next frame (just testing fps control)
         self.fetch_and_render_frame();
         self.last_frame_time = Some(now);
     }

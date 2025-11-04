@@ -44,7 +44,9 @@ impl SurfaceMgr {
 
         // Choose a surface format we can render to
         let caps = surface.get_capabilities(&adapter);
-        let format = caps.formats.iter()
+        let format = caps
+            .formats
+            .iter()
             .copied()
             .find(|f| f.is_srgb())
             .unwrap_or(caps.formats[0]);
@@ -79,16 +81,22 @@ impl SurfaceMgr {
     }
 
     pub fn configure(&mut self, width: u32, height: u32) {
-        if width == 0 || height == 0 { return; }
+        if width == 0 || height == 0 {
+            return;
+        }
         self.config.width = width;
         self.config.height = height;
         self.surface.configure(&self.device, &self.config);
     }
 
     pub fn acquire(&self) -> anyhow::Result<(wgpu::SurfaceTexture, wgpu::TextureView)> {
-        let frame = self.surface.get_current_texture()
+        let frame = self
+            .surface
+            .get_current_texture()
             .map_err(|e| anyhow::anyhow!("swapchain acquire failed: {e:?}"))?;
-        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
         Ok((frame, view))
     }
 
@@ -96,13 +104,23 @@ impl SurfaceMgr {
         frame.present();
     }
 
-    pub fn size(&self) -> (u32, u32) { 
+    pub fn size(&self) -> (u32, u32) {
         (self.config.width, self.config.height)
     }
-    
-    pub fn device(&self) -> &wgpu::Device { &self.device }
-    pub fn queue(&self) -> &wgpu::Queue { &self.queue }
-    pub fn format(&self) -> wgpu::TextureFormat { self.format }
-    pub fn width(&self) -> u32 { self.config.width }
-    pub fn height(&self) -> u32 { self.config.height }
+
+    pub fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
+    pub fn queue(&self) -> &wgpu::Queue {
+        &self.queue
+    }
+    pub fn format(&self) -> wgpu::TextureFormat {
+        self.format
+    }
+    pub fn width(&self) -> u32 {
+        self.config.width
+    }
+    pub fn height(&self) -> u32 {
+        self.config.height
+    }
 }
