@@ -2,3 +2,4 @@
 //! parts of the project.
 
 pub mod channels;
+pub mod local_data;
