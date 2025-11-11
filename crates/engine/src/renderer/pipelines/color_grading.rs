@@ -1,5 +1,5 @@
 use crate::renderer::ParamsUbo;
-use super::common_pipeline::{self, Pipeline};
+use super::common::{self, Pipeline};
 
 pub struct ColorGradingPipeline {
     sampler: wgpu::Sampler,
@@ -10,8 +10,8 @@ pub struct ColorGradingPipeline {
 
 impl Pipeline for ColorGradingPipeline {
     fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> anyhow::Result<Self> {
-        let sampler = common_pipeline::create_nearest_sampler(device);
-        let bgl = common_pipeline::create_standard_bind_group_layout(device, "bgl/color_grading");
+        let sampler = common::create_nearest_sampler(device);
+        let bgl = common::create_standard_bind_group_layout(device, "bgl/color_grading");
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("layout/color_grading"),
@@ -52,7 +52,7 @@ impl Pipeline for ColorGradingPipeline {
             cache: None,
         });
 
-        let params_buf = common_pipeline::create_default_params_buffer(device, "ubo/color_grading_params");
+        let params_buf = common::create_default_params_buffer(device, "ubo/color_grading_params");
 
         Ok(Self {
             sampler,

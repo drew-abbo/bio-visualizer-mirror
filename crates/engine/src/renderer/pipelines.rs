@@ -1,6 +1,6 @@
 pub mod color_grading;
-pub mod common_pipeline;
-use common_pipeline::Pipeline;
+pub mod common;
+use common::Pipeline;
 
 pub struct Pipelines {
     pub color_grading: color_grading::ColorGradingPipeline,
