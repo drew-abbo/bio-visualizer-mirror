@@ -1,4 +1,4 @@
-use crate::application::BioVisualizerMainWindow;
+use crate::main_window::BioVisualizerMainWindow;
 
 pub fn start_ui() -> Result<(), eframe::Error> {
     let native_options = eframe::NativeOptions {

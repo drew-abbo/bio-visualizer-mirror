@@ -24,5 +24,5 @@
 // }
 
 fn main() {
-    ui::app::start_ui().unwrap();
+    ui::launcher::start_ui().unwrap();
 }
