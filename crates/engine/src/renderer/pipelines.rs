@@ -1,9 +1,9 @@
-pub mod color_grading;
+pub mod fullscreen;
 pub mod common;
 use common::Pipeline;
 
 pub struct Pipelines {
-    pub color_grading: color_grading::ColorGradingPipeline,
+    pub fullscreen: fullscreen::FullScreenPipeline,
     // Future pipelines:
     // pub blur: blur::BlurPipeline,
     // pub chromatic_aberration: ChromaticAberrationPipeline,
@@ -12,7 +12,7 @@ pub struct Pipelines {
 impl Pipelines {
     pub fn new(device: &wgpu::Device, surface_format: wgpu::TextureFormat) -> anyhow::Result<Self> {
         Ok(Self {
-            color_grading: color_grading::ColorGradingPipeline::new(device, surface_format)?,
+            fullscreen: fullscreen::FullScreenPipeline::new(device, surface_format)?,
         })
     }
 }

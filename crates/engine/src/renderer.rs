@@ -75,7 +75,7 @@ impl FrameRenderer for Renderer {
             buffer,
         );
 
-        let bind_group = self.pipes.color_grading.bind_group_for(device, texture_view);
+        let bind_group = self.pipes.fullscreen.bind_group_for(device, texture_view);
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("render_encoder"),
@@ -98,7 +98,7 @@ impl FrameRenderer for Renderer {
                 occlusion_query_set: None,
             });
 
-            rpass.set_pipeline(&self.pipes.color_grading.pipeline());
+            rpass.set_pipeline(&self.pipes.fullscreen.pipeline());
             rpass.set_bind_group(0, &bind_group, &[]);
             rpass.draw(0..3, 0..1);
         }

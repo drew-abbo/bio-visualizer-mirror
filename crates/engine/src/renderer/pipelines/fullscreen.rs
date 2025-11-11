@@ -1,33 +1,33 @@
 use crate::renderer::ParamsUbo;
 use super::common::{self, Pipeline};
 
-pub struct ColorGradingPipeline {
+pub struct FullScreenPipeline {
     sampler: wgpu::Sampler,
     bgl: wgpu::BindGroupLayout,
     pipeline: wgpu::RenderPipeline,
     params_buf: wgpu::Buffer,
 }
 
-impl Pipeline for ColorGradingPipeline {
+impl Pipeline for FullScreenPipeline {
     fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> anyhow::Result<Self> {
         let sampler = common::create_nearest_sampler(device);
-        let bgl = common::create_standard_bind_group_layout(device, "bgl/color_grading");
+        let bgl = common::create_standard_bind_group_layout(device, "bgl/fullscreen");
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("layout/color_grading"),
+            label: Some("layout/fullscreen"),
             bind_group_layouts: &[&bgl],
             push_constant_ranges: &[],
         });
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("shader/color_grading"),
+            label: Some("shader/fullscreen"),
             source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
-                "../shaders/color_grading.wgsl"
+                "../shaders/fullscreen.wgsl"
             ))),
         });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("pipeline/color_grading"),
+            label: Some("pipeline/fullscreen"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
@@ -52,7 +52,7 @@ impl Pipeline for ColorGradingPipeline {
             cache: None,
         });
 
-        let params_buf = common::create_default_params_buffer(device, "ubo/color_grading_params");
+        let params_buf = common::create_default_params_buffer(device, "ubo/fullscreen_params");
 
         Ok(Self {
             sampler,
@@ -79,7 +79,7 @@ impl Pipeline for ColorGradingPipeline {
     }
 }
 
-impl ColorGradingPipeline {
+impl FullScreenPipeline {
     pub fn update_params(&self, queue: &wgpu::Queue, params: &ParamsUbo) {
         <Self as Pipeline>::update_params(self, queue, params)
     }

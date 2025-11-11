@@ -4,8 +4,8 @@ struct Params {
   saturation:f32,
   vignette:  f32,
   time:      f32,
-  surface_w: f32,   // window/swapchain width (pixels)
-  surface_h: f32,   // window/swapchain height (pixels)
+  surface_w: f32,
+  surface_h: f32,
   _pad0:     f32,
 };
 
@@ -19,9 +19,6 @@ fn main_vs(@builtin(vertex_index) vertex_index: u32) -> VsOut {
     var out: VsOut;
     
     // Generate a fullscreen triangle
-    // Vertex 0: (-1, -1) bottom-left
-    // Vertex 1: ( 3, -1) bottom-right (off-screen)
-    // Vertex 2: (-1,  3) top-left (off-screen)
     let x = f32(i32(vertex_index & 1u) * 4 - 1);
     let y = f32(i32(vertex_index & 2u) * 2 - 1);
     
@@ -48,7 +45,7 @@ fn main_fs(in: VsOut) -> @location(0) vec4<f32> {
   // Apply exposure
   color = vec4<f32>(color.rgb * params.exposure, color.a);
   
-  // Apply contrast - create new vec3, then assign to whole color
+  // Apply contrast
   let contrasted = (color.rgb - 0.5) * params.contrast + 0.5;
   color = vec4<f32>(contrasted, color.a);
   
