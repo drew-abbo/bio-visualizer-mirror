@@ -3,6 +3,7 @@ use crate::errors::PipelineError;
 use crate::types::ColorGradingParams;
 use std::any::Any;
 
+#[derive(Debug)]
 pub struct ColorGradingPipeline {
     sampler: wgpu::Sampler,
     bgl: wgpu::BindGroupLayout,

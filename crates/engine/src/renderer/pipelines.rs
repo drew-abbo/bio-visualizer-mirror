@@ -7,7 +7,7 @@ use common::Pipeline;
 pub struct Pipelines {
     pub color_grading: color_grading::ColorGradingPipeline,
 }
-
+    
 impl Pipelines {
     pub fn new(
         device: &wgpu::Device,
