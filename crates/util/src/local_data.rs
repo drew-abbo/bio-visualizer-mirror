@@ -5,8 +5,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
+use crate::version;
+
 /// The name of the folder that will store app data.
-pub const ROOT_DIR_NAME: &str = "Bio Visualizer";
+pub const ROOT_DIR_NAME: &str = version::APP_NAME;
 
 /// The name of the folder that will store app data.
 pub const PROJECTS_DIR_NAME: &str = "Projects";

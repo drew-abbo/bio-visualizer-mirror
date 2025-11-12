@@ -3,5 +3,6 @@
 
 pub mod channels;
 pub mod local_data;
+pub mod version;
 
 mod eprint_and_exit;
