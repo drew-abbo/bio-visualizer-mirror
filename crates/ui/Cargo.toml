@@ -15,7 +15,6 @@ eframe = { version = "0.33.0", default-features = false, features = [
     "wgpu",
 ] }
 engine = { version = "0.1.0", path = "../engine" }
-wgpu = "27.0.0"
 egui-wgpu = "0.33.0"
 media = { version = "0.1.0", path = "../media" }
 rfd = "0.15.4"

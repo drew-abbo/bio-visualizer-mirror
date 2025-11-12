@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use winit::window::Window;
+use crate::errors::SurfaceError;
 
 // The Rendering Flow
 // 1. acquire() → Get a blank canvas (SurfaceTexture)
@@ -15,7 +16,7 @@ pub struct SurfaceMgr {
 }
 
 impl SurfaceMgr {
-    pub async fn new_async(window: Arc<Window>) -> anyhow::Result<Self> {
+    pub async fn new_async(window: Arc<Window>) -> Result<Self, SurfaceError> {
         // The instance is a handle to our GPU
         // BackendBit::PRIMARY => Vulkan + Metal + DX12 + Browser WebGPU
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
@@ -75,7 +76,7 @@ impl SurfaceMgr {
         })
     }
 
-    pub fn new(window: Arc<Window>) -> anyhow::Result<Self> {
+    pub fn new(window: Arc<Window>) -> Result<Self, SurfaceError> {
         // Non-async helper for native via pollster
         Ok(pollster::block_on(Self::new_async(window))?)
     }
@@ -89,11 +90,11 @@ impl SurfaceMgr {
         self.surface.configure(&self.device, &self.config);
     }
 
-    pub fn acquire(&self) -> anyhow::Result<(wgpu::SurfaceTexture, wgpu::TextureView)> {
+    pub fn acquire(&self) -> Result<(wgpu::SurfaceTexture, wgpu::TextureView), SurfaceError> {
         let frame = self
             .surface
             .get_current_texture()
-            .map_err(|e| anyhow::anyhow!("swapchain acquire failed: {e:?}"))?;
+            .map_err(|e| SurfaceError::AcquireFailed(format!("swapchain acquire failed: {e:?}")))?;
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());

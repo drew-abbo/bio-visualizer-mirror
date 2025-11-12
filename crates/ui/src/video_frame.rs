@@ -33,7 +33,7 @@ impl VideoFrame {
     pub fn set_wgpu_texture(
         &mut self,
         render_state: &egui_wgpu::RenderState,
-        texture_view: &wgpu::TextureView,
+        texture_view: &eframe::wgpu::TextureView,
         size: [usize; 2],
     ) {
         // Remove old texture if exists
@@ -45,7 +45,7 @@ impl VideoFrame {
         let texture_id = render_state.renderer.write().register_native_texture(
             &render_state.device,
             texture_view,
-            wgpu::FilterMode::Linear,
+            eframe::wgpu::FilterMode::Linear,
         );
         
         self.texture_id = Some(texture_id);

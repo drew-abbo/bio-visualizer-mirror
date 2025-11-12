@@ -1,6 +1,6 @@
+use super::common::{self, Pipeline};
 use crate::errors::PipelineError;
 use crate::types::ColorGradingParams;
-use super::common::{self, Pipeline};
 use std::any::Any;
 
 pub struct ColorGradingPipeline {
@@ -11,7 +11,7 @@ pub struct ColorGradingPipeline {
 }
 
 impl Pipeline for ColorGradingPipeline {
-    fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> anyhow::Result<Self>
+    fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Result<Self, PipelineError>
     where
         Self: Sized,
     {
@@ -120,19 +120,8 @@ impl Pipeline for ColorGradingPipeline {
 pub fn create_default_params_buffer(device: &wgpu::Device, label: &str) -> wgpu::Buffer {
     use wgpu::util::DeviceExt;
 
-    // Make sure ColorGradingParams implements bytemuck::Pod + Zeroable
-    let params = ColorGradingParams {
-        exposure: 1.0,
-        contrast: 1.0,
-        saturation: 1.0,
-        vignette: 0.5,
-        time: 0.0,
-        surface_w: 0.0,
-        surface_h: 0.0,
-        _pad0: 0.0,
-    };
+    let params = ColorGradingParams::default();
 
-    // safer: bytemuck::bytes_of
     let bytes = bytemuck::bytes_of(&params);
 
     device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

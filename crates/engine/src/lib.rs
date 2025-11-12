@@ -1,6 +1,6 @@
 mod player;
 pub mod renderer;
-mod types;
+pub mod types;
 pub use player::VideoPlayer;
 pub use renderer::Renderer;
 pub mod errors;

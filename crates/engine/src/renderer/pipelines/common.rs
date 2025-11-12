@@ -2,7 +2,7 @@ use crate::errors::PipelineError;
 use std::any::Any;
 
 pub trait Pipeline {
-    fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> anyhow::Result<Self>
+    fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Result<Self, PipelineError>
     where
         Self: Sized;
 

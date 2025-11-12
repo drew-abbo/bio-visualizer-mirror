@@ -47,17 +47,14 @@ impl VideoPlayer {
         self.current_time
     }
 
-    /// Get the video FPS
     pub fn fps(&self) -> f64 {
         self.fps
     }
 
-    /// Get video stats
     pub fn stats(&self) -> media::frame::streams::StreamStats {
         self.producer.stats()
     }
 
-    /// Start playing
     pub fn play(&mut self) {
         if !self.playing {
             self.playing = true;
@@ -65,13 +62,11 @@ impl VideoPlayer {
         }
     }
 
-    /// Pause playback
     pub fn pause(&mut self) {
         self.playing = false;
         self.last_update = None;
     }
 
-    /// Toggle play/pause
     pub fn toggle_play_pause(&mut self) {
         if self.playing {
             self.pause();
@@ -80,13 +75,11 @@ impl VideoPlayer {
         }
     }
 
-    /// Step forward one frame
     pub fn step_forward(&mut self) {
         self.pause();
         self.fetch_next_frame();
     }
 
-    /// Step backward one frame (if supported by producer)
     pub fn step_backward(&mut self) {
         self.pause();
         // TODO: Implement if producer supports seeking backwards
@@ -99,7 +92,7 @@ impl VideoPlayer {
         self.fetch_next_frame();
     }
 
-    /// Update the player - call this every frame from your event loop
+    /// Update the player - call this every frame from event loop
     /// Returns true if a new frame was fetched
     pub fn update(&mut self) -> bool {
         if !self.playing {
