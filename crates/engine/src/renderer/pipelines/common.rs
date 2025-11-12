@@ -2,7 +2,10 @@ use crate::errors::PipelineError;
 use std::any::Any;
 
 pub trait Pipeline {
-    fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Result<Self, PipelineError>
+    fn new(
+        device: &wgpu::Device,
+        target_format: wgpu::TextureFormat,
+    ) -> Result<Self, PipelineError>
     where
         Self: Sized;
 
@@ -10,10 +13,10 @@ pub trait Pipeline {
     fn bind_group_layout(&self) -> &wgpu::BindGroupLayout;
     fn sampler(&self) -> &wgpu::Sampler;
     fn params_buffer(&self) -> &wgpu::Buffer;
-    
+
     /// Get the name of this pipeline for error messages
     fn name(&self) -> &str;
-    
+
     /// Get the expected parameter type name for error messages
     fn expected_param_type(&self) -> &str;
 
@@ -21,7 +24,11 @@ pub trait Pipeline {
     /// Pipelines should downcast the params to their expected type
     fn update_params(&self, queue: &wgpu::Queue, params: &dyn Any) -> Result<(), PipelineError>;
 
-    fn bind_group_for(&self, device: &wgpu::Device, tex_view: &wgpu::TextureView) -> wgpu::BindGroup {
+    fn bind_group_for(
+        &self,
+        device: &wgpu::Device,
+        tex_view: &wgpu::TextureView,
+    ) -> wgpu::BindGroup {
         self.create_standard_bind_group(device, tex_view, None)
     }
 
@@ -62,7 +69,7 @@ pub trait Pipeline {
     ) -> Result<(), PipelineError> {
         // Update parameters
         self.update_params(queue, params)?;
-        
+
         // Create bind group
         let bind_group = self.bind_group_for(device, input);
 
@@ -86,7 +93,7 @@ pub trait Pipeline {
         rpass.set_pipeline(self.pipeline());
         rpass.set_bind_group(0, &bind_group, &[]);
         rpass.draw(0..3, 0..1);
-        
+
         Ok(())
     }
 }

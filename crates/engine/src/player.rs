@@ -4,11 +4,11 @@ use std::time::{Duration, Instant};
 pub struct VideoPlayer {
     producer: frame::Producer,
     current_frame: Option<frame::Frame>,
-    
+
     // Playback state
     playing: bool,
     current_time: Duration,
-    
+
     // Timing
     fps: f64,
     frame_duration: Duration,
@@ -20,7 +20,7 @@ impl VideoPlayer {
     pub fn new(producer: frame::Producer) -> Self {
         let fps = producer.stats().fps;
         let frame_duration = Duration::from_secs_f64(1.0 / fps);
-        
+
         Self {
             producer,
             current_frame: None,
@@ -100,7 +100,8 @@ impl VideoPlayer {
         }
 
         let now = Instant::now();
-        let elapsed = self.last_update
+        let elapsed = self
+            .last_update
             .map(|last| now - last)
             .unwrap_or(Duration::ZERO);
 

@@ -3,6 +3,12 @@ pub struct UploadStager {
     extent: wgpu::Extent3d,
 }
 
+impl Default for UploadStager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl UploadStager {
     pub fn new() -> Self {
         Self {
@@ -69,7 +75,10 @@ impl UploadStager {
             self.extent,
         );
 
-        // Create view on-demand (cheap operation)
-        self.tex.as_ref().unwrap().create_view(&wgpu::TextureViewDescriptor::default())
+        // Create view on-demand
+        self.tex
+            .as_ref()
+            .unwrap()
+            .create_view(&wgpu::TextureViewDescriptor::default())
     }
 }

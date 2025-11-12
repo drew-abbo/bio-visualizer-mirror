@@ -1,29 +1,21 @@
 use crate::video_frame::{VideoFrame, View};
 use engine::VideoPlayer;
 use engine::renderer::pipelines::color_grading::ColorGradingPipeline;
-use engine::types::ColorGradingParams;
-use engine::renderer::{FrameRenderer, Renderer};
 use engine::renderer::pipelines::common::Pipeline;
+use engine::renderer::{FrameRenderer, Renderer};
+use engine::types::ColorGradingParams;
 
+#[derive(Default)]
 pub struct BioVisualizerMainWindow {
     output_frame: VideoFrame,
     player: Option<VideoPlayer>,
     renderer: Option<Renderer>,
 }
 
-impl Default for BioVisualizerMainWindow {
-    fn default() -> Self {
-        Self {
-            output_frame: VideoFrame::default(),
-            player: None,
-            renderer: None,
-        }
-    }
-}
-
 impl BioVisualizerMainWindow {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let wgpu_render_state = cc.wgpu_render_state.as_ref().unwrap();
+
         let mut renderer = match Renderer::new(wgpu_render_state.target_format) {
             Ok(r) => Some(r),
             Err(e) => {
@@ -32,13 +24,13 @@ impl BioVisualizerMainWindow {
             }
         };
 
+        // Add a color grading effect
         if let Some(ref mut r) = renderer {
             match ColorGradingPipeline::new(
                 &wgpu_render_state.device,
                 wgpu_render_state.target_format,
             ) {
                 Ok(pipeline) => {
-                    // Create default params for this effect
                     let params = ColorGradingParams {
                         exposure: 1.0,
                         contrast: 1.2,
@@ -49,7 +41,7 @@ impl BioVisualizerMainWindow {
                         surface_h: 0.0,
                         _pad0: 0.0,
                     };
-                    r.add_effect(pipeline, Box::new(params));
+                    r.add_effect(pipeline, params);
                 }
                 Err(e) => eprintln!("Failed to create color grading pipeline: {}", e),
             }
@@ -135,26 +127,52 @@ impl eframe::App for BioVisualizerMainWindow {
         });
 
         // Effect parameters panel
-        egui::SidePanel::right("effects_panel").show(ctx, |ui| {
-            ui.heading("Effect Parameters");
-            
-            if let Some(renderer) = &mut self.renderer {
-                for i in 0..renderer.effect_count() {
-                    ui.separator();
-                    ui.label(format!("Effect {}", i + 1));
-                    
-                    // Try to get ColorGradingParams
-                    if let Some(effect) = renderer.get_effect(i) {
-                        if let Some(params) = effect.get_params_mut::<ColorGradingParams>() {
-                            ui.add(egui::Slider::new(&mut params.exposure, 0.0..=2.0).text("Exposure"));
-                            ui.add(egui::Slider::new(&mut params.contrast, 0.0..=2.0).text("Contrast"));
-                            ui.add(egui::Slider::new(&mut params.saturation, 0.0..=2.0).text("Saturation"));
-                            ui.add(egui::Slider::new(&mut params.vignette, 0.0..=1.0).text("Vignette"));
-                        }
+        egui::SidePanel::right("effects_panel")
+            .default_width(250.0)
+            .show(ctx, |ui| {
+                ui.heading("Effect Parameters");
+                ui.separator();
+
+                if let Some(renderer) = &mut self.renderer {
+                    for i in 0..renderer.effect_count() {
+                        ui.group(|ui| {
+                            ui.label(format!("Effect {}", i + 1));
+
+                            if let Some(effect) = renderer.get_effect_mut(i) {
+                                // Try to get ColorGradingParams
+                                if let Some(params) = effect.get_params_mut::<ColorGradingParams>()
+                                {
+                                    ui.add(
+                                        egui::Slider::new(&mut params.exposure, 0.0..=2.0)
+                                            .text("Exposure"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(&mut params.contrast, 0.0..=2.0)
+                                            .text("Contrast"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(&mut params.saturation, 0.0..=2.0)
+                                            .text("Saturation"),
+                                    );
+                                    ui.add(
+                                        egui::Slider::new(&mut params.vignette, 0.0..=1.0)
+                                            .text("Vignette"),
+                                    );
+                                }
+                                // Add more param types here as you create them:
+                                // else if let Some(params) = effect.get_params_mut::<BlurParams>() {
+                                //     ui.add(egui::Slider::new(&mut params.radius, 0.0..=20.0).text("Radius"));
+                                // }
+                            }
+                        });
+                        ui.add_space(8.0);
+                    }
+
+                    if renderer.effect_count() == 0 {
+                        ui.label("No effects active");
                     }
                 }
-            }
-        });
+            });
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Bio Visualizer");
@@ -206,7 +224,7 @@ impl eframe::App for BioVisualizerMainWindow {
         });
 
         // Request continuous repaints for smooth playback
-        if self.player.as_ref().map_or(false, |p| p.is_playing()) {
+        if self.player.as_ref().is_some_and(|p| p.is_playing()) {
             ctx.request_repaint();
         }
     }

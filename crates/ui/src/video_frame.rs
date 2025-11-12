@@ -47,7 +47,7 @@ impl VideoFrame {
             texture_view,
             eframe::wgpu::FilterMode::Linear,
         );
-        
+
         self.texture_id = Some(texture_id);
         self.texture_size = size;
     }

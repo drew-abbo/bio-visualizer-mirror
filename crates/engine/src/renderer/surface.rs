@@ -1,12 +1,13 @@
+use crate::errors::SurfaceError;
 use std::sync::Arc;
 use winit::window::Window;
-use crate::errors::SurfaceError;
 
 // The Rendering Flow
 // 1. acquire() → Get a blank canvas (SurfaceTexture)
 // 2. [Draw stuff to it using pipelines]
 // 3. present() → Display it on screen
 
+#[derive(Debug)]
 pub struct SurfaceMgr {
     pub surface: wgpu::Surface<'static>,
     pub device: wgpu::Device,
@@ -78,7 +79,7 @@ impl SurfaceMgr {
 
     pub fn new(window: Arc<Window>) -> Result<Self, SurfaceError> {
         // Non-async helper for native via pollster
-        Ok(pollster::block_on(Self::new_async(window))?)
+        pollster::block_on(Self::new_async(window))
     }
 
     pub fn configure(&mut self, width: u32, height: u32) {

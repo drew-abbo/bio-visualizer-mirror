@@ -1,13 +1,11 @@
 pub mod color_grading;
 pub mod common;
-use common::Pipeline;
 use crate::errors::PipelineError;
+use common::Pipeline;
 
+#[derive(Debug)]
 pub struct Pipelines {
     pub color_grading: color_grading::ColorGradingPipeline,
-    // Future pipelines:
-    // pub blur: blur::BlurPipeline,
-    // pub chromatic_aberration: ChromaticAberrationPipeline,
 }
 
 impl Pipelines {

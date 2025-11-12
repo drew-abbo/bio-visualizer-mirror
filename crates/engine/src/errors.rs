@@ -8,10 +8,10 @@ pub enum PipelineError {
         expected: String,
         actual: String,
     },
-    
+
     #[error("Parameter buffer size mismatch: expected {expected} bytes, got {actual} bytes")]
     BufferSizeMismatch { expected: usize, actual: usize },
-    
+
     #[error("Pipeline creation failed: {0}")]
     CreationFailed(String),
 }
@@ -38,7 +38,7 @@ pub enum SurfaceError {
 pub enum RendererError {
     #[error("Pipeline error: {0}")]
     Pipeline(#[from] PipelineError),
-    
+
     #[error("Surface error: {0}")]
     Surface(#[from] SurfaceError),
 }

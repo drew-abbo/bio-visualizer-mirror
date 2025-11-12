@@ -2,6 +2,7 @@ use pipelines::common::Pipeline;
 pub mod pipelines;
 pub mod surface;
 pub mod upload;
+use crate::effect::Effect;
 use crate::errors::RendererError;
 
 pub trait FrameRenderer {
@@ -11,38 +12,6 @@ pub trait FrameRenderer {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> wgpu::TextureView;
-}
-
-pub struct Effect {
-    pipeline: Box<dyn Pipeline>,
-    params: Box<dyn std::any::Any + Send + Sync>,
-}
-
-impl Effect {
-    pub fn new<P: Pipeline + 'static, T: 'static + Send + Sync>(
-        pipeline: P,
-        params: T,
-    ) -> Self {
-        Self {
-            pipeline: Box::new(pipeline),
-            params: Box::new(params),
-        }
-    }
-    
-    /// Update parameters for this effect
-    pub fn set_params<T: 'static + Send + Sync>(&mut self, params: T) {
-        self.params = Box::new(params);
-    }
-    
-    /// Try to get params as a specific type
-    pub fn get_params<T: 'static>(&self) -> Option<&T> {
-        self.params.downcast_ref::<T>()
-    }
-    
-    /// Try to get mutable params as a specific type
-    pub fn get_params_mut<T: 'static>(&mut self) -> Option<&mut T> {
-        self.params.downcast_mut::<T>()
-    }
 }
 
 pub struct Renderer {
@@ -89,7 +58,6 @@ impl Renderer {
 
     fn ensure_intermediate_textures(&mut self, device: &wgpu::Device, width: u32, height: u32) {
         if self.texture_size != (width, height) || self.texture_domain.is_empty() {
-            // Clear old textures and create new ones
             self.texture_domain.clear();
 
             let ping = self.create_texture(device, width, height, "ping_texture");
@@ -101,29 +69,32 @@ impl Renderer {
         }
     }
 
-    pub fn add_effect<P: Pipeline + 'static>(&mut self, pipeline: P, params: Box<dyn std::any::Any + Send + Sync>) {
-        self.effect_chain.push(Effect { pipeline: Box::new(pipeline), params });
+    pub fn add_effect<P: Pipeline + 'static, T: 'static + Send + Sync>(
+        &mut self,
+        pipeline: P,
+        params: T,
+    ) {
+        self.effect_chain.push(Effect::new(pipeline, params));
     }
 
-    /// Update params for a specific effect in the chain
-    pub fn update_effect_params(&mut self, index: usize, params: Box<dyn std::any::Any + Send + Sync>) {
-        if let Some(effect) = self.effect_chain.get_mut(index) {
-            effect.params = params;
-        }
+    pub fn get_effect_mut(&mut self, index: usize) -> Option<&mut Effect> {
+        self.effect_chain.get_mut(index)
     }
-    
-    /// Get a reference to params for a specific effect (for UI editing)
-    pub fn get_effect_params_mut(&mut self, index: usize) -> Option<&mut Box<dyn std::any::Any + Send + Sync>> {
-        self.effect_chain.get_mut(index).map(|e| &mut e.params)
+
+    pub fn get_effect(&self, index: usize) -> Option<&Effect> {
+        self.effect_chain.get(index)
     }
-    
-    /// Get number of effects in the chain
+
     pub fn effect_count(&self) -> usize {
         self.effect_chain.len()
     }
 
-    pub fn get_effect(&mut self, index: usize) -> Option<&mut Effect> {
-        self.effect_chain.get_mut(index)
+    pub fn effects(&self) -> impl Iterator<Item = &Effect> {
+        self.effect_chain.iter()
+    }
+
+    pub fn effects_mut(&mut self) -> impl Iterator<Item = &mut Effect> {
+        self.effect_chain.iter_mut()
     }
 }
 
@@ -139,7 +110,6 @@ impl FrameRenderer for Renderer {
         let height = dimensions.height();
         let buffer = frame.raw_data();
 
-        // Upload video frame to GPU
         let input_view = self.upload.blit_rgba(device, queue, width, height, buffer);
 
         if self.effect_chain.is_empty() {
@@ -165,15 +135,15 @@ impl FrameRenderer for Renderer {
             };
             let current_output = &texture_views[i % 2];
 
-            if let Err(e) = effect.pipeline.apply(
+            if let Err(e) = effect.pipeline().apply(
                 device,
                 queue,
                 &mut encoder,
                 current_input,
                 current_output,
-                effect.params.as_ref(),
+                effect.params_any(),
             ) {
-                eprintln!("Pipeline {} failed: {}", effect.pipeline.name(), e);
+                eprintln!("Pipeline {} failed: {}", effect.pipeline().name(), e);
                 continue;
             }
         }

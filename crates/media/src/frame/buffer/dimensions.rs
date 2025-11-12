@@ -1,7 +1,7 @@
 //! Declares the [Dimensions] type, a type that [super::Frame] depends on.
 
 use std::fmt::{self, Display, Formatter};
-use std::num::{NonZeroU32};
+use std::num::NonZeroU32;
 
 /// A width and a height, both guaranteed to be non-zero.
 ///
