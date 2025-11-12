@@ -1,6 +1,5 @@
 pub struct UploadStager {
     tex: Option<wgpu::Texture>,
-    view: Option<wgpu::TextureView>,
     extent: wgpu::Extent3d,
 }
 
@@ -8,7 +7,6 @@ impl UploadStager {
     pub fn new() -> Self {
         Self {
             tex: None,
-            view: None,
             extent: wgpu::Extent3d {
                 width: 0,
                 height: 0,
@@ -39,9 +37,7 @@ impl UploadStager {
             view_formats: &[],
         });
 
-        let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
         self.tex = Some(tex);
-        self.view = Some(view);
     }
 
     pub fn blit_rgba(
@@ -51,10 +47,9 @@ impl UploadStager {
         width: u32,
         height: u32,
         data: &[u8],
-    ) -> &wgpu::TextureView {
+    ) -> wgpu::TextureView {
         self.ensure_texture(device, width, height);
 
-        // Calculate aligned bytes per row (same as before)
         const BYTES_PER_PIXEL: u32 = 4; // RGBA
         let bytes_per_row = ((width * BYTES_PER_PIXEL + 255) / 256) * 256;
 
@@ -74,6 +69,7 @@ impl UploadStager {
             self.extent,
         );
 
-        self.view.as_ref().unwrap()
+        // Create view on-demand (cheap operation)
+        self.tex.as_ref().unwrap().create_view(&wgpu::TextureViewDescriptor::default())
     }
 }

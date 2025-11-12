@@ -12,3 +12,5 @@ wgpu = "27.0.0"
 pollster = "0.4"
 util = { version = "0.1.0", path = "../util" }
 media = { version = "0.1.0", path = "../media" }
+thiserror = "2"
+bytemuck = "1.24.0"
