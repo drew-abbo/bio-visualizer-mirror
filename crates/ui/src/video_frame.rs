@@ -21,7 +21,7 @@ impl Default for VideoFrame {
                     spread: 0,
                     color: egui::Color32::from_black_alpha(180),
                 })
-                .fill(egui::Color32::from_rgba_unmultiplied(97, 0, 255, 128))
+                .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 30, 200))
                 .stroke(egui::Stroke::new(1.0, egui::Color32::GRAY)),
             texture_id: None,
             texture_size: [0, 0],
