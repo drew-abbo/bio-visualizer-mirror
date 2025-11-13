@@ -7,7 +7,7 @@ use engine::types::ColorGradingParams;
 
 #[derive(Default)]
 pub struct BioVisualizerMainWindow {
-    output_frame: VideoFrame,
+    output_frame: VideoFrame, //in the future: threads(player -> renderer) -> UI -> output_frame 
     player: Option<VideoPlayer>,
     renderer: Option<Renderer>,
 }
@@ -16,6 +16,7 @@ impl BioVisualizerMainWindow {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let wgpu_render_state = cc.wgpu_render_state.as_ref().unwrap();
 
+        // This will have to go in another thread. TODO: use channels in the util crate
         let mut renderer = match Renderer::new(wgpu_render_state.target_format) {
             Ok(r) => Some(r),
             Err(e) => {

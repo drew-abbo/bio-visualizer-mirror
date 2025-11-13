@@ -57,8 +57,17 @@ impl View for VideoFrame {
     fn ui(&mut self, ui: &mut egui::Ui) {
         self.frame.show(ui, |ui| {
             if let Some(texture_id) = self.texture_id {
-                let size = egui::vec2(self.texture_size[0] as f32, self.texture_size[1] as f32);
-                ui.image(egui::load::SizedTexture::new(texture_id, size));
+                // Some logic here making sure the texture fits in the available space well.
+                let original_size = egui::vec2(self.texture_size[0] as f32, self.texture_size[1] as f32);
+
+                let available_size = ui.available_size();
+                let scale = (available_size.x / original_size.x)
+                    .min(available_size.y / original_size.y)
+                    .min(1.0);
+
+                let display_size = original_size * scale;
+
+                ui.image(egui::load::SizedTexture::new(texture_id, display_size));
             } else {
                 ui.label("No video loaded");
             }
