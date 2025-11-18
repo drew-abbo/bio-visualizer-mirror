@@ -1,7 +1,7 @@
 use pipelines::common::Pipeline;
 pub mod pipelines;
 pub mod surface;
-pub mod upload;
+pub mod upload_stager;
 use crate::effect::Effect;
 use crate::errors::RendererError;
 
@@ -15,7 +15,7 @@ pub trait FrameRenderer {
 }
 
 pub struct Renderer {
-    upload: upload::UploadStager,
+    upload_stager: upload_stager::UploadStager,
     effect_chain: Vec<Effect>,
     texture_domain: Vec<wgpu::Texture>,
     texture_size: (u32, u32),
@@ -25,7 +25,7 @@ pub struct Renderer {
 impl Renderer {
     pub fn new(format: wgpu::TextureFormat) -> Result<Self, RendererError> {
         Ok(Self {
-            upload: upload::UploadStager::new(),
+            upload_stager: upload_stager::UploadStager::new(),
             effect_chain: Vec::new(),
             texture_domain: Vec::new(),
             texture_size: (0, 0),
@@ -110,7 +110,7 @@ impl FrameRenderer for Renderer {
         let height = dimensions.height();
         let buffer = frame.raw_data();
 
-        let input_view = self.upload.blit_rgba(device, queue, width, height, buffer);
+        let input_view = self.upload_stager.blit_rgba(device, queue, width, height, buffer);
 
         if self.effect_chain.is_empty() {
             return input_view;

@@ -3,3 +3,6 @@
 pub mod frame;
 
 pub(crate) mod cast_slice;
+
+mod player;
+pub use player::VideoPlayer;

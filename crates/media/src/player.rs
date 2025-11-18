@@ -1,9 +1,10 @@
-use media::frame;
+use super::frame::streams::StreamStats;
+use super::frame::{Frame, Producer};
 use std::time::{Duration, Instant};
 
 pub struct VideoPlayer {
-    producer: frame::Producer,
-    current_frame: Option<frame::Frame>,
+    producer: Producer,
+    current_frame: Option<Frame>,
 
     // Playback state
     playing: bool,
@@ -17,7 +18,7 @@ pub struct VideoPlayer {
 
 impl VideoPlayer {
     /// Create a new video player from a producer
-    pub fn new(producer: frame::Producer) -> Self {
+    pub fn new(producer: Producer) -> Self {
         let fps = producer.stats().fps;
         let frame_duration = Duration::from_secs_f64(1.0 / fps);
 
@@ -33,7 +34,7 @@ impl VideoPlayer {
     }
 
     /// Get the current frame (if available)
-    pub fn current_frame(&self) -> Option<&frame::Frame> {
+    pub fn current_frame(&self) -> Option<&Frame> {
         self.current_frame.as_ref()
     }
 
@@ -51,7 +52,7 @@ impl VideoPlayer {
         self.fps
     }
 
-    pub fn stats(&self) -> media::frame::streams::StreamStats {
+    pub fn stats(&self) -> StreamStats {
         self.producer.stats()
     }
 
