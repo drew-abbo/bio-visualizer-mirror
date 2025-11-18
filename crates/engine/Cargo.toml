@@ -4,8 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-winit = { version = "0.30", features = ["android-native-activity"] }
-log = "0.4"
+winit = "0.30"
 wgpu = "27.0.0"
 pollster = "0.4"
 util = { version = "0.1.0", path = "../util" }
