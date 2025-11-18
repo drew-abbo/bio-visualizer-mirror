@@ -3276,6 +3276,7 @@ dependencies = [
  "engine",
  "media",
  "rfd",
+ "wgpu",
 ]
 
 [[package]]

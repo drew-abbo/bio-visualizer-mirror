@@ -1,7 +1,7 @@
 use crate::errors::PipelineError;
 use std::any::Any;
 
-pub trait Pipeline {
+pub trait Pipeline: Send + Sync {
     fn new(
         device: &wgpu::Device,
         target_format: wgpu::TextureFormat,

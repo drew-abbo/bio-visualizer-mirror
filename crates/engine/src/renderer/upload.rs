@@ -1,16 +1,11 @@
 pub struct UploadStager {
     tex: Option<wgpu::Texture>,
     extent: wgpu::Extent3d,
-}
-
-impl Default for UploadStager {
-    fn default() -> Self {
-        Self::new()
-    }
+    format: wgpu::TextureFormat,
 }
 
 impl UploadStager {
-    pub fn new() -> Self {
+    pub fn new(format: wgpu::TextureFormat) -> Self {
         Self {
             tex: None,
             extent: wgpu::Extent3d {
@@ -18,6 +13,7 @@ impl UploadStager {
                 height: 0,
                 depth_or_array_layers: 1,
             },
+            format,
         }
     }
 
@@ -38,8 +34,8 @@ impl UploadStager {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            format: self.format, // <-- use stored format
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
 
@@ -56,7 +52,7 @@ impl UploadStager {
     ) -> wgpu::TextureView {
         self.ensure_texture(device, width, height);
 
-        const BYTES_PER_PIXEL: u32 = 4; // RGBA
+        const BYTES_PER_PIXEL: u32 = 4; // RGBA8 or BGRA8 still 4 bytes
         let bytes_per_row = ((width * BYTES_PER_PIXEL + 255) / 256) * 256;
 
         queue.write_texture(
@@ -75,10 +71,13 @@ impl UploadStager {
             self.extent,
         );
 
-        // Create view on-demand
         self.tex
             .as_ref()
             .unwrap()
             .create_view(&wgpu::TextureViewDescriptor::default())
+    }
+
+    pub fn current_texture(&self) -> Option<&wgpu::Texture> {
+        self.tex.as_ref()
     }
 }

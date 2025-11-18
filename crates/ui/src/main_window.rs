@@ -1,57 +1,27 @@
-use crate::video_frame::{VideoFrame, View};
-use engine::VideoPlayer;
-use engine::renderer::pipelines::color_grading::ColorGradingPipeline;
-use engine::renderer::pipelines::common::Pipeline;
-use engine::renderer::{FrameRenderer, Renderer};
-use engine::types::ColorGradingParams;
+use crate::components::View;
+use crate::components::video_frame::VideoFrame;
+use engine::core::Engine;
+use media::video_player::VideoPlayer;
 
 #[derive(Default)]
 pub struct BioVisualizerMainWindow {
-    output_frame: VideoFrame, //in the future: threads(player -> renderer) -> UI -> output_frame 
+    video_frame: VideoFrame,
     player: Option<VideoPlayer>,
-    renderer: Option<Renderer>,
+    engine: Option<Engine>,
 }
 
 impl BioVisualizerMainWindow {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let wgpu_render_state = cc.wgpu_render_state.as_ref().unwrap();
 
-        // This will have to go in another thread. TODO: use channels in the util crate
-        let mut renderer = match Renderer::new(wgpu_render_state.target_format) {
-            Ok(r) => Some(r),
-            Err(e) => {
-                eprintln!("Failed to create renderer: {}", e);
-                None
-            }
-        };
+        let engine = Engine::new(wgpu_render_state.target_format);
 
-        // Add a color grading effect
-        if let Some(ref mut r) = renderer {
-            match ColorGradingPipeline::new(
-                &wgpu_render_state.device,
-                wgpu_render_state.target_format,
-            ) {
-                Ok(pipeline) => {
-                    let params = ColorGradingParams {
-                        exposure: 1.0,
-                        contrast: 1.2,
-                        saturation: 1.1,
-                        vignette: 0.3,
-                        time: 0.0,
-                        surface_w: 0.0,
-                        surface_h: 0.0,
-                        _pad0: 0.0,
-                    };
-                    r.add_effect(pipeline, params);
-                }
-                Err(e) => eprintln!("Failed to create color grading pipeline: {}", e),
-            }
-        }
+        // Handle engine initialization errors later
 
         Self {
-            output_frame: VideoFrame::default(),
+            video_frame: VideoFrame::default(),
             player: None,
-            renderer,
+            engine: Some(engine),
         }
     }
 
@@ -73,7 +43,7 @@ impl BioVisualizerMainWindow {
 }
 
 impl eframe::App for BioVisualizerMainWindow {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, eframe: &mut eframe::Frame) {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
@@ -97,11 +67,7 @@ impl eframe::App for BioVisualizerMainWindow {
                 if let Some(player) = &mut self.player {
                     ui.separator();
                     if ui
-                        .button(if player.is_playing() {
-                            "⏸ Pause"
-                        } else {
-                            "▶ Play"
-                        })
+                        .button(if player.is_playing() { "⏸ Pause" } else { "▶ Play" })
                         .clicked()
                     {
                         player.toggle_play_pause();
@@ -115,11 +81,7 @@ impl eframe::App for BioVisualizerMainWindow {
                     ui.label(format!("FPS: {:.1}", player.fps()));
 
                     let stats = player.stats();
-                    ui.label(format!(
-                        "{}x{}",
-                        stats.dimensions.width(),
-                        stats.dimensions.height()
-                    ));
+                    ui.label(format!("{}x{}", stats.dimensions.width(), stats.dimensions.height()));
                 }
 
                 ui.add_space(16.0);
@@ -127,94 +89,77 @@ impl eframe::App for BioVisualizerMainWindow {
             });
         });
 
-        // Effect parameters panel
-        egui::SidePanel::right("effects_panel")
-            .default_width(250.0)
-            .show(ctx, |ui| {
-                ui.heading("Effect Parameters");
-                ui.separator();
-
-                if let Some(renderer) = &mut self.renderer {
-                    for i in 0..renderer.effect_count() {
-                        ui.group(|ui| {
-                            ui.label(format!("Effect {}", i + 1));
-
-                            if let Some(effect) = renderer.get_effect_mut(i) {
-                                // Try to get ColorGradingParams
-                                if let Some(params) = effect.get_params_mut::<ColorGradingParams>()
-                                {
-                                    ui.add(
-                                        egui::Slider::new(&mut params.exposure, 0.0..=2.0)
-                                            .text("Exposure"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(&mut params.contrast, 0.0..=2.0)
-                                            .text("Contrast"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(&mut params.saturation, 0.0..=2.0)
-                                            .text("Saturation"),
-                                    );
-                                    ui.add(
-                                        egui::Slider::new(&mut params.vignette, 0.0..=1.0)
-                                            .text("Vignette"),
-                                    );
-                                }
-                                // Add more param types here as you create them:
-                                // else if let Some(params) = effect.get_params_mut::<BlurParams>() {
-                                //     ui.add(egui::Slider::new(&mut params.radius, 0.0..=20.0).text("Radius"));
-                                // }
-                            }
-                        });
-                        ui.add_space(8.0);
-                    }
-
-                    if renderer.effect_count() == 0 {
-                        ui.label("No effects active");
-                    }
-                }
-            });
-
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Bio Visualizer");
             ui.separator();
 
-            // Debug info
-            ui.label(format!("Has player: {}", self.player.is_some()));
-            ui.label(format!("Has renderer: {}", self.renderer.is_some()));
+            // Main rendering loop with synchronous engine
+            if let (Some(player), Some(engine)) = (&mut self.player, &mut self.engine) {
+                // Grab wgpu state once
+                let wgpu_render_state = eframe.wgpu_render_state().unwrap();
+                let device = &wgpu_render_state.device;
+                let queue = &wgpu_render_state.queue;
 
-            if let Some(player) = &self.player {
-                ui.label(format!("Is playing: {}", player.is_playing()));
-                ui.label(format!("Has frame: {}", player.current_frame().is_some()));
-            }
+                // 1. Fetch next frame from player (decoder runs in producer thread)
+                if player.update() {
+                    if let Some(frame) = player.take_current_frame() {
+                        let dims = frame.dimensions();
+                        let width = dims.width();
+                        let height = dims.height();
 
-            ui.separator();
+                        // Ensure UI texture exists and matches frame size
+                        let recreate = match self.video_frame.texture() {
+                            Some(tex) => {
+                                let [w, h] = self.video_frame.texture_size();
+                                w as u32 != width || h as u32 != height
+                            }
+                            None => true,
+                        };
 
-            // Update player and render frame
-            if let (Some(player), Some(renderer)) = (&mut self.player, &mut self.renderer) {
-                let did_update = player.update();
-                let has_frame = player.current_frame().is_some();
+                        if recreate {
+                            let texture = create_ui_texture(
+                                device,
+                                width,
+                                height,
+                                wgpu_render_state.target_format,
+                            );
+                            self.video_frame.set_texture(texture);
+                        }
 
-                if did_update || has_frame {
-                    if let Some(current_frame) = player.current_frame() {
-                        let wgpu_render_state = frame.wgpu_render_state().unwrap();
+                        // We cloned earlier UI-owned texture; get a handle to pass to engine
+                        let ui_texture = self.video_frame.texture().unwrap().clone();
 
-                        let texture_view = renderer.render_frame(
-                            current_frame,
-                            &wgpu_render_state.device,
-                            &wgpu_render_state.queue,
-                        );
+                        // Synchronously render into UI texture using engine
+                        let result = engine.render_frame(&frame, device, queue, &ui_texture);
 
-                        let dims = current_frame.dimensions();
-                        self.output_frame.set_wgpu_texture(
-                            wgpu_render_state,
-                            &texture_view,
-                            [dims.width() as usize, dims.height() as usize],
-                        );
+                        // Recycle the frame back to the producer (important!)
+                        player.recycle_frame(frame);
+
+                        // Handle the engine result
+                        match result {
+                            engine::core::EngineResult::FrameRendered { width, height, texture } => {
+                                // Register and show the texture
+                                let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                                self.video_frame.set_wgpu_texture(
+                                    wgpu_render_state,
+                                    &view,
+                                    [width as usize, height as usize],
+                                );
+                            }
+                            engine::core::EngineResult::Error { message } => {
+                                eprintln!("Engine error: {}", message);
+                                ui.colored_label(egui::Color32::RED, format!("Engine error: {}", message));
+                            }
+                            _ => { /* other results not used in this path */ }
+                        }
                     }
                 }
-
-                self.output_frame.ui(ui);
+            } else if self.engine.is_none() {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(100.0);
+                    ui.heading("Engine Failed to Initialize");
+                    ui.label("Check console for errors");
+                });
             } else {
                 ui.vertical_centered(|ui| {
                     ui.add_space(100.0);
@@ -229,4 +174,29 @@ impl eframe::App for BioVisualizerMainWindow {
             ctx.request_repaint();
         }
     }
+}
+
+fn create_ui_texture(
+    device: &wgpu::Device,
+    width: u32,
+    height: u32,
+    format: wgpu::TextureFormat,
+) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("ui_display_texture"),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::COPY_DST
+            | wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    })
 }

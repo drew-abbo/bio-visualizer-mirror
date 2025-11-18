@@ -1,15 +1,15 @@
-use media::frame;
+use super::frame;
 use std::time::{Duration, Instant};
 
 pub struct VideoPlayer {
-    producer: frame::Producer,
-    current_frame: Option<frame::Frame>,
+    producer: super::frame::Producer,
+    current_frame: Option<super::frame::Frame>,
 
     // Playback state
     playing: bool,
     current_time: Duration,
 
-    // Timing
+    // Timings
     fps: f64,
     frame_duration: Duration,
     last_update: Option<Instant>,
@@ -37,6 +37,14 @@ impl VideoPlayer {
         self.current_frame.as_ref()
     }
 
+    pub fn take_current_frame(&mut self) -> Option<frame::Frame> {
+        self.current_frame.take()
+    }
+
+    pub fn recycle_frame(&mut self, frame: frame::Frame) {
+        self.producer.recycle_frame(frame);
+    }
+
     /// Check if the player is currently playing
     pub fn is_playing(&self) -> bool {
         self.playing
@@ -51,7 +59,7 @@ impl VideoPlayer {
         self.fps
     }
 
-    pub fn stats(&self) -> media::frame::streams::StreamStats {
+    pub fn stats(&self) -> super::frame::streams::StreamStats {
         self.producer.stats()
     }
 

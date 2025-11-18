@@ -1,12 +1,13 @@
 use crate::renderer::pipelines::common::Pipeline;
 
+/// An effect represents a single rendering operation with its associated pipeline and parameters.
 pub struct Effect {
-    pipeline: Box<dyn Pipeline>,
+    pipeline: Box<dyn Pipeline + Send + Sync>,
     params: Box<dyn std::any::Any + Send + Sync>,
 }
 
 impl Effect {
-    pub fn new<P: Pipeline + 'static, T: 'static + Send + Sync>(pipeline: P, params: T) -> Self {
+    pub fn new<P: Pipeline + Send + Sync + 'static, T: 'static + Send + Sync>(pipeline: P, params: T) -> Self {
         Self {
             pipeline: Box::new(pipeline),
             params: Box::new(params),
