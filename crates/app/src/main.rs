@@ -1,3 +1,3 @@
 fn main() {
-    ui::launcher::start_ui().unwrap();
+    print!("Hello, Bio Visualizer!");
 }
