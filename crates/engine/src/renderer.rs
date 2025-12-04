@@ -3,16 +3,7 @@ pub mod pipelines;
 pub mod surface;
 pub mod upload_stager;
 use crate::effect::Effect;
-use crate::errors::RendererError;
-
-pub trait FrameRenderer {
-    fn render_frame(
-        &mut self,
-        frame: &media::frame::Frame,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-    ) -> wgpu::TextureView;
-}
+use crate::errors::EngineError;
 
 pub struct Renderer {
     upload_stager: upload_stager::UploadStager,
@@ -23,7 +14,7 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(format: wgpu::TextureFormat) -> Result<Self, RendererError> {
+    pub fn new(format: wgpu::TextureFormat) -> Result<Self, EngineError> {
         Ok(Self {
             upload_stager: upload_stager::UploadStager::new(),
             effect_chain: Vec::new(),
@@ -96,24 +87,24 @@ impl Renderer {
     pub fn effects_mut(&mut self) -> impl Iterator<Item = &mut Effect> {
         self.effect_chain.iter_mut()
     }
-}
 
-impl FrameRenderer for Renderer {
-    fn render_frame(
+    pub fn render_frame(
         &mut self,
         frame: &media::frame::Frame,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-    ) -> wgpu::TextureView {
+    ) -> Result<wgpu::TextureView, EngineError> {
         let dimensions = frame.dimensions();
         let width = dimensions.width();
         let height = dimensions.height();
         let buffer = frame.raw_data();
 
-        let input_view = self.upload_stager.blit_rgba(device, queue, width, height, buffer);
+        let input_view = self
+            .upload_stager
+            .blit_rgba(device, queue, width, height, buffer)?;
 
         if self.effect_chain.is_empty() {
-            return input_view;
+            return Ok(input_view);
         }
 
         self.ensure_intermediate_textures(device, width, height);
@@ -135,20 +126,18 @@ impl FrameRenderer for Renderer {
             };
             let current_output = &texture_views[i % 2];
 
-            if let Err(e) = effect.pipeline().apply(
+            effect.pipeline().apply(
                 device,
                 queue,
                 &mut encoder,
                 current_input,
                 current_output,
                 effect.params_any(),
-            ) {
-                eprintln!("Pipeline {} failed: {}", effect.pipeline().name(), e);
-                continue;
-            }
+            )?;
         }
 
         queue.submit(Some(encoder.finish()));
-        texture_views[(self.effect_chain.len() - 1) % 2].clone()
+        let final_index = (self.effect_chain.len() - 1) % 2;
+        Ok(texture_views[final_index].clone())
     }
 }

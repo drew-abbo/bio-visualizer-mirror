@@ -1,3 +1,5 @@
+use crate::errors::EngineError;
+
 pub struct UploadStager {
     tex: Option<wgpu::Texture>,
     extent: wgpu::Extent3d,
@@ -53,7 +55,15 @@ impl UploadStager {
         width: u32,
         height: u32,
         data: &[u8],
-    ) -> wgpu::TextureView {
+    ) -> Result<wgpu::TextureView, EngineError> {
+        let expected_size = (width * height * 4) as usize; // RGBA = 4 bytes per pixel
+        if data.len() < expected_size {
+            return Err(EngineError::DataSizeMismatch {
+                expected: expected_size,
+                actual: data.len(),
+            });
+        }
+
         self.ensure_texture(device, width, height);
 
         const BYTES_PER_PIXEL: u32 = 4; // RGBA
@@ -61,7 +71,10 @@ impl UploadStager {
 
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
-                texture: self.tex.as_ref().unwrap(),
+                texture: self
+                    .tex
+                    .as_ref()
+                    .ok_or_else(|| EngineError::TextureNotInitialized)?,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -76,9 +89,10 @@ impl UploadStager {
         );
 
         // Create view on-demand
-        self.tex
+        Ok(self
+            .tex
             .as_ref()
-            .unwrap()
-            .create_view(&wgpu::TextureViewDescriptor::default())
+            .ok_or_else(|| EngineError::TextureNotInitialized)?
+            .create_view(&wgpu::TextureViewDescriptor::default()))
     }
 }

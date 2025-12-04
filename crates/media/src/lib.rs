@@ -4,5 +4,5 @@ pub mod frame;
 
 pub(crate) mod cast_slice;
 
-mod player;
-pub use player::VideoPlayer;
+mod video_player;
+pub use video_player::VideoPlayer;

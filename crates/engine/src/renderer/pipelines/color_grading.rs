@@ -1,5 +1,5 @@
 use super::common::{self, Pipeline};
-use crate::errors::PipelineError;
+use crate::errors::EngineError;
 use crate::types::ColorGradingParams;
 use std::any::Any;
 
@@ -12,7 +12,7 @@ pub struct ColorGradingPipeline {
 }
 
 impl Pipeline for ColorGradingPipeline {
-    fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Result<Self, PipelineError>
+    fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Result<Self, EngineError>
     where
         Self: Sized,
     {
@@ -93,14 +93,14 @@ impl Pipeline for ColorGradingPipeline {
         "ColorGradingParams"
     }
 
-    fn update_params(&self, queue: &wgpu::Queue, params: &dyn Any) -> Result<(), PipelineError> {
+    fn update_params(&self, queue: &wgpu::Queue, params: &dyn Any) -> Result<(), EngineError> {
         if let Some(cg_params) = params.downcast_ref::<ColorGradingParams>() {
             // Use bytemuck for safe POD-to-bytes conversion
             let bytes = bytemuck::bytes_of(cg_params);
 
             let expected_size = std::mem::size_of::<ColorGradingParams>();
             if bytes.len() != expected_size {
-                return Err(PipelineError::BufferSizeMismatch {
+                return Err(EngineError::BufferSizeMismatch {
                     expected: expected_size,
                     actual: bytes.len(),
                 });
@@ -109,7 +109,7 @@ impl Pipeline for ColorGradingPipeline {
             queue.write_buffer(&self.params_buf, 0, bytes);
             Ok(())
         } else {
-            Err(PipelineError::InvalidParamType {
+            Err(EngineError::InvalidParamType {
                 pipeline: self.name().to_string(),
                 expected: self.expected_param_type().to_string(),
                 actual: std::any::type_name_of_val(params).to_string(),

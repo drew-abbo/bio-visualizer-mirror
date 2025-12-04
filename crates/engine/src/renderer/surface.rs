@@ -1,4 +1,4 @@
-use crate::errors::SurfaceError;
+use crate::errors::EngineError;
 use std::sync::Arc;
 use winit::window::Window;
 
@@ -17,14 +17,16 @@ pub struct SurfaceMgr {
 }
 
 impl SurfaceMgr {
-    pub async fn new_async(window: Arc<Window>) -> Result<Self, SurfaceError> {
+    pub async fn new_async(window: Arc<Window>) -> Result<Self, EngineError> {
         // The instance is a handle to our GPU
         // BackendBit::PRIMARY => Vulkan + Metal + DX12 + Browser WebGPU
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             ..Default::default()
         });
 
-        let surface = instance.create_surface(window.clone()).unwrap();
+        let surface = instance.create_surface(window.clone()).map_err(|e| {
+            EngineError::SwapChainAcquireFailed(format!("failed to create surface: {e:?}"))
+        })?;
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::default(),
@@ -77,7 +79,7 @@ impl SurfaceMgr {
         })
     }
 
-    pub fn new(window: Arc<Window>) -> Result<Self, SurfaceError> {
+    pub fn new(window: Arc<Window>) -> Result<Self, EngineError> {
         // Non-async helper for native via pollster
         pollster::block_on(Self::new_async(window))
     }
@@ -91,11 +93,10 @@ impl SurfaceMgr {
         self.surface.configure(&self.device, &self.config);
     }
 
-    pub fn acquire(&self) -> Result<(wgpu::SurfaceTexture, wgpu::TextureView), SurfaceError> {
-        let frame = self
-            .surface
-            .get_current_texture()
-            .map_err(|e| SurfaceError::AcquireFailed(format!("swapchain acquire failed: {e:?}")))?;
+    pub fn acquire(&self) -> Result<(wgpu::SurfaceTexture, wgpu::TextureView), EngineError> {
+        let frame = self.surface.get_current_texture().map_err(|e| {
+            EngineError::SwapChainAcquireFailed(format!("swapchain acquire failed: {e:?}"))
+        })?;
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());

@@ -1,11 +1,8 @@
-use crate::errors::PipelineError;
+use crate::errors::EngineError;
 use std::any::Any;
 
 pub trait Pipeline {
-    fn new(
-        device: &wgpu::Device,
-        target_format: wgpu::TextureFormat,
-    ) -> Result<Self, PipelineError>
+    fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Result<Self, EngineError>
     where
         Self: Sized;
 
@@ -22,7 +19,7 @@ pub trait Pipeline {
 
     /// Update the params uniform buffer with new values
     /// Pipelines should downcast the params to their expected type
-    fn update_params(&self, queue: &wgpu::Queue, params: &dyn Any) -> Result<(), PipelineError>;
+    fn update_params(&self, queue: &wgpu::Queue, params: &dyn Any) -> Result<(), EngineError>;
 
     fn bind_group_for(
         &self,
@@ -66,7 +63,7 @@ pub trait Pipeline {
         input: &wgpu::TextureView,
         output: &wgpu::TextureView,
         params: &dyn Any,
-    ) -> Result<(), PipelineError> {
+    ) -> Result<(), EngineError> {
         // Update parameters
         self.update_params(queue, params)?;
 

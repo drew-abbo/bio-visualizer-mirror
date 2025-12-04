@@ -1,7 +1,7 @@
 use crate::video_frame::{VideoFrame, View};
 use engine::renderer::pipelines::color_grading::ColorGradingPipeline;
 use engine::renderer::pipelines::common::Pipeline;
-use engine::renderer::{FrameRenderer, Renderer};
+use engine::renderer::Renderer;
 use engine::types::ColorGradingParams;
 use media::VideoPlayer;
 
@@ -198,11 +198,17 @@ impl eframe::App for BioVisualizerMainWindow {
                     if let Some(current_frame) = player.current_frame() {
                         let wgpu_render_state = frame.wgpu_render_state().unwrap();
 
-                        let texture_view = renderer.render_frame(
+                        let texture_view = match renderer.render_frame(
                             current_frame,
                             &wgpu_render_state.device,
                             &wgpu_render_state.queue,
-                        );
+                        ) {
+                            Err(e) => {
+                                eprintln!("Failed to render frame: {}", e);
+                                return;
+                            }
+                            Ok(texture_view) => texture_view,
+                        };
 
                         let dims = current_frame.dimensions();
                         self.output_frame.set_wgpu_texture(

@@ -1,7 +1,8 @@
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum PipelineError {
+pub enum EngineError {
+    // Pipeline errors
     #[error("Invalid parameter type for pipeline '{pipeline}': expected {expected}, got {actual}")]
     InvalidParamType {
         pipeline: String,
@@ -12,33 +13,20 @@ pub enum PipelineError {
     #[error("Parameter buffer size mismatch: expected {expected} bytes, got {actual} bytes")]
     BufferSizeMismatch { expected: usize, actual: usize },
 
-    #[error("Pipeline creation failed: {0}")]
-    CreationFailed(String),
-}
+    // Upload errors
+    #[error("Upload failed: texture not initialized")]
+    TextureNotInitialized,
 
-#[derive(Error, Debug)]
-pub enum SurfaceError {
-    #[error("Failed to acquire next swap chain texture: {0}")]
-    AcquireFailed(String),
+    #[error("Upload failed: data size mismatch (expected {expected} bytes, got {actual} bytes)")]
+    DataSizeMismatch { expected: usize, actual: usize },
 
-    #[error("Failed to request WGPU adapter: {source}")]
-    RequestAdapterError {
-        #[from]
-        source: wgpu::RequestAdapterError,
-    },
+    // Surface errors
+    #[error("Failed to acquire swap chain texture: {0}")]
+    SwapChainAcquireFailed(String),
 
-    #[error("Failed to request WGPU device: {source}")]
-    RequestDeviceError {
-        #[from]
-        source: wgpu::RequestDeviceError,
-    },
-}
+    #[error("Failed to request GPU adapter")]
+    RequestAdapter(#[from] wgpu::RequestAdapterError),
 
-#[derive(Error, Debug)]
-pub enum RendererError {
-    #[error("Pipeline error: {0}")]
-    Pipeline(#[from] PipelineError),
-
-    #[error("Surface error: {0}")]
-    Surface(#[from] SurfaceError),
+    #[error("Failed to request GPU device")]
+    RequestDevice(#[from] wgpu::RequestDeviceError),
 }

@@ -1,6 +1,6 @@
 pub mod color_grading;
 pub mod common;
-use crate::errors::PipelineError;
+use crate::errors::EngineError;
 use common::Pipeline;
 
 #[derive(Debug)]
@@ -12,7 +12,7 @@ impl Pipelines {
     pub fn new(
         device: &wgpu::Device,
         surface_format: wgpu::TextureFormat,
-    ) -> Result<Self, PipelineError> {
+    ) -> Result<Self, EngineError> {
         Ok(Self {
             color_grading: color_grading::ColorGradingPipeline::new(device, surface_format)?,
         })
