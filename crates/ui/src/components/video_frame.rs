@@ -1,11 +1,9 @@
+use crate::components::View;
+
 pub struct VideoFrame {
     frame: egui::Frame,
     texture_id: Option<egui::TextureId>,
     texture_size: [usize; 2],
-}
-
-pub trait View {
-    fn ui(&mut self, ui: &mut egui::Ui);
 }
 
 impl Default for VideoFrame {
@@ -58,7 +56,8 @@ impl View for VideoFrame {
         self.frame.show(ui, |ui| {
             if let Some(texture_id) = self.texture_id {
                 // Some logic here making sure the texture fits in the available space well.
-                let original_size = egui::vec2(self.texture_size[0] as f32, self.texture_size[1] as f32);
+                let original_size =
+                    egui::vec2(self.texture_size[0] as f32, self.texture_size[1] as f32);
 
                 let available_size = ui.available_size();
                 let scale = (available_size.x / original_size.x)
