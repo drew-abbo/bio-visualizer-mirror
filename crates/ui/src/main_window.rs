@@ -1,11 +1,11 @@
-use crate::components::effects::node_blueprint::NodeBlueprint;
-use crate::components::effects::node_select_list::NodeSelectList;
+use crate::components::node::node_blueprint::NodeBlueprint;
+use crate::components::node::node_select_list::NodeSelectList;
 use crate::components::{PlaybackControls, VideoController, VideoFrame, View};
 
 pub struct BioVisualizerMainWindow {
     video_frame: VideoFrame,
     video_controller: Option<VideoController>,
-    effects_panel: NodeSelectList,
+    node_select_list: NodeSelectList,
     node_blueprint: NodeBlueprint,
 }
 
@@ -19,7 +19,7 @@ impl BioVisualizerMainWindow {
         Self {
             video_frame: VideoFrame::default(),
             video_controller,
-            effects_panel: NodeSelectList::new(),
+            node_select_list: NodeSelectList::new(),
             node_blueprint: NodeBlueprint::new(),
         }
     }
@@ -98,49 +98,64 @@ impl BioVisualizerMainWindow {
 
 impl eframe::App for BioVisualizerMainWindow {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        // Top menu bar
+        // Top menu bar (always at the top)
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             self.show_menu_bar(ctx, ui);
         });
 
-        // Main content area
+        // Main content area - everything goes inside here
         egui::CentralPanel::default().show(ctx, |ui| {
-            self.node_blueprint.ui(ui);
+            // Left panel - Node selector
+            egui::SidePanel::left("left_panel")
+                .default_width(250.0)
+                .min_width(200.0)
+                .max_width(400.0)
+                .resizable(true)
+                .show_inside(ui, |ui| {
+                    self.node_select_list.ui(ui);
+                });
+
+            // Right panel - Video preview
+            egui::SidePanel::right("right_panel")
+                .default_width(350.0)
+                .min_width(250.0)
+                .max_width(500.0)
+                .resizable(true)
+                .show_inside(ui, |ui| {
+                    ui.heading("Video Preview");
+                    ui.separator();
+                    
+                    self.update_video_frame(frame);
+                    
+                    if self.video_controller.as_ref().is_some_and(|c| c.has_video()) {
+                        self.video_frame.ui(ui);
+                    } else {
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(100.0);
+                            ui.heading("No Video Loaded");
+                            ui.label("Click 'File → Load Video' to get started");
+                        });
+                    }
+                    
+                    ui.separator();
+                    
+                    // Effects panel below video
+                    // if let Some(controller) = &mut self.video_controller {
+                    //     ui.heading("Effect Parameters");
+                    //     self.effects_panel.show_inline(ui, controller.renderer_mut());
+                    // }
+                });
+
+            // Center panel - Blueprint (takes remaining space)
+            egui::CentralPanel::default().show_inside(ui, |ui| {
+                ui.heading("Node Blueprint");
+                ui.separator();
+                self.node_blueprint.ui(ui);
+            });
         });
 
-
-        // Might have to put these technically in the CentralPanel to get proper layering
-        egui::SidePanel::left("left_panel")
-            .default_width(300.0)
-            .show(ctx, |ui| {
-                self.effects_panel.ui(ui);
-            });
-
-        egui::SidePanel::right("right_panel")
-            .default_width(400.0)
-            .show(ctx, |ui| {
-                self.update_video_frame(frame);
-                if self
-                    .video_controller
-                    .as_ref()
-                    .is_some_and(|c| c.has_video())
-                {
-                    self.video_frame.ui(ui);
-                } else {
-                    ui.vertical_centered(|ui| {
-                        ui.add_space(100.0);
-                        ui.heading("No Video Loaded");
-                        ui.label("Click 'File → Load Video' to get started");
-                    });
-                }
-            });
-
         // Request continuous repaints for smooth playback
-        if self
-            .video_controller
-            .as_ref()
-            .is_some_and(|c| c.is_playing())
-        {
+        if self.video_controller.as_ref().is_some_and(|c| c.is_playing()) {
             ctx.request_repaint();
         }
     }

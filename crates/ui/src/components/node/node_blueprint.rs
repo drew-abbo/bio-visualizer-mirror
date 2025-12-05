@@ -2,7 +2,7 @@ use egui::{Rect, Vec2};
 
 use crate::components::{
     View,
-    effects::node_type::{NodeType, PlacedNode},
+    node::node_type::{NodeType, PlacedNode},
 };
 
 pub struct NodeBlueprint {
@@ -68,14 +68,15 @@ impl NodeBlueprint {
         );
 
         // Draw icon
-        let icon_pos = rect.min + Vec2::new(12.0, 16.0);
-        painter.text(
-            icon_pos,
-            egui::Align2::LEFT_TOP,
-            node.node_type.icon(),
-            egui::FontId::proportional(24.0),
-            egui::Color32::WHITE,
-        );
+        // let icon_pos = rect.min + Vec2::new(12.0, 16.0);
+        // painter.text(
+        //     icon_pos,
+        //     egui::Align2::LEFT_TOP,
+        //     // node.node_type.icon(),
+        //     egui::FontId::
+        //     egui::FontId::proportional(24.0),
+        //     egui::Color32::WHITE,
+        // );
 
         // Draw name
         let name_pos = rect.min + Vec2::new(12.0, 48.0);
@@ -111,7 +112,6 @@ impl NodeBlueprint {
     }
 
     fn handle_drop(&mut self, ui: &mut egui::Ui, response: &egui::Response, rect: Rect) {
-        // Use the higher-level dnd_release_payload API
         if let Some(node_type) = response.dnd_release_payload::<NodeType>() {
             // Use the context's pointer position at the time of release
             if let Some(pointer_pos) = ui.ctx().pointer_latest_pos() {

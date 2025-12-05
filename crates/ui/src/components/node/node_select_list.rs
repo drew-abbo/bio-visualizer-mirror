@@ -1,7 +1,7 @@
 use egui::Id;
 
 use crate::components::View;
-use crate::components::effects::node_type::NodeType;
+use crate::components::node::node_type::NodeType;
 pub struct NodeSelectList {
     available_nodes: Vec<NodeType>,
 }
@@ -14,12 +14,12 @@ impl NodeSelectList {
     }
 
     fn draw_node_template(&self, ui: &mut egui::Ui, node_type: &NodeType) {
-        let icon = node_type.icon();
+        // let icon = node_type.icon();
         let name = node_type.name();
 
         ui.horizontal(|ui| {
             // Icon
-            ui.label(egui::RichText::new(icon).size(24.0));
+            // ui.label(egui::RichText::new(icon).size(24.0));
             
             ui.vertical(|ui| {
                 ui.label(egui::RichText::new(name).strong());

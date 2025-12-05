@@ -6,6 +6,7 @@ pub enum NodeType {
     ColorCorrection,
     EdgeDetection,
     ColorGrading,
+    Input,
 }
 
 impl NodeType {
@@ -15,17 +16,19 @@ impl NodeType {
             NodeType::ColorCorrection => "Color Correction",
             NodeType::EdgeDetection => "Edge Detection",
             NodeType::ColorGrading => "Color Grading",
+            NodeType::Input => "Data Input",
         }
     }
 
-    pub fn icon(&self) -> &str {
-        match self {
-            NodeType::Blur => "💧",
-            NodeType::ColorCorrection => "🎨",
-            NodeType::EdgeDetection => "🔍",
-            NodeType::ColorGrading => "🌈",
-        }
-    }
+    // pub fn icon(&self) -> &str {
+    //     match self {
+    //         NodeType::Blur => "💧",
+    //         NodeType::ColorCorrection => "🎨",
+    //         NodeType::EdgeDetection => "🔍",
+    //         NodeType::ColorGrading => "🌈",
+    //         NodeType::Input => "📥",
+    //     }
+    // }
 
     pub fn color(&self) -> egui::Color32 {
         match self {
@@ -33,6 +36,7 @@ impl NodeType {
             NodeType::ColorCorrection => egui::Color32::from_rgb(255, 150, 100),
             NodeType::EdgeDetection => egui::Color32::from_rgb(150, 255, 100),
             NodeType::ColorGrading => egui::Color32::from_rgb(255, 100, 200),
+            NodeType::Input => egui::Color32::from_rgb(200, 200, 100),
         }
     }
 
@@ -42,6 +46,7 @@ impl NodeType {
             NodeType::ColorCorrection,
             NodeType::EdgeDetection,
             NodeType::ColorGrading,
+            NodeType::Input,
         ]
     }
 }
