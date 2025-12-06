@@ -1,4 +1,5 @@
 use crate::components::node::node_blueprint::NodeBlueprint;
+use crate::components::node::node_property_window::NodePropertyWindow;
 use crate::components::node::node_select_list::NodeSelectList;
 use crate::components::{PlaybackControls, VideoController, VideoFrame, View};
 
@@ -13,8 +14,7 @@ impl BioVisualizerMainWindow {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let wgpu_render_state = cc.wgpu_render_state.as_ref().unwrap();
 
-        let video_controller =
-            VideoController::new(wgpu_render_state.target_format).ok();
+        let video_controller = VideoController::new(wgpu_render_state.target_format).ok();
 
         Self {
             video_frame: VideoFrame::default(),
@@ -64,9 +64,6 @@ impl BioVisualizerMainWindow {
                     PlaybackControls::show(ui, player);
                 }
             }
-
-            ui.add_space(16.0);
-            egui::widgets::global_theme_preference_buttons(ui);
         });
     }
 
@@ -76,7 +73,7 @@ impl BioVisualizerMainWindow {
         };
 
         let wgpu_render_state = frame.wgpu_render_state().unwrap();
-        
+
         // Get egui's frame delta time for accurate timing
         // Use unstable_dt for more accurate frame-to-frame timing
         let dt = ctx.input(|i| i.unstable_dt);
@@ -98,6 +95,7 @@ impl BioVisualizerMainWindow {
                 // No frame available yet
             }
             Err(e) => {
+                //TODO: handle this properly
                 eprintln!("Failed to render frame: {}", e);
             }
         }
@@ -123,20 +121,29 @@ impl eframe::App for BioVisualizerMainWindow {
                     self.node_select_list.ui(ui);
                 });
 
-            // Right panel - Video preview
+            // Right panel - Video preview + Node properties
             egui::SidePanel::right("right_panel")
                 .default_width(350.0)
                 .min_width(250.0)
                 .max_width(500.0)
                 .resizable(true)
                 .show_inside(ui, |ui| {
+                    if let Some(node) = self.node_blueprint.selected_node_mut() {
+                        NodePropertyWindow::show(ui, &mut node.parameters);
+                    }
+
+                    ui.add_space(10.0);
+                    ui.separator();
                     ui.heading("Video Preview");
                     ui.separator();
 
-                    // Pass context to get delta time
                     self.update_video_frame(ctx, frame);
 
-                    if self.video_controller.as_ref().is_some_and(|c| c.has_video()) {
+                    if self
+                        .video_controller
+                        .as_ref()
+                        .is_some_and(|c| c.has_video())
+                    {
                         self.video_frame.ui(ui);
                     } else {
                         ui.vertical_centered(|ui| {
@@ -156,7 +163,11 @@ impl eframe::App for BioVisualizerMainWindow {
         });
 
         // Request continuous repaints when playing
-        if self.video_controller.as_ref().is_some_and(|c| c.is_playing()) {
+        if self
+            .video_controller
+            .as_ref()
+            .is_some_and(|c| c.is_playing())
+        {
             ctx.request_repaint();
         }
     }

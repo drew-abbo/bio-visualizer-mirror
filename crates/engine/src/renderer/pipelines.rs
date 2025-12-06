@@ -1,11 +1,10 @@
-pub mod color_grading;
 pub mod common;
-use crate::errors::EngineError;
-use common::Pipeline;
+pub mod color_grading;
+use crate::{errors::EngineError, renderer::pipelines::common::Pipeline};
 
 #[derive(Debug)]
 pub struct Pipelines {
-    pub color_grading: color_grading::ColorGradingPipeline,
+    pub color_grading: color_grading::color_grading_pipeline::ColorGradingPipeline,
 }
 
 impl Pipelines {
@@ -14,7 +13,7 @@ impl Pipelines {
         surface_format: wgpu::TextureFormat,
     ) -> Result<Self, EngineError> {
         Ok(Self {
-            color_grading: color_grading::ColorGradingPipeline::new(device, surface_format)?,
+            color_grading: color_grading::color_grading_pipeline::ColorGradingPipeline::new(device, surface_format)?,
         })
     }
 }
