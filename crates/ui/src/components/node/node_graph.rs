@@ -1,0 +1,1 @@
+/// Graph the structure of the nodes on the blueprint area

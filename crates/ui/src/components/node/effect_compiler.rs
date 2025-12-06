@@ -1,0 +1,1 @@
+/// Converts the graph of nodes into data for the renderer

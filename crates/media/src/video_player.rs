@@ -14,6 +14,10 @@ pub struct VideoPlayer {
     fps: f64,
     frame_duration: Duration,
     time_accumulator: Duration,
+    
+    // Debug counters
+    debug_frame_count: u64,
+    debug_time_elapsed: Duration,
 }
 
 impl VideoPlayer {
@@ -29,6 +33,8 @@ impl VideoPlayer {
             fps,
             frame_duration,
             time_accumulator: Duration::ZERO,
+            debug_frame_count: 0,
+            debug_time_elapsed: Duration::ZERO,
         }
     }
 
@@ -100,15 +106,36 @@ impl VideoPlayer {
         let delta = Duration::from_secs_f32(dt.min(0.1)); // Max 100ms per frame
         self.time_accumulator += delta;
 
+        // Some useful debug info to test different kinds of videos
+        #[cfg(debug_assertions)]
+        {
+            self.debug_time_elapsed += delta;
+            if self.debug_time_elapsed.as_secs() >= 5 {
+                let actual_fps = self.debug_frame_count as f64 / self.debug_time_elapsed.as_secs_f64();
+                println!(
+                    "Video: {:.1} FPS (target: {:.1}) | Accumulator: {:.1}ms",
+                    actual_fps,
+                    self.fps,
+                    self.time_accumulator.as_secs_f64() * 1000.0,
+                );
+                self.debug_frame_count = 0;
+                self.debug_time_elapsed = Duration::ZERO;
+            }
+        }
+
         // Check if we have accumulated enough time for the next frame
         if self.time_accumulator >= self.frame_duration {
             self.time_accumulator -= self.frame_duration;
             self.current_time += self.frame_duration;
             self.fetch_next_frame();
-
+            
+            #[cfg(debug_assertions)]
+            {
+                self.debug_frame_count += 1;
+            }
+            
             // If accumulator gets too large (> 3 frames), we're falling behind
             // Reset to prevent spiral of death
-            // Essentially saying instead of trying to catch up, just skip ahead so we don't freeze to death
             if self.time_accumulator > self.frame_duration * 3 {
                 self.time_accumulator = Duration::ZERO;
             }
@@ -131,7 +158,7 @@ impl VideoPlayer {
                 self.current_frame = Some(frame);
             }
             Err(e) => {
-                // TODO handle this error
+                // TODO: Handle error
                 eprintln!("Failed to fetch frame: {}", e);
                 self.playing = false;
             }

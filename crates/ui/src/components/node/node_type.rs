@@ -20,6 +20,7 @@ impl NodeType {
         }
     }
 
+    // Just an Idea
     // pub fn icon(&self) -> &str {
     //     match self {
     //         NodeType::Blur => "💧",
@@ -74,6 +75,7 @@ impl PlacedNode {
     }
 
     pub fn contains(&self, pos: Pos2) -> bool {
+        println!("Checking if node {:?} contains pos {:?}", self.id, pos);
         self.rect().contains(pos)
     }
 }

@@ -25,7 +25,7 @@ impl NodeBlueprint {
         let grid_size = 20.0;
         let color = ui.visuals().weak_text_color().linear_multiply(0.1);
 
-        // Just to look cool
+        // Just to look cool for now but could be used to actually align things?
         // Vertical lines
         let mut x = rect.min.x;
         while x < rect.max.x {

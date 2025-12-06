@@ -6,6 +6,7 @@ pub struct NodeSelectList {
     available_nodes: Vec<NodeType>,
 }
 
+/// List of available nodes to add to the blueprint on the left of the UI
 impl NodeSelectList {
     pub fn new() -> Self {
         Self {
@@ -63,14 +64,5 @@ impl View for NodeSelectList {
                 ui.add_space(8.0);
             }
         });
-
-        ui.add_space(16.0);
-        ui.separator();
-        ui.label(
-            egui::RichText::new("💡 Drag nodes onto the blueprint")
-                .small()
-                .italics()
-                .color(ui.visuals().weak_text_color())
-        );
     }
 }

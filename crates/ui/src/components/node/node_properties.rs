@@ -1,0 +1,1 @@
+// UI for displaying and editing a node's properties
