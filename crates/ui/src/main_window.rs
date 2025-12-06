@@ -14,7 +14,7 @@ impl BioVisualizerMainWindow {
         let wgpu_render_state = cc.wgpu_render_state.as_ref().unwrap();
 
         let video_controller =
-            VideoController::new(&wgpu_render_state.device, wgpu_render_state.target_format).ok();
+            VideoController::new(wgpu_render_state.target_format).ok();
 
         Self {
             video_frame: VideoFrame::default(),
@@ -70,26 +70,34 @@ impl BioVisualizerMainWindow {
         });
     }
 
-    fn update_video_frame(&mut self, frame: &mut eframe::Frame) {
+    fn update_video_frame(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let Some(controller) = &mut self.video_controller else {
             return;
         };
 
         let wgpu_render_state = frame.wgpu_render_state().unwrap();
+        
+        // Get egui's frame delta time for accurate timing
+        // Use unstable_dt for more accurate frame-to-frame timing
+        let dt = ctx.input(|i| i.unstable_dt);
 
-        match controller.update_and_render(&wgpu_render_state.device, &wgpu_render_state.queue) {
+        match controller.update_and_render(
+            &wgpu_render_state.device,
+            &wgpu_render_state.queue,
+            dt, // Pass egui's delta time
+        ) {
             Ok(Some(result)) => {
-                self.video_frame.set_wgpu_texture(
+                self.video_frame.set_wgpu_texture_if_changed(
                     wgpu_render_state,
                     &result.texture_view,
                     result.size,
+                    result.frame_id,
                 );
             }
             Ok(None) => {
                 // No frame available yet
             }
             Err(e) => {
-                //should probably show an error in the UI instead and/or crash
                 eprintln!("Failed to render frame: {}", e);
             }
         }
@@ -98,12 +106,12 @@ impl BioVisualizerMainWindow {
 
 impl eframe::App for BioVisualizerMainWindow {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        // Top menu bar (always at the top)
+        // Top menu bar
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             self.show_menu_bar(ctx, ui);
         });
 
-        // Main content area - everything goes inside here
+        // Main content area
         egui::CentralPanel::default().show(ctx, |ui| {
             // Left panel - Node selector
             egui::SidePanel::left("left_panel")
@@ -124,9 +132,10 @@ impl eframe::App for BioVisualizerMainWindow {
                 .show_inside(ui, |ui| {
                     ui.heading("Video Preview");
                     ui.separator();
-                    
-                    self.update_video_frame(frame);
-                    
+
+                    // Pass context to get delta time
+                    self.update_video_frame(ctx, frame);
+
                     if self.video_controller.as_ref().is_some_and(|c| c.has_video()) {
                         self.video_frame.ui(ui);
                     } else {
@@ -136,17 +145,9 @@ impl eframe::App for BioVisualizerMainWindow {
                             ui.label("Click 'File → Load Video' to get started");
                         });
                     }
-                    
-                    ui.separator();
-                    
-                    // Effects panel below video
-                    // if let Some(controller) = &mut self.video_controller {
-                    //     ui.heading("Effect Parameters");
-                    //     self.effects_panel.show_inline(ui, controller.renderer_mut());
-                    // }
                 });
 
-            // Center panel - Blueprint (takes remaining space)
+            // Center panel - Blueprint
             egui::CentralPanel::default().show_inside(ui, |ui| {
                 ui.heading("Node Blueprint");
                 ui.separator();
@@ -154,7 +155,7 @@ impl eframe::App for BioVisualizerMainWindow {
             });
         });
 
-        // Request continuous repaints for smooth playback
+        // Request continuous repaints when playing
         if self.video_controller.as_ref().is_some_and(|c| c.is_playing()) {
             ctx.request_repaint();
         }

@@ -1,9 +1,12 @@
+use media::frame::Uid;
+
 use crate::components::View;
 
 pub struct VideoFrame {
     frame: egui::Frame,
     texture_id: Option<egui::TextureId>,
     texture_size: [usize; 2],
+    last_frame_id: Option<Uid>,
 }
 
 impl Default for VideoFrame {
@@ -23,18 +26,24 @@ impl Default for VideoFrame {
                 .stroke(egui::Stroke::new(1.0, egui::Color32::GRAY)),
             texture_id: None,
             texture_size: [0, 0],
+            last_frame_id: None,
         }
     }
 }
 
 impl VideoFrame {
-    pub fn set_wgpu_texture(
+    pub fn set_wgpu_texture_if_changed(
         &mut self,
         render_state: &egui_wgpu::RenderState,
         texture_view: &eframe::wgpu::TextureView,
         size: [usize; 2],
+        frame_id: Uid,
     ) {
-        // Remove old texture if exists
+        if self.last_frame_id == Some(frame_id) {
+            // Frame hasn't changed, no need to update texture
+            return;
+        }
+        
         if let Some(old_id) = self.texture_id.take() {
             render_state.renderer.write().free_texture(&old_id);
         }
@@ -48,6 +57,7 @@ impl VideoFrame {
 
         self.texture_id = Some(texture_id);
         self.texture_size = size;
+        self.last_frame_id = Some(frame_id);
     }
 }
 
