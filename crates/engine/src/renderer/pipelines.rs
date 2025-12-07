@@ -3,6 +3,7 @@ pub mod common;
 use crate::errors::EngineError;
 use common::Pipeline;
 
+/// Collection of all rendering pipelines used by the engine
 #[derive(Debug)]
 pub struct Pipelines {
     pub color_grading: color_grading::ColorGradingPipeline,

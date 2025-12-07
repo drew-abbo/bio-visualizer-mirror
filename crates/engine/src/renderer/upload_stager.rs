@@ -23,6 +23,8 @@ impl UploadStager {
         }
     }
 
+    /// Make sure we have a texture of the right size
+    /// If not, create a new one
     fn ensure_texture(&mut self, device: &wgpu::Device, width: u32, height: u32) {
         if self.extent.width == width && self.extent.height == height && self.tex.is_some() {
             return;
@@ -48,7 +50,10 @@ impl UploadStager {
         self.tex = Some(tex);
     }
 
-    pub fn blit_rgba(
+    /// Blit RGBA data into the texture and return a texture view
+    /// This saves us from having to create a new texture every frame
+    /// Here we go from RAM to VRAM
+    pub fn cpu_to_gpu_rgba(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -56,7 +61,8 @@ impl UploadStager {
         height: u32,
         data: &[u8],
     ) -> Result<wgpu::TextureView, EngineError> {
-        let expected_size = (width * height * 4) as usize; // RGBA = 4 bytes per pixel
+        let expected_size = (width * height * 4) as usize;
+
         if data.len() < expected_size {
             return Err(EngineError::DataSizeMismatch {
                 expected: expected_size,
@@ -66,9 +72,10 @@ impl UploadStager {
 
         self.ensure_texture(device, width, height);
 
-        const BYTES_PER_PIXEL: u32 = 4; // RGBA
-        let bytes_per_row = ((width * BYTES_PER_PIXEL + 255) / 256) * 256;
-
+        // Creates a staging buffer
+        // Copies CPU data into the staging buffer
+        // Schedules a GPU command, copy from the staging buffer to the texture
+        // executes on the GPU once the queue is submitted
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: self
@@ -79,20 +86,21 @@ impl UploadStager {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            data,
+            data, // the framebuffer data
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(bytes_per_row),
+                bytes_per_row: Some(width * 4),
                 rows_per_image: Some(height),
             },
             self.extent,
         );
 
-        // Create view on-demand
+        // Create and return the texture view we can render with
+        // unwrap is safe here because we checked tex is Some above
         Ok(self
             .tex
             .as_ref()
-            .ok_or_else(|| EngineError::TextureNotInitialized)?
+            .unwrap()
             .create_view(&wgpu::TextureViewDescriptor::default()))
     }
 }
