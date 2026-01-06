@@ -1,3 +1,8 @@
 [workspace]
-members = ["crates/app", "crates/util", "crates/media"]
+members = [
+    "crates/app",
+    "crates/util",
+    "crates/media",
+    "crates/launcher",
+]
 resolver = "2"

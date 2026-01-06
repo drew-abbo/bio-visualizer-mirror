@@ -1,4 +1,7 @@
-//! Functions for finding OS-specific paths to local app data.
+//! For finding and dealing with a user's local data (e.g. OS-specific paths to
+//! local app data, and handling project data). See the [project] submodule.
+
+pub mod project;
 
 use std::env;
 use std::fs;
@@ -6,12 +9,6 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use crate::version;
-
-/// The name of the folder that will store app data.
-pub const ROOT_DIR_NAME: &str = version::APP_NAME;
-
-/// The name of the folder that will store app data.
-pub const PROJECTS_DIR_NAME: &str = "Projects";
 
 /// The path to the root of the app's data directory, unique for each user.
 ///
@@ -46,7 +43,7 @@ pub fn root_path() -> &'static Path {
 pub fn projects_path() -> &'static Path {
     static LOCAL_DATA_PROJECTS: LazyLock<PathBuf> = LazyLock::new(|| {
         let mut local_data_projects = PathBuf::from(root_path());
-        local_data_projects.push("Projects");
+        local_data_projects.push(PROJECTS_DIR_NAME);
 
         ensure_dirs_exist(&local_data_projects);
         local_data_projects
@@ -54,6 +51,9 @@ pub fn projects_path() -> &'static Path {
 
     &LOCAL_DATA_PROJECTS
 }
+
+const ROOT_DIR_NAME: &str = version::APP_NAME;
+const PROJECTS_DIR_NAME: &str = "Projects";
 
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 compile_error!("Unsupported platform.");
