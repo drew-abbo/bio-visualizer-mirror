@@ -66,7 +66,7 @@ pub trait SavedFile: Serialize + DeserializeOwned {
 
     /// The same as [SavedFile::read_from_file_path], but [Default::default] is
     /// used in place of a provided callback function.
-    fn read_from_file_path_default<P, F>(file_path: P) -> Result<(Self, File), SavedFileError>
+    fn read_from_file_path_default<P>(file_path: P) -> Result<(Self, File), SavedFileError>
     where
         P: AsRef<Path>,
         Self: Default,
