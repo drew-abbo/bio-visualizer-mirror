@@ -32,7 +32,7 @@ impl Default for Uid {
         let pid = process::id();
 
         static NEXT_INNER_PROCESS_IDX: AtomicU32 = AtomicU32::new(0);
-        let idx = NEXT_INNER_PROCESS_IDX.fetch_add(1, Ordering::Relaxed);
+        let idx = NEXT_INNER_PROCESS_IDX.fetch_add(1, Ordering::SeqCst);
 
         Self { time, pid, idx }
     }
