@@ -1,28 +1,25 @@
-mod app_area;
-mod components;
+mod app;
+mod ui;
 
-use app_area::AppArea;
-use util::version::APP_NAME;
+use app::App;
 
-fn main() -> Result<(), util::eframe::Error> {
+fn main() -> Result<(), eframe::Error> {
+    // Initialize logger
     env_logger::init();
 
     // Configure the native window
-    // TODO
-    // I think here we are going to want to import what is in the users settings
-    // This will make sure that when they restart the app, it will open with the same window size and position as before
-    let native_options = util::eframe::NativeOptions {
-        viewport: util::egui::ViewportBuilder::default()
+    let native_options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 720.0])
             .with_min_inner_size([60.0, 40.0])
-            .with_title(APP_NAME)
-            .with_decorations(false),
+            .with_title("Bio Visualizer"),
         ..Default::default()
     };
 
-    util::eframe::run_native(
-        "Bio Visualizer",
+    // Run the app
+    eframe::run_native(
+        "my_app",
         native_options,
-        Box::new(|cc| Ok(Box::new(AppArea::new(cc)))),
+        Box::new(|cc| Ok(Box::new(App::new(cc)))),
     )
 }
