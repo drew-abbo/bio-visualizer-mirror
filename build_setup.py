@@ -102,17 +102,34 @@ def create_cargo_config(contents: str) -> None:
 
 
 def windows() -> None:
-    """
-    Handles build setup for Windows builds.
-    """
+    if platform.machine().lower() not in ("amd64", "x86_64"):
+        fatal("Windows builds currently only support x86_64.")
 
-    from build_util.platforms import win
+    vs_installer_dir = (
+        os.environ.get("ProgramFiles(x86)")
+        + "\\Microsoft Visual Studio\\Installer"
+    )
 
-    if sh.get_supported_arch() != "x86_64":
-        log.fatal("Windows builds currently only support x86_64.")
+    ensure_path_exists(
+        vs_installer_dir,
+        help_msg="You likely don't have `Visual Studio Installer`"
+        + " on your system. Please install it from here:\n"
+        + "https://visualstudio.microsoft.com/",
+    )
 
-    vs_installer_dir = win.vs_installer_dir()
-    vs_installation_dir = win.vs_installation_dir()
+    # `vswhere` lets us find where a specific version is installed.
+    ensure_path_exists(f"{vs_installer_dir}\\vswhere.exe")
+    try:
+        vs_installation_path = run_cmd(
+            f"{vs_installer_dir}\\vswhere.exe",
+            "-property",
+            "installationPath",
+            "-latest",
+            non_fatal=True,
+        )
+    except CmdException:
+        fatal("Couldn't find Visual Studio 2022.")
+    info("MSVC found.")
 
     # Collect a list of all Visual Studio components that are installed.
     def get_installed_vs_components() -> list[str]:
