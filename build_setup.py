@@ -267,8 +267,6 @@ def windows() -> None:
             f"{vs_installer_dir}\\vswhere.exe",
             "-property",
             "installationPath",
-            "-version",
-            "[17.0, 18.0)",  # Only Visual Studio 2022.
             "-latest",
             non_fatal=True,
         )

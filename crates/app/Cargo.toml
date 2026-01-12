@@ -4,3 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+egui = "0.33.3"
+eframe = { version = "0.33.3", default-features = false, features = [
+    "default_fonts",
+    "wgpu",
+] }
+engine = { version = "0.1.0", path = "../engine" }
+egui-wgpu = "0.33.3"
+media = { version = "0.1.0", path = "../media" }
+egui-winit = "0.33.3"
+wgpu = "22"
+winit = "0.30"
+pollster = "0.4"
+env_logger = "0.11"
