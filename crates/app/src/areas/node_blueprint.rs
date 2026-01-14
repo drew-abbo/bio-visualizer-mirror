@@ -1,4 +1,4 @@
-use crate::ui::View;
+use crate::view::View;
 use egui::{Color32, Pos2, Rect, Stroke, Vec2};
 
 pub struct NodeBlueprint {
@@ -48,8 +48,8 @@ impl NodeBlueprint {
         let grid_spacing = self.grid_size;
 
         // Grid line colors
-        let major_color = Color32::from_rgba_premultiplied(80, 80, 100, 255);
-        let minor_color = Color32::from_rgba_premultiplied(40, 40, 60, 255);
+        let major_color = Color32::from_rgba_premultiplied(200, 200, 200, 255);
+        let minor_color = Color32::from_rgba_premultiplied(100, 100, 100, 255); 
 
         // Draw vertical lines
         let start_x = (top_left.x / grid_spacing).floor() * grid_spacing;
@@ -90,7 +90,7 @@ impl NodeBlueprint {
         }
 
         // Draw origin axes (highlighted)
-        let origin_color = Color32::from_rgba_premultiplied(120, 120, 150, 255);
+        let origin_color = Color32::from_rgba_premultiplied(220, 220, 220, 255);
         
         // X-axis
         let x_start = self.canvas_to_screen(Pos2::new(top_left.x, 0.0), canvas_rect);
@@ -155,7 +155,7 @@ impl View for NodeBlueprint {
         ui.painter().rect_filled(
             canvas_rect,
             0.0,
-            Color32::from_rgb(15, 15, 20),
+            Color32::from_rgb(20, 22, 25),
         );
 
         // Draw the grid
