@@ -1,6 +1,6 @@
 use super::frame::streams::StreamStats;
 use super::frame::{Frame, Producer};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 pub struct VideoPlayer {
     producer: Producer,
@@ -13,11 +13,14 @@ pub struct VideoPlayer {
     // Timing
     fps: f64,
     frame_duration: Duration,
-    last_update: Option<Instant>,
+    time_accumulator: Duration,
+    
+    // Debug counters
+    debug_frame_count: u64,
+    debug_time_elapsed: Duration,
 }
 
 impl VideoPlayer {
-    /// Create a new video player from a producer
     pub fn new(producer: Producer) -> Self {
         let fps = producer.stats().fps;
         let frame_duration = Duration::from_secs_f64(1.0 / fps);
@@ -29,21 +32,20 @@ impl VideoPlayer {
             current_time: Duration::ZERO,
             fps,
             frame_duration,
-            last_update: None,
+            time_accumulator: Duration::ZERO,
+            debug_frame_count: 0,
+            debug_time_elapsed: Duration::ZERO,
         }
     }
 
-    /// Get the current frame (if available)
     pub fn current_frame(&self) -> Option<&Frame> {
         self.current_frame.as_ref()
     }
 
-    /// Check if the player is currently playing
     pub fn is_playing(&self) -> bool {
         self.playing
     }
 
-    /// Get the current playback time
     pub fn current_time(&self) -> Duration {
         self.current_time
     }
@@ -59,13 +61,13 @@ impl VideoPlayer {
     pub fn play(&mut self) {
         if !self.playing {
             self.playing = true;
-            self.last_update = Some(Instant::now());
+            self.time_accumulator = Duration::ZERO;
         }
     }
 
     pub fn pause(&mut self) {
         self.playing = false;
-        self.last_update = None;
+        self.time_accumulator = Duration::ZERO;
     }
 
     pub fn toggle_play_pause(&mut self) {
@@ -86,38 +88,64 @@ impl VideoPlayer {
         // TODO: Implement if producer supports seeking backwards
     }
 
-    /// Seek to a specific time
     pub fn seek(&mut self, time: Duration) {
         self.current_time = time;
-        // TODO: Tell producer to seek
+        self.time_accumulator = Duration::ZERO;
         self.fetch_next_frame();
     }
 
-    /// Update the player - call this every frame from event loop
-    /// Returns true if a new frame was fetched
-    pub fn update(&mut self) -> bool {
+    /// Update the player with delta time from egui
+    /// Pass in ctx.input(|i| i.unstable_dt) for frame-accurate timing
+    pub fn update_with_dt(&mut self, dt: f32) -> bool {
         if !self.playing {
             return false;
         }
 
-        let now = Instant::now();
-        let elapsed = self
-            .last_update
-            .map(|last| now - last)
-            .unwrap_or(Duration::ZERO);
+        // Clamp incoming dt to prevent huge spikes from window events
+        // (backgrounding, resizing, etc.)
+        let delta = Duration::from_secs_f32(dt.min(0.1)); // Max 100ms per frame
+        self.time_accumulator += delta;
 
-        // Check if enough time has passed for next frame
-        if elapsed >= self.frame_duration {
-            self.last_update = Some(now);
+        // Some useful debug info to test different kinds of videos
+        #[cfg(debug_assertions)]
+        {
+            self.debug_time_elapsed += delta;
+            if self.debug_time_elapsed.as_secs() >= 5 {
+                let actual_fps = self.debug_frame_count as f64 / self.debug_time_elapsed.as_secs_f64();
+                println!(
+                    "Video: {:.1} FPS (target: {:.1}) | Accumulator: {:.1}ms",
+                    actual_fps,
+                    self.fps,
+                    self.time_accumulator.as_secs_f64() * 1000.0,
+                );
+                self.debug_frame_count = 0;
+                self.debug_time_elapsed = Duration::ZERO;
+            }
+        }
+
+        // Check if we have accumulated enough time for the next frame
+        if self.time_accumulator >= self.frame_duration {
+            self.time_accumulator -= self.frame_duration;
             self.current_time += self.frame_duration;
             self.fetch_next_frame();
+            
+            #[cfg(debug_assertions)]
+            {
+                self.debug_frame_count += 1;
+            }
+            
+            // If accumulator gets too large (> 3 frames), we're falling behind
+            // Reset to prevent spiral of death
+            if self.time_accumulator > self.frame_duration * 3 {
+                self.time_accumulator = Duration::ZERO;
+            }
+            
             true
         } else {
             false
         }
     }
 
-    /// Force fetch the next frame (for manual stepping)
     fn fetch_next_frame(&mut self) {
         // Recycle old frame
         if let Some(old_frame) = self.current_frame.take() {
@@ -130,13 +158,13 @@ impl VideoPlayer {
                 self.current_frame = Some(frame);
             }
             Err(e) => {
+                // TODO: Handle error
                 eprintln!("Failed to fetch frame: {}", e);
                 self.playing = false;
             }
         }
     }
 
-    /// Get frame duration (for external timing if needed)
     pub fn frame_duration(&self) -> Duration {
         self.frame_duration
     }

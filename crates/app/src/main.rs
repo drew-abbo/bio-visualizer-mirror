@@ -1,6 +1,8 @@
 mod app;
-mod ui;
-
+mod video;
+mod components;
+mod view;
+mod areas;
 use app::App;
 
 fn main() -> Result<(), eframe::Error> {
@@ -18,7 +20,7 @@ fn main() -> Result<(), eframe::Error> {
 
     // Run the app
     eframe::run_native(
-        "my_app",
+        "Bio Visualizer",
         native_options,
         Box::new(|cc| Ok(Box::new(App::new(cc)))),
     )
