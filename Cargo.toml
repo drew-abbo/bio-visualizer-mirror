@@ -1,8 +1,9 @@
 [workspace]
 members = [
-    "crates/app",
-    "crates/util",
-    "crates/media",
-    "crates/launcher",
+  "crates/app",
+  "crates/util",
+  "crates/media",
+  "crates/engine",
+  "crates/launcher",
 ]
 resolver = "2"
