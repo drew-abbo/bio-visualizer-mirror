@@ -8,8 +8,6 @@ pub trait MenuBarButton {
 
 pub enum MenuAction {
     ImportVideo(std::path::PathBuf),
-    Export,
-    Settings,
 }
 
 pub struct MenuBar {
