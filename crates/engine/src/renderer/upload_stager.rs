@@ -81,7 +81,7 @@ impl UploadStager {
                 texture: self
                     .tex
                     .as_ref()
-                    .ok_or_else(|| EngineError::TextureNotInitialized)?,
+                    .ok_or(EngineError::TextureNotInitialized)?,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,

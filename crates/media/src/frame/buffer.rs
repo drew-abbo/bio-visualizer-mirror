@@ -23,7 +23,7 @@ use std::slice::{self, Chunks, ChunksMut};
 
 use thiserror::Error;
 
-use crate::cast_slice;
+use util::cast_slice;
 
 pub use dimensions::*;
 pub use pixel::*;

@@ -12,8 +12,9 @@ use ffmpeg::software::scaling::Context as FFmpegScalingContext;
 use ffmpeg::software::scaling::flag::Flags as FFmpegScalingFlags;
 use ffmpeg_next as ffmpeg;
 
+use util::cast_slice;
+
 use super::IntoStreamError;
-use crate::cast_slice;
 use crate::frame::{Dimensions, FrameBuffer, Pixel};
 
 /// A [FrameBuffer] based on an FFmpeg video frame.
