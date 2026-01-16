@@ -27,6 +27,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
+from typing import NoReturn, Iterable, Sequence, Any
 
 
 output_is_terminal = sys.stdout.isatty()
@@ -44,9 +45,13 @@ class Color:
 
 
 # Print an error and exit.
-def fatal(*args, include_run_again_msg: bool = True, **kwargs) -> None:
+def fatal(
+    *args: Any,
+    include_run_again_msg: bool = True,
+    sep: str | None = " ",
+) -> NoReturn:
     print(f"{Color.ERROR}FATAL{Color.RESET}: ", end="", file=sys.stderr)
-    print(*args, **kwargs, file=sys.stderr)
+    print(*args, sep=sep, file=sys.stderr)
     if include_run_again_msg:
         print(
             "\nPlease run this script again once the issue is resolved.",
@@ -56,21 +61,41 @@ def fatal(*args, include_run_again_msg: bool = True, **kwargs) -> None:
 
 
 # Print a warning.
-def warning(*args, **kwargs) -> None:
-    print(f"{Color.WARNING}WARNING{Color.RESET}: ", end="", file=sys.stderr)
-    print(*args, **kwargs, file=sys.stderr)
+def warning(
+    *args: Any,
+    sep: str | None = " ",
+    end: str | None = "\n",
+    flush: bool = False,
+) -> None:
+    print(
+        f"{Color.WARNING}WARNING{Color.RESET}: ",
+        end="",
+        file=sys.stderr,
+        flush=False,
+    )
+    print(*args, sep=sep, file=sys.stderr, end=end, flush=flush)
 
 
 # Print some info.
-def info(*args, **kwargs) -> None:
-    print(f"{Color.INFO}INFO{Color.RESET}: ", end="")
-    print(*args, **kwargs)
+def info(
+    *args: Any,
+    sep: str | None = " ",
+    end: str | None = "\n",
+    flush: bool = False,
+) -> None:
+    print(f"{Color.INFO}INFO{Color.RESET}: ", end="", flush=False)
+    print(*args, sep=sep, end=end, flush=flush)
 
 
 # Print that the process is done (success).
-def success(*args, **kwargs) -> None:
-    print(f"{Color.SUCCESS}SUCCESS{Color.RESET}: ", end="")
-    print(*args, **kwargs)
+def success(
+    *args: Any,
+    sep: str | None = " ",
+    end: str | None = "\n",
+    flush: bool = False,
+) -> None:
+    print(f"{Color.SUCCESS}SUCCESS{Color.RESET}: ", end="", flush=False)
+    print(*args, sep=sep, end=end, flush=flush)
 
 
 # When set, all `confirm` confirmations with be responded to with this instead
@@ -79,9 +104,9 @@ confirm_auto_answer = None
 
 
 # Print a message and await a "yes"/"no" from the user.
-def confirm(*args, **kwargs) -> bool:
+def confirm(*args: Any, sep: str | None = " ") -> bool:
     print(f"{Color.CONFIRM}CONFIRM{Color.RESET}: ", end="")
-    print(*args, **kwargs, end="")
+    print(*args, sep=sep, end="")
     print(f" ({Color.CONFIRM}y{Color.RESET}/n): {Color.CONFIRM}", end="")
 
     if confirm_auto_answer is None:
@@ -95,9 +120,9 @@ def confirm(*args, **kwargs) -> bool:
 
 
 # Print a message and wait for the user to hit enter.
-def action_needed(*args, **kwargs) -> bool:
+def action_needed(*args: Any, sep: str | None = " ") -> None:
     print(f"{Color.ACTION_NEEDED}MANUAL ACTION NEEDED{Color.RESET}: ", end="")
-    print(*args, **kwargs, end="")
+    print(*args, sep=sep, end="")
     print(
         f" (press [{Color.ACTION_NEEDED}ENTER{Color.RESET}] if you have "
         + "completed the action manually or enter a shell command to run): "
@@ -128,7 +153,7 @@ def parse_args() -> None:
 # Does a check to see if a path exists.
 def ensure_path_exists(
     path: str, help_msg: str | None = None, non_fatal: bool = False
-):
+) -> None:
     if not os.path.exists(path):
         err_msg = f"Couldn't find `{path}`." + (
             f"\n{help_msg}" if help_msg is not None else ""
@@ -141,7 +166,7 @@ def ensure_path_exists(
 # Does a check to see if a command exists on the `PATH`.
 def ensure_cmd_exists(
     cmd: str, help_msg: str | None = None, non_fatal: bool = False
-):
+) -> None:
     if shutil.which(cmd) is None:
         err_msg = f"Couldn't find `{cmd}` on the path." + (
             f"\n{help_msg}" if help_msg is not None else ""
@@ -162,11 +187,11 @@ class DoesntExistException(Exception):
 
 # Joins the command arguments into a single string, naively wrapping arguments
 # that contain spaces in double quotes.
-def format_cmd(cmd: list[str]) -> str:
+def format_cmd(cmd: Iterable[str]) -> str:
     return " ".join(arg if " " not in arg else f'"{arg}"' for arg in cmd)
 
 
-def print_running_cmd(cmd: list[str]) -> None:
+def print_running_cmd(cmd: Sequence[str]) -> None:
     # Highlight the file name in the first argument.
     last_slash_idx = max(cmd[0].rfind("/"), cmd[0].rfind("\\"))
     highlight_start_idx = 0 if last_slash_idx == -1 else last_slash_idx + 1
@@ -198,15 +223,16 @@ def run_cmd(*cmd: str, shell: bool = False, non_fatal: bool = False) -> str:
 
         # Capture and print lines as they come in.
         output = ""
-        for line in process.stdout:
-            output += line
-            print(line, end="", flush=True)
+        if process.stdout is not None:
+            for line in process.stdout:
+                output += line
+                print(line, end="", flush=True)
         process.wait()
 
     except KeyboardInterrupt:
         raise
     finally:
-        print(f"\n{Color.COMMAND}{'~' * 80}{Color.RESET}")
+        print(f"\n{Color.RESET + Color.COMMAND}{'~' * 80}{Color.RESET}")
 
     if (exit_code := process.returncode) != 0:
         err_msg = f"`{format_cmd(cmd)}` failed with exit code {exit_code}."
@@ -240,7 +266,7 @@ def create_cargo_config(contents: str) -> None:
     with open(path, "w", encoding="utf-8") as f:
         f.write("# Generated by `build_setup.py`.\n" + contents)
 
-    info("Cargo config generated.")
+    info(f"Cargo config generated (`{path}`).")
 
 
 # Handles build setup for Windows builds.
@@ -248,10 +274,11 @@ def windows() -> None:
     if platform.machine().lower() not in ("amd64", "x86_64"):
         fatal("Windows builds currently only support x86_64.")
 
-    vs_installer_dir = (
-        os.environ.get("ProgramFiles(x86)")
-        + "\\Microsoft Visual Studio\\Installer"
-    )
+    program_files = os.environ.get("ProgramFiles(x86)")
+    if program_files is None:
+        fatal("Coldn't find ProgramFiles(x86).")
+
+    vs_installer_dir = f"{program_files}\\Microsoft Visual Studio\\Installer"
 
     ensure_path_exists(
         vs_installer_dir,
@@ -462,9 +489,7 @@ def windows() -> None:
         # We can at least ask to download the FFmpeg zip file automatically if
         # they don't have it.
 
-        FFMPEG_DOWNLOAD_URL = (
-            "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full-shared.7z"
-        )
+        FFMPEG_DOWNLOAD_URL = "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-8.0.1-full_build-shared.7z"
 
         MANUAL_INSTALL_MSG = (
             "You can still manually install.\n"
