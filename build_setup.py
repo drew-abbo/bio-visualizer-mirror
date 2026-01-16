@@ -295,12 +295,12 @@ def windows() -> None:
             "-property",
             "installationPath",
             "-version",
-            "[17.0, 18.0)",  # Only Visual Studio 2022.
+            "[17.0, 19.0)",  # Only Visual Studio 2022 or 2026.
             "-latest",
             non_fatal=True,
         )
     except CmdException:
-        fatal("Couldn't find Visual Studio 2022.")
+        fatal("Couldn't find Visual Studio (2022 or 2026).")
     info("MSVC found.")
 
     # Collect a list of all Visual Studio components that are installed.
