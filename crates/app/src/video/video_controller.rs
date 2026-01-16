@@ -29,10 +29,6 @@ impl VideoController {
         Ok(())
     }
 
-    pub fn load_producer(&mut self, producer: media::frame::Producer) {
-        self.player = Some(VideoPlayer::new(producer));
-    }
-
     /// Update playback and render current frame if needed
     pub fn update_and_render(
         &mut self,
@@ -67,22 +63,9 @@ impl VideoController {
         }))
     }
 
-    pub fn player(&self) -> Option<&VideoPlayer> {
-        self.player.as_ref()
-    }
-
     pub fn player_mut(&mut self) -> Option<&mut VideoPlayer> {
         self.player.as_mut()
     }
-
-    pub fn renderer(&self) -> &Renderer {
-        &self.renderer
-    }
-
-    pub fn renderer_mut(&mut self) -> &mut Renderer {
-        &mut self.renderer
-    }
-
     pub fn has_video(&self) -> bool {
         self.player.is_some()
     }
