@@ -54,7 +54,6 @@ impl eframe::App for App {
                         self.video_context.toggle_playback();
                     }
                 }
-                _ => {}
             }
         }
 
