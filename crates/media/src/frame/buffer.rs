@@ -16,10 +16,14 @@ mod uid;
 use std::any::Any;
 use std::fmt::{self, Debug, Formatter};
 use std::hash::{Hash, Hasher};
+use std::io;
 use std::mem::{self, MaybeUninit};
 use std::ops::{Index, IndexMut};
+use std::path::Path;
 use std::ptr;
 use std::slice::{self, Chunks, ChunksMut};
+
+use image::{ImageError, ImageReader};
 
 use thiserror::Error;
 
@@ -169,6 +173,11 @@ impl Frame {
     /// Creates a new frame with all pixels being set to [Pixel::BLACK].
     pub fn new(dimensions: Dimensions) -> Self {
         Self::from_fill(dimensions, Pixel::BLACK)
+    }
+
+    /// Create a frame from an image file (e.g. a `.png` file).
+    pub fn from_img_file(path: impl AsRef<Path>) -> Result<Self, FromImgFileError> {
+        Self::from_img_file_impl(path.as_ref())
     }
 
     /// Tries to create a new frame, returning an error if
@@ -814,6 +823,25 @@ impl Frame {
             uid,
         }
     }
+
+    fn from_img_file_impl(path: &Path) -> Result<Self, FromImgFileError> {
+        let img = ImageReader::open(path)?
+            .decode()
+            .map_err(|e| match e {
+                ImageError::IoError(e) => FromImgFileError::Io(e),
+                ImageError::Unsupported(_) => FromImgFileError::BadFormat,
+                _ => FromImgFileError::BadData,
+            })?
+            .to_rgba8();
+
+        let dimensions: Dimensions = img.dimensions().into();
+        let data = img.into_vec().into_boxed_slice();
+
+        // We're using the checked version of `from_raw_data` here since I don't
+        // trust the `image` crate.
+        Ok(Self::from_raw_data(data, dimensions)
+            .expect("The image data should be aligned and of the right length."))
+    }
 }
 
 // SAFETY: This thread is safe to send between threads, despite storing a raw
@@ -953,6 +981,17 @@ pub enum TryFromSliceError {
 pub struct DifferentDimensionsError {
     pub expected: Dimensions,
     pub actual: Dimensions,
+}
+
+/// An error calling [Frame::from_img_file].
+#[derive(Error, Debug)]
+pub enum FromImgFileError {
+    #[error(transparent)]
+    Io(#[from] io::Error),
+    #[error("The image file has an unknown or unsupported image file format.")]
+    BadFormat,
+    #[error("The image file's data did not follow its file format.")]
+    BadData,
 }
 
 /// A basic [FrameBuffer]. This is what is stored internally when you call
