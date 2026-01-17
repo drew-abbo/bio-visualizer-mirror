@@ -1,49 +1,56 @@
-use super::common::{self, Pipeline};
-use crate::errors::EngineError;
-use crate::types::ColorGradingParams;
+use crate::engine_errors::EngineError;
+use crate::pipelines::common::{
+    Pipeline, create_linear_sampler, create_standard_bind_group_layout,
+};
 use std::any::Any;
 
-#[derive(Debug)]
-pub struct ColorGradingPipeline {
+use crate::pipelines::shaders::brightness_shader::BRIGHTNESS_SHADER;
+
+#[derive(Debug, Copy, Clone)]
+#[repr(C)]
+pub struct BrightnessParams {
+    pub brightness: f32,
+    pub _padding: [f32; 3],
+}
+
+unsafe impl bytemuck::Pod for BrightnessParams {}
+unsafe impl bytemuck::Zeroable for BrightnessParams {}
+
+pub struct BrightnessPipeline {
     sampler: wgpu::Sampler,
     bgl: wgpu::BindGroupLayout,
     pipeline: wgpu::RenderPipeline,
     params_buf: wgpu::Buffer,
 }
 
-impl Pipeline for ColorGradingPipeline {
-    fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Result<Self, EngineError>
-    where
-        Self: Sized,
-    {
-        let sampler = common::create_nearest_sampler(device);
-        let bgl = common::create_standard_bind_group_layout(device, "bgl/color_grading");
+impl Pipeline for BrightnessPipeline {
+    fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Result<Self, EngineError> {
+        let sampler = create_linear_sampler(device);
+        let bgl = create_standard_bind_group_layout(device, "bgl/brightness");
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("layout/color_grading"),
+            label: Some("layout/brightness"),
             bind_group_layouts: &[&bgl],
-            push_constant_ranges: &[],
+            ..Default::default()
         });
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("shader/color_grading"),
-            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
-                "../shaders/color_grading.wgsl"
-            ))),
+            label: Some("shader/brightness"),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(BRIGHTNESS_SHADER)),
         });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("pipeline/color_grading"),
+            label: Some("pipeline/brightness"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: Some("main_vs"),
+                entry_point: Some("vs_main"),
                 buffers: &[],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: Some("main_fs"),
+                entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: target_format,
                     blend: Some(wgpu::BlendState::REPLACE),
@@ -54,12 +61,22 @@ impl Pipeline for ColorGradingPipeline {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
             cache: None,
+            multiview_mask: None,
         });
 
-        // Could remove this and supplement an error if there were no params uploaded to the pipeline
-        let params_buf = create_default_params_buffer(device, "ubo/color_grading_params");
+        let params_buf = {
+            use wgpu::util::DeviceExt;
+            let params = BrightnessParams {
+                brightness: 1.0,
+                _padding: [0.0; 3],
+            };
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("ubo/brightness"),
+                contents: bytemuck::bytes_of(&params),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            })
+        };
 
         Ok(Self {
             sampler,
@@ -72,41 +89,25 @@ impl Pipeline for ColorGradingPipeline {
     fn pipeline(&self) -> &wgpu::RenderPipeline {
         &self.pipeline
     }
-
     fn bind_group_layout(&self) -> &wgpu::BindGroupLayout {
         &self.bgl
     }
-
     fn sampler(&self) -> &wgpu::Sampler {
         &self.sampler
     }
-
     fn params_buffer(&self) -> &wgpu::Buffer {
         &self.params_buf
     }
-
     fn name(&self) -> &str {
-        "ColorGrading"
+        "Brightness"
     }
-
     fn expected_param_type(&self) -> &str {
-        "ColorGradingParams"
+        "BrightnessParams"
     }
 
     fn update_params(&self, queue: &wgpu::Queue, params: &dyn Any) -> Result<(), EngineError> {
-        if let Some(cg_params) = params.downcast_ref::<ColorGradingParams>() {
-            // Use bytemuck for safe POD-to-bytes conversion
-            let bytes = bytemuck::bytes_of(cg_params);
-
-            let expected_size = std::mem::size_of::<ColorGradingParams>();
-            if bytes.len() != expected_size {
-                return Err(EngineError::BufferSizeMismatch {
-                    expected: expected_size,
-                    actual: bytes.len(),
-                });
-            }
-
-            queue.write_buffer(&self.params_buf, 0, bytes);
+        if let Some(p) = params.downcast_ref::<BrightnessParams>() {
+            queue.write_buffer(&self.params_buf, 0, bytemuck::bytes_of(p));
             Ok(())
         } else {
             Err(EngineError::InvalidParamType {
@@ -116,18 +117,4 @@ impl Pipeline for ColorGradingPipeline {
             })
         }
     }
-}
-
-pub fn create_default_params_buffer(device: &wgpu::Device, label: &str) -> wgpu::Buffer {
-    use wgpu::util::DeviceExt;
-
-    let params = ColorGradingParams::default();
-
-    let bytes = bytemuck::bytes_of(&params);
-
-    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some(label),
-        contents: bytes,
-        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-    })
 }

@@ -1,4 +1,4 @@
-use crate::errors::EngineError;
+use crate::engine_errors::EngineError;
 
 pub struct UploadStager {
     tex: Option<wgpu::Texture>,

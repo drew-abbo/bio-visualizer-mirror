@@ -1,9 +1,9 @@
-use crate::renderer::pipelines::common::Pipeline;
+use crate::pipelines::common::Pipeline;
 
 /// An effect in the rendering pipeline, consisting of a pipeline and its parameters
 pub struct Effect {
-    /// We need this to bet able to store any kind of pipeline and its params
-    /// A lits of effects are itterated over in the renderer so we want to midigate any manual type handling
+    /// We need this to be able to store any kind of pipeline and its params
+    /// A list of effects are iterated over in the renderer so we want to mitigate any manual type handling
     pipeline: Box<dyn Pipeline>,
     params: Box<dyn std::any::Any + Send + Sync>,
 }

@@ -1,4 +1,4 @@
-use crate::errors::EngineError;
+use crate::engine_errors::EngineError;
 use std::any::Any;
 
 /// Core trait defining a GPU rendering pipeline for video effects.
@@ -10,10 +10,10 @@ use std::any::Any;
 ///
 /// # Pipeline Architecture
 ///
-/// All pipelines follow a standard structure:
+/// Pipelines can process one or more input textures:
 /// ```text
-/// Input Texture → [Shader Processing] → Output Texture
-///                        ↑
+/// Primary Input → [Shader Processing] → Output
+/// Secondary Inputs ↗     ↑
 ///                   Parameters (uniforms)
 /// ```
 ///
@@ -23,56 +23,24 @@ use std::any::Any;
 /// 2. **Update**: Pass new parameters via `update_params()`
 /// 3. **Render**: Apply effect via `apply()` which:
 ///    - Updates GPU uniform buffer with parameters
-///    - Creates bind group linking input texture + sampler + params
+///    - Creates bind group linking input texture(s) + sampler + params
 ///    - Runs a render pass with a fullscreen triangle
-///
-/// # Standard Bind Group Layout
-///
-/// Most pipelines use this binding structure:
-/// - `binding 0`: Sampler (how to read texture pixels)
-/// - `binding 1`: Input texture (the video frame or previous effect)
-/// - `binding 2`: Uniform buffer (effect parameters like brightness, blur radius, etc.)
 pub trait Pipeline {
     /// Create a new pipeline instance.
-    ///
-    /// This initializes all GPU resources needed for rendering:
-    /// - Compiles shaders
-    /// - Creates render pipeline
-    /// - Allocates uniform buffers
-    /// - Sets up bind group layouts
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if shader compilation fails or GPU resources can't be created.
     fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Result<Self, EngineError>
     where
         Self: Sized;
 
     /// Get the underlying wgpu render pipeline.
-    ///
-    /// This is the compiled GPU state that includes:
-    /// - Vertex and fragment shaders
-    /// - Render state (blending, depth, etc.)
-    /// - Vertex layout
     fn pipeline(&self) -> &wgpu::RenderPipeline;
 
     /// Get the bind group layout defining resource bindings.
-    ///
-    /// This describes what resources (textures, buffers, samplers) the shader expects
-    /// and how they're bound (binding numbers, visibility, types).
     fn bind_group_layout(&self) -> &wgpu::BindGroupLayout;
 
     /// Get the texture sampler for reading input pixels.
-    ///
-    /// Samplers control how textures are read:
-    /// - Nearest: Sharp, pixel-perfect (good for pixel art)
-    /// - Linear: Smooth, interpolated (good for scaling)
     fn sampler(&self) -> &wgpu::Sampler;
 
     /// Get the uniform buffer containing effect parameters.
-    ///
-    /// This GPU buffer holds the effect's parameters (like blur radius, color tint)
-    /// that get passed to the shader. Updated via `update_params()`.
     fn params_buffer(&self) -> &wgpu::Buffer;
 
     /// Get the pipeline's name for debugging and error messages.
@@ -81,43 +49,65 @@ pub trait Pipeline {
     /// Get the expected parameter type name for error messages.
     fn expected_param_type(&self) -> &str;
 
-    /// Update the GPU uniform buffer with new effect parameters.
+    /// Number of additional texture inputs this pipeline needs (beyond the primary input).
     ///
-    /// This copies new parameter values from CPU to GPU memory. Implementations should:
-    /// 1. Downcast `params` to the expected type
-    /// 2. Write the data to the params buffer using `queue.write_buffer()`
+    /// # Examples
+    ///
+    /// - Color grading: 0 (only needs primary input)
+    /// - Blend/Overlay: 1 (needs primary + overlay texture)
+    /// - Displacement map: 1 (needs primary + displacement texture)
+    /// - Multi-layer composite: 2+ (needs primary + multiple overlay layers)
+    fn additional_input_count(&self) -> usize {
+        0 // Default: no additional inputs needed
+    }
+
+    /// Update the GPU uniform buffer with new effect parameters.
+    fn update_params(&self, queue: &wgpu::Queue, params: &dyn Any) -> Result<(), EngineError>;
+
+    /// Create a bind group linking input texture(s) to pipeline resources.
+    ///
+    /// Override this to customize bind group creation for multi-input pipelines.
     ///
     /// # Arguments
     ///
-    /// * `queue` - GPU command queue for buffer writes
-    /// * `params` - Effect parameters (must be downcast to concrete type)
+    /// * `device` - GPU device for creating bind groups
+    /// * `primary_input` - Main input texture view
+    /// * `additional_inputs` - Optional secondary texture views (overlays, masks, etc.)
     ///
-    /// # Errors
+    /// # Default Implementation
     ///
-    /// Returns an error if the params can't be downcast to the expected type.
-    /// See example in color_grading.rs for reference.
-    fn update_params(&self, queue: &wgpu::Queue, params: &dyn Any) -> Result<(), EngineError>;
-
-    /// Create a bind group linking input texture to pipeline resources.
-    ///
-    /// A bind group is a collection of resources (textures, buffers, samplers) bound together
-    /// for a shader to use. This creates the standard binding:
+    /// The default creates a standard single-input bind group:
     /// - binding 0: sampler
-    /// - binding 1: input texture
+    /// - binding 1: primary input texture
     /// - binding 2: params buffer
-    ///
-    /// Override this if you need custom bind group creation.
     fn bind_group_for(
         &self,
         device: &wgpu::Device,
-        tex_view: &wgpu::TextureView,
-    ) -> wgpu::BindGroup {
-        self.create_standard_bind_group(device, tex_view, None)
+        primary_input: &wgpu::TextureView,
+        additional_inputs: &[&wgpu::TextureView],
+    ) -> Result<wgpu::BindGroup, EngineError> {
+        // Validate input count
+        if additional_inputs.len() != self.additional_input_count() {
+            return Err(EngineError::InvalidInputCount {
+                expected: self.additional_input_count(),
+                actual: additional_inputs.len(),
+            });
+        }
+
+        // Default implementation for single-input pipelines
+        if additional_inputs.is_empty() {
+            Ok(self.create_standard_bind_group(device, primary_input, None))
+        } else {
+            Err(EngineError::UnsupportedOperation(format!(
+                "{} has additional inputs but doesn't override bind_group_for()",
+                self.name()
+            )))
+        }
     }
 
-    /// Create a standard bind group with optional label.
+    /// Create a standard bind group for single-input pipelines.
     ///
-    /// This is the default implementation used by most pipelines.
+    /// This is the default implementation used by most simple pipelines.
     /// It binds the sampler, input texture, and parameters buffer
     /// to bindings 0, 1, and 2 respectively.
     fn create_standard_bind_group(
@@ -146,48 +136,44 @@ pub trait Pipeline {
         })
     }
 
-    /// Apply this effect to an input texture, rendering to an output texture.
+    /// Apply this effect to input texture(s), rendering to an output texture.
     ///
     /// This is the main rendering method that:
     /// 1. Updates uniform buffer with new parameters
-    /// 2. Creates bind group linking input texture to shader
+    /// 2. Creates bind group linking input texture(s) to shader
     /// 3. Runs a render pass drawing a fullscreen triangle
-    ///
-    /// # How it works
-    ///
-    /// The pipeline renders a single triangle that covers the entire screen:
-    /// ```text
-    /// Vertex Shader: Generates fullscreen triangle from vertex ID
-    /// Fragment Shader: Samples input texture and applies effect
-    /// Output: Writes to output texture
-    /// ```
     ///
     /// # Arguments
     ///
     /// * `device` - GPU device for creating bind groups
     /// * `queue` - GPU queue for buffer updates
     /// * `encoder` - Command encoder to record rendering commands
-    /// * `input` - Input texture (video frame or previous effect output)
+    /// * `primary_input` - Primary input texture (video frame or previous effect output)
+    /// * `additional_inputs` - Optional secondary inputs (overlays, masks, displacement maps, etc.)
     /// * `output` - Output texture to render into
     /// * `params` - Effect parameters (will be downcast to concrete type)
     ///
     /// # Errors
     ///
-    /// Returns an error if parameter update fails or rendering encounters an issue.
+    /// Returns an error if:
+    /// - Parameter update fails
+    /// - Wrong number of additional inputs provided
+    /// - Bind group creation fails
     fn apply(
         &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
-        input: &wgpu::TextureView,
+        primary_input: &wgpu::TextureView,
+        additional_inputs: &[&wgpu::TextureView],
         output: &wgpu::TextureView,
         params: &dyn Any,
     ) -> Result<(), EngineError> {
         // Update parameters
         self.update_params(queue, params)?;
 
-        // Create bind group
-        let bind_group = self.bind_group_for(device, input);
+        // Create bind group with all inputs
+        let bind_group = self.bind_group_for(device, primary_input, additional_inputs)?;
 
         // Create render pass
         let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -204,6 +190,7 @@ pub trait Pipeline {
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
+            ..Default::default()
         });
 
         rpass.set_pipeline(self.pipeline());
@@ -214,34 +201,13 @@ pub trait Pipeline {
     }
 }
 
-/// Won't be used in our project more than likely but just in case
 /// Creates a nearest-neighbor sampler for pixel-perfect rendering.
-///
-/// **When to use:**
-/// - Pixel art or retro aesthetics
-/// - When you want sharp, crisp edges
-/// - Video playback at native resolution
-/// - No scaling or minimal scaling
-///
-/// **Characteristics:**
-/// - No interpolation between pixels
-/// - Sharp transitions
-/// - Can look blocky when scaled up
-/// - Fastest sampling method
-///
-/// **Filter modes:**
-/// - Magnification: Nearest (when zooming in)
-/// - Minification: Nearest (when zooming out)
-/// - Mipmaps: Nearest
-///
-/// **Address modes:**
-/// - ClampToEdge: Pixels outside texture bounds use edge color
 pub fn create_nearest_sampler(device: &wgpu::Device) -> wgpu::Sampler {
     device.create_sampler(&wgpu::SamplerDescriptor {
         label: Some("sampler/nearest"),
         mag_filter: wgpu::FilterMode::Nearest,
         min_filter: wgpu::FilterMode::Nearest,
-        mipmap_filter: wgpu::FilterMode::Nearest,
+        mipmap_filter: wgpu::MipmapFilterMode::Nearest,
         address_mode_u: wgpu::AddressMode::ClampToEdge,
         address_mode_v: wgpu::AddressMode::ClampToEdge,
         address_mode_w: wgpu::AddressMode::ClampToEdge,
@@ -249,35 +215,13 @@ pub fn create_nearest_sampler(device: &wgpu::Device) -> wgpu::Sampler {
     })
 }
 
-/// This will be used 99% of the time
 /// Creates a linear (bilinear) sampler for smooth rendering.
-///
-/// **When to use:**
-/// - Blur effects
-/// - Smooth scaling (up or down)
-/// - Anti-aliasing
-/// - Photo/video processing
-/// - Natural-looking visuals
-///
-/// **Characteristics:**
-/// - Interpolates between neighboring pixels
-/// - Smooth gradients and transitions
-/// - No jagged edges when scaling
-/// - Slightly slower than nearest
-///
-/// **Filter modes:**
-/// - Magnification: Linear (smooth when zooming in)
-/// - Minification: Linear (smooth when zooming out)
-/// - Mipmaps: Linear (smooth LOD transitions)
-///
-/// **Address modes:**
-/// - ClampToEdge: Pixels outside texture bounds use edge color
 pub fn create_linear_sampler(device: &wgpu::Device) -> wgpu::Sampler {
     device.create_sampler(&wgpu::SamplerDescriptor {
         label: Some("sampler/linear"),
         mag_filter: wgpu::FilterMode::Linear,
         min_filter: wgpu::FilterMode::Linear,
-        mipmap_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::MipmapFilterMode::Linear,
         address_mode_u: wgpu::AddressMode::ClampToEdge,
         address_mode_v: wgpu::AddressMode::ClampToEdge,
         address_mode_w: wgpu::AddressMode::ClampToEdge,
@@ -285,43 +229,13 @@ pub fn create_linear_sampler(device: &wgpu::Device) -> wgpu::Sampler {
     })
 }
 
-/// Creates the standard bind group layout used by most effect pipelines.
-///
-/// This defines the resource binding structure that shaders expect:
-///
-/// ```wgsl
-/// @group(0) @binding(0) var input_sampler: sampler;
-/// @group(0) @binding(1) var input_texture: texture_2d<f32>;
-/// @group(0) @binding(2) var<uniform> params: EffectParams;
-/// ```
+/// Creates the standard bind group layout used by most single-input effect pipelines.
 ///
 /// # Bindings
 ///
-/// ## Binding 0: Sampler
-/// - **Type**: Filtering sampler (nearest or linear)
-/// - **Visibility**: Fragment shader only
-/// - **Purpose**: Controls how texture pixels are read
-///
-/// ## Binding 1: Texture 2D
-/// - **Type**: 2D texture with float values
-/// - **Visibility**: Fragment shader only
-/// - **Purpose**: The input image/video frame to process
-/// - **Filterable**: Yes (works with linear sampling)
-///
-/// ## Binding 2: Uniform Buffer
-/// - **Type**: Uniform buffer (read-only from shader)
-/// - **Visibility**: Fragment shader only
-/// - **Purpose**: Effect parameters (brightness, blur radius, etc.)
-/// - **Dynamic offset**: No
-///
-/// # Arguments
-///
-/// * `device` - GPU device to create the layout on
-/// * `label` - Debug label for GPU debugging tools
-///
-/// # Returns
-///
-/// A bind group layout that can be used in pipeline creation.
+/// - **Binding 0**: Sampler (filtering sampler)
+/// - **Binding 1**: Texture 2D (input texture)
+/// - **Binding 2**: Uniform Buffer (effect parameters)
 pub fn create_standard_bind_group_layout(
     device: &wgpu::Device,
     label: &str,
@@ -359,5 +273,14 @@ pub fn create_standard_bind_group_layout(
                 count: None,
             },
         ],
+    })
+}
+
+pub fn create_empty_params_buffer(device: &wgpu::Device, label: &str) -> wgpu::Buffer {
+    use wgpu::util::DeviceExt;
+    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some(label),
+        contents: &[0u8; 16], // Minimum size for uniform buffer
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     })
 }
