@@ -27,7 +27,8 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
-from typing import NoReturn, Iterable, Sequence, Any
+import typing
+from typing import Literal, NoReturn, Iterable, Sequence, Any
 
 
 output_is_terminal = sys.stdout.isatty()
@@ -148,6 +149,17 @@ def parse_args() -> None:
             confirm_auto_answer = "y"
         else:
             fatal(f"Unknown argument `{arg}`.\n" + f"Usage: {arg0} [-y]")
+
+
+def get_supported_arch() -> Literal["x86_64", "arm64"] | None:
+    return typing.cast(
+        Literal["x86_64", "arm64"] | None,
+        {
+            "x86_64": "x86_64",
+            "amd64": "x86_64",
+            "arm64": "arm64",
+        }.get(platform.machine().lower()),
+    )
 
 
 # Does a check to see if a path exists.
@@ -271,7 +283,7 @@ def create_cargo_config(contents: str) -> None:
 
 # Handles build setup for Windows builds.
 def windows() -> None:
-    if platform.machine().lower() not in ("amd64", "x86_64"):
+    if get_supported_arch() != "x86_64":
         fatal("Windows builds currently only support x86_64.")
 
     program_files = os.environ.get("ProgramFiles(x86)")
@@ -562,6 +574,14 @@ def windows() -> None:
     success("Build setup complete. Try running `cargo build`.")
 
 
+def mac_os() -> None:
+    arch = get_supported_arch()
+    if arch is None:
+        fatal("MacOS builds only support x86_64 and arm64")
+
+    fatal("TODO: the rest of this function...")
+
+
 def main() -> None:
     try:
         parse_args()
@@ -570,7 +590,7 @@ def main() -> None:
         if system == "Windows":
             windows()
         elif system == "Darwin":  # MacOS
-            fatal("unimplemented")
+            mac_os()
         elif system == "Linux":
             fatal("unimplemented")
         else:
