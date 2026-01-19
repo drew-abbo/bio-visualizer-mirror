@@ -1,8 +1,8 @@
-use serde::{Serialize, Deserialize};
-use std::path::PathBuf;
+use crate::pipeline::common::Pipeline;
 use media::frame::Frame;
-use crate::pipelines::common::Pipeline;
+use serde::{Deserialize, Serialize};
 use std::any::Any;
+use std::path::PathBuf;
 
 /// Unique identifier for a node instance in the graph
 pub type NodeId = usize;
@@ -40,14 +40,19 @@ pub struct Node {
 
 pub enum NodeType {
     // Source nodes
-    MediaInput { frame: Frame },
-    
+    MediaInput {
+        frame: Frame,
+    },
+
     // Effect nodes (single input → single output)
-    Effect { pipeline: Box<dyn Pipeline>, params: Box<dyn Any> },
-    
+    Effect {
+        pipeline: Box<dyn Pipeline>,
+        params: Box<dyn Any>,
+    },
+
     // Merge nodes (multiple inputs → single output)
     // Merge { blend_mode: BlendMode },
-    
+
     // Output node
     Output,
 }
@@ -56,7 +61,7 @@ pub enum NodeType {
 pub struct NodeInput {
     /// The name of input
     pub name: String,
-    
+
     /// The kind of input
     pub kind: NodeInputKind,
 }
@@ -65,7 +70,7 @@ pub struct NodeInput {
 pub struct NodeOutput {
     /// The name of output
     pub name: String,
-    
+
     /// The kind of output
     pub kind: NodeOutputKind,
 }
@@ -164,7 +169,7 @@ pub enum NodeExecutionPlan {
 pub enum BuiltInHandler {
     SumInputs,
     MultiplyInputs,
-    ImageSource
+    ImageSource,
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Default)]
@@ -183,6 +188,12 @@ pub enum FileKind {
     Midi,
 }
 
-fn default_step_i32() -> i32 { 1 }
-fn default_step_f32() -> f32 { 0.1 }
-fn default_ui_lines() -> u64 { 1 }
+fn default_step_i32() -> i32 {
+    1
+}
+fn default_step_f32() -> f32 {
+    0.1
+}
+fn default_ui_lines() -> u64 {
+    1
+}

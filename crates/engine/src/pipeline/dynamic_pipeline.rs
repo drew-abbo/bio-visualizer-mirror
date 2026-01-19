@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use crate::graph_executor::enums::ResolvedInput;
 use crate::node_library::node::NodeInputKind;
 use crate::node_library::node_definition::NodeDefinition;
-use crate::pipelines::{
-    Pipeline, common::create_linear_sampler, common::create_standard_bind_group_layout,
+use crate::pipeline::{
+    common::Pipeline, common::create_linear_sampler, common::create_standard_bind_group_layout,
 };
 
 /// A dynamically created pipeline from a shader file

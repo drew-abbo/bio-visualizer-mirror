@@ -24,4 +24,3 @@ pub enum OutputValue {
     Pixel([f32; 4]),
     Text(String),
 }
-

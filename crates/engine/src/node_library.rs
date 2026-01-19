@@ -115,8 +115,7 @@ impl NodeLibrary {
             }
 
             Some(absolute_path)
-        }
-        else {
+        } else {
             None
         };
 

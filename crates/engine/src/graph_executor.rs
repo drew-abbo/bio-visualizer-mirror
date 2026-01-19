@@ -3,16 +3,16 @@ pub mod errors;
 use crate::node_graph::{InputValue, NodeGraph, NodeInstance};
 use crate::node_library::NodeLibrary;
 use crate::node_library::node::NodeId;
-use crate::node_library::node::{BuiltInHandler, Node, NodeExecutionPlan, NodeOutputKind};
+use crate::node_library::node::{BuiltInHandler, NodeExecutionPlan, NodeOutputKind};
 use crate::node_library::node_definition::NodeDefinition;
-use crate::pipelines::common::Pipeline;
-use crate::pipelines::dynamic_pipeline::DynamicPipeline;
+use crate::pipeline::common::Pipeline;
+use crate::pipeline::dynamic_pipeline::DynamicPipeline;
 use crate::upload_stager::UploadStager;
 use enums::*;
 use errors::*;
+use media::frame::Frame;
 use std::any::Any;
 use std::collections::HashMap;
-use media::frame::Frame;
 
 /// The executor that runs a node graph and produces results
 pub struct GraphExecutor {
@@ -28,7 +28,7 @@ pub struct GraphExecutor {
     pipeline_cache: HashMap<String, Box<dyn Pipeline>>,
 
     /// Target texture format for rendering
-    target_format: wgpu::TextureFormat
+    target_format: wgpu::TextureFormat,
 }
 
 /// The result of executing a node graph
@@ -78,15 +78,15 @@ impl GraphExecutor {
                 })?;
 
             // Resolve all inputs for this node
-            let resolved_inputs = self.resolve_inputs(graph, instance)?;
+            let resolved_inputs = self.resolve_inputs(instance)?;
 
             // Execute the node based on its type
             let outputs = match &definition.node.executor {
-                NodeExecutionPlan::Shader { source } => {
+                NodeExecutionPlan::Shader { .. } => {
                     self.execute_shader_node(device, queue, definition, &resolved_inputs)?
                 }
                 NodeExecutionPlan::BuiltIn(handler) => {
-                    self.execute_builtin_node(handler, &resolved_inputs, &definition.node, device, queue)?
+                    self.execute_builtin_node(handler, &resolved_inputs, device, queue)?
                 }
             };
 
@@ -118,7 +118,6 @@ impl GraphExecutor {
     /// Converts InputValue::Connection references into actual OutputValues
     fn resolve_inputs(
         &self,
-        graph: &NodeGraph,
         instance: &NodeInstance,
     ) -> Result<HashMap<String, ResolvedInput>, ExecutionError> {
         let mut resolved = HashMap::new();
@@ -184,7 +183,7 @@ impl GraphExecutor {
         inputs: &HashMap<String, ResolvedInput>,
     ) -> Result<HashMap<String, OutputValue>, ExecutionError> {
         // Get or create the pipeline for this shader
-        let pipeline = if !self.pipeline_cache.contains_key(&definition.node.name) {
+        if !self.pipeline_cache.contains_key(&definition.node.name) {
             // Load shader code
             let shader_code = definition.load_shader_code().map_err(|e| {
                 ExecutionError::ShaderLoadError(
@@ -198,7 +197,7 @@ impl GraphExecutor {
 
             self.pipeline_cache
                 .insert(definition.node.name.clone(), pipeline);
-        };
+        }
 
         let pipeline = self.pipeline_cache.get(&definition.node.name).unwrap();
 
@@ -240,7 +239,7 @@ impl GraphExecutor {
         let output_view = output_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Convert inputs to shader parameters
-        let params = self.inputs_to_shader_params(inputs, definition)?;
+        let params = self.inputs_to_shader_params(inputs)?;
 
         // Execute the pipeline
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -286,7 +285,6 @@ impl GraphExecutor {
         &mut self,
         handler: &BuiltInHandler,
         inputs: &HashMap<String, ResolvedInput>,
-        definition: &Node,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<HashMap<String, OutputValue>, ExecutionError> {
@@ -326,7 +324,16 @@ impl GraphExecutor {
                 let frame = Frame::from_img_file(path).unwrap(); // Handle errors properly TODO
 
                 // Upload to GPU
-                let texture_view = self.upload_stager.cpu_to_gpu_rgba(&device, &queue, frame.dimensions().width(), frame.dimensions().height(), frame.raw_data()).unwrap(); // Handle errors properly TODO
+                let texture_view = self
+                    .upload_stager
+                    .cpu_to_gpu_rgba(
+                        &device,
+                        &queue,
+                        frame.dimensions().width(),
+                        frame.dimensions().height(),
+                        frame.raw_data(),
+                    )
+                    .unwrap(); // Handle errors properly TODO
 
                 let mut outputs = HashMap::new();
                 outputs.insert("output".to_string(), OutputValue::Frame(texture_view));
@@ -354,12 +361,11 @@ impl GraphExecutor {
     fn inputs_to_shader_params(
         &self,
         inputs: &HashMap<String, ResolvedInput>,
-        definition: &NodeDefinition,
     ) -> Result<Box<dyn Any>, ExecutionError> {
         // Filter out Frame inputs (they're bound as textures, not uniform params)
         let shader_params: HashMap<String, ResolvedInput> = inputs
             .iter()
-            .filter(|(name, value)| !matches!(value, ResolvedInput::Frame(_)))
+            .filter(|(.., value)| !matches!(value, ResolvedInput::Frame(_)))
             .map(|(name, value)| (name.clone(), value.clone()))
             .collect();
 
