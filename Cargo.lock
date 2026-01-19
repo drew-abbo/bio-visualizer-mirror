@@ -160,6 +160,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "allocator-api2"
+version = "0.2.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
+
+[[package]]
 name = "android-activity"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -254,9 +260,6 @@ checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
 [[package]]
 name = "app"
 version = "0.1.0"
-dependencies = [
- "media",
-]
 
 [[package]]
 name = "arbitrary"
@@ -1443,6 +1446,7 @@ dependencies = [
  "half",
  "lebe",
  "miniz_oxide",
+ "rayon-core",
  "smallvec",
  "zune-inflate",
 ]
@@ -2004,6 +2008,7 @@ dependencies = [
  "png",
  "qoi",
  "ravif",
+ "rayon",
  "rgb",
  "tiff",
  "zune-core 0.5.1",
@@ -2263,6 +2268,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ea1f30cedd69f0a2954655f7188c6a834246d2bcf1e315e2ac40c4b24dc9519"
 dependencies = [
  "cfg-if",
+ "rayon",
 ]
 
 [[package]]
@@ -3331,6 +3337,7 @@ dependencies = [
  "loop9",
  "quick-error",
  "rav1e",
+ "rayon",
  "rgb",
 ]
 
