@@ -2,8 +2,8 @@ use std::any::Any;
 use std::collections::HashMap;
 
 use crate::graph_executor::enums::ResolvedInput;
-use crate::node_library::node::{Node, NodeInputKind};
-use crate::node_library::node_definition::{self, NodeDefinition};
+use crate::node_library::node::NodeInputKind;
+use crate::node_library::node_definition::NodeDefinition;
 use crate::pipelines::{
     Pipeline, common::create_linear_sampler, common::create_standard_bind_group_layout,
 };
@@ -36,14 +36,15 @@ impl DynamicPipeline {
         target_format: wgpu::TextureFormat,
     ) -> Result<Self, String> {
         let sampler = create_linear_sampler(device);
-        let bgl = create_standard_bind_group_layout(device, &format!("bgl/{}", definition.node.name));
+        let bgl =
+            create_standard_bind_group_layout(device, &format!("bgl/{}", definition.node.name));
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some(&format!("layout/{}", definition.node.name)),
             bind_group_layouts: &[&bgl],
             ..Default::default()
         });
-        
+
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some(&format!("shader/{}", definition.node.name)),
             source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(shader_code)),

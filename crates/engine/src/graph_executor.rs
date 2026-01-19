@@ -12,6 +12,7 @@ use enums::*;
 use errors::*;
 use std::any::Any;
 use std::collections::HashMap;
+use media::frame::Frame;
 
 /// The executor that runs a node graph and produces results
 pub struct GraphExecutor {
@@ -27,7 +28,7 @@ pub struct GraphExecutor {
     pipeline_cache: HashMap<String, Box<dyn Pipeline>>,
 
     /// Target texture format for rendering
-    target_format: wgpu::TextureFormat,
+    target_format: wgpu::TextureFormat
 }
 
 /// The result of executing a node graph
@@ -85,7 +86,7 @@ impl GraphExecutor {
                     self.execute_shader_node(device, queue, definition, &resolved_inputs)?
                 }
                 NodeExecutionPlan::BuiltIn(handler) => {
-                    self.execute_builtin_node(handler, &resolved_inputs, &definition.node)?
+                    self.execute_builtin_node(handler, &resolved_inputs, &definition.node, device, queue)?
                 }
             };
 
@@ -282,10 +283,12 @@ impl GraphExecutor {
 
     /// Execute a built-in node (CPU-based operations)
     fn execute_builtin_node(
-        &self,
+        &mut self,
         handler: &BuiltInHandler,
         inputs: &HashMap<String, ResolvedInput>,
         definition: &Node,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
     ) -> Result<HashMap<String, OutputValue>, ExecutionError> {
         match handler {
             BuiltInHandler::SumInputs => {
@@ -320,17 +323,13 @@ impl GraphExecutor {
                     .ok_or(ExecutionError::InvalidInputType)?;
 
                 // Load image from disk (image crate, stb, etc.)
-                let image = load_image(path)?;
+                let frame = Frame::from_img_file(path).unwrap(); // Handle errors properly TODO
 
                 // Upload to GPU
-                let texture =
-                    self.upload_stager
-                        .upload_image(device, queue, &image, self.target_format)?;
-
-                let view = texture.create_view(&Default::default());
+                let texture_view = self.upload_stager.cpu_to_gpu_rgba(&device, &queue, frame.dimensions().width(), frame.dimensions().height(), frame.raw_data()).unwrap(); // Handle errors properly TODO
 
                 let mut outputs = HashMap::new();
-                outputs.insert("output".to_string(), OutputValue::Frame(view));
+                outputs.insert("output".to_string(), OutputValue::Frame(texture_view));
                 Ok(outputs)
             }
             _ => Err(ExecutionError::UnsupportedOutputType(panic!(

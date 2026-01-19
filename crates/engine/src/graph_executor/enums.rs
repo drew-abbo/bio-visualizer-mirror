@@ -10,7 +10,7 @@ pub enum ResolvedInput {
     Pixel([f32; 4]),
     Text(String),
     Enum(usize),
-    File(String),
+    File(std::path::PathBuf),
 }
 
 /// Output value from a node

@@ -10,7 +10,6 @@ pub struct RenderTests {
     executor: GraphExecutor,
     device: wgpu::Device,
     queue: wgpu::Queue,
-    format: TextureFormat,
 }
 
 impl RenderTests {
@@ -38,8 +37,7 @@ impl RenderTests {
             node_library,
             executor,
             device,
-            queue,
-            format: target_format,
+            queue
         })
     }
 
@@ -49,8 +47,21 @@ impl RenderTests {
         
         // Build the graph
         let mut graph = NodeGraph::new();
+        let image = graph.add_instance("Image".to_string());
         let invert = graph.add_instance("Invert".to_string());
         
+        graph.set_input_value(
+            image,
+            "path".to_string(),
+            InputValue::File(PathBuf::from("C:\\Users\\Zach\\Downloads\\integrate_jobtread.png")),
+        )?;
+
+        // Connect image output to invert input
+        graph.connect(
+            image, "output".to_string(),
+            invert, "input".to_string(),
+        )?;
+
         // Execute the graph - executor handles everything!
         let result = self.executor.execute(
             &graph,
@@ -182,35 +193,5 @@ impl RenderTests {
         
         println!("\n=== Tests Complete ===\n");
         last_result
-    }
-    
-    /// Render the output texture to the window surface
-    pub fn render_to_surface(
-        &self,
-        output_view: &wgpu::TextureView,
-        surface_view: &wgpu::TextureView,
-    ) {
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("blit_to_surface"),
-        });
-        
-        // Use a simple blit pipeline to copy the result to the surface
-        // For now, we'll just clear - you'll need a blit shader
-        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("blit_pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: surface_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                    store: wgpu::StoreOp::Store,
-                },
-                depth_slice: None,
-            })],
-            depth_stencil_attachment: None,
-            ..Default::default()
-        });
-        
-        self.queue.submit(Some(encoder.finish()));
     }
 }

@@ -1,6 +1,5 @@
 use crate::node_library::errors::LibraryError;
 use crate::node_library::node::Node;
-use crate::node_library::node::NodeExecutionPlan;
 use std::path::PathBuf;
 
 /// A loaded node definition with resolved paths
@@ -14,8 +13,6 @@ pub struct NodeDefinition {
 
     /// Absolute path to the node's folder
     pub folder_path: PathBuf,
-
-    // pub executor: NodeExecutionPlan,
 }
 
 impl NodeDefinition {

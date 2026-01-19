@@ -3,7 +3,9 @@
   "inputs": [
     {
       "name": "path",
-      "kind": "File"
+      "kind": {
+        "File": {}
+      }
     }
   ],
   "outputs": [

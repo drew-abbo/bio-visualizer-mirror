@@ -1,6 +1,7 @@
+use crate::node_library::node::NodeId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::node_library::node::NodeId;
+use std::path::PathBuf;
 
 /// A single instance of a node in the graph
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -375,7 +376,7 @@ pub enum InputValue {
     Enum(usize),
 
     /// Direct value: File path
-    File(String),
+    File(PathBuf),
 }
 
 /// Errors that can occur when working with the node graph

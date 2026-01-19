@@ -244,7 +244,7 @@ impl ApplicationHandler for App {
             Ok(mut rt) => {
                 println!("\nRunning initial tests...\n");
                 // Run tests and store result
-                self.last_output = rt.run_all_tests();
+                self.last_output = Some(rt.test_invert().unwrap());
                 self.render_tests = Some(rt);
 
                 if self.last_output.is_some() {

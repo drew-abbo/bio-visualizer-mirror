@@ -68,7 +68,7 @@ impl NodeLibrary {
 
                 if node_json.exists() {
                     // This is a node folder!
-                    match Self::load_node_definition(&path, base_path) {
+                    match Self::load_node_definition(&path) {
                         Ok(def) => {
                             println!("Found node: {}", def.node.name);
                             if definitions.contains_key(&def.node.name) {
@@ -95,17 +95,14 @@ impl NodeLibrary {
     }
 
     /// Load a single node definition from a node folder
-    fn load_node_definition(
-        node_folder: &Path,
-        base_path: &Path,
-    ) -> Result<NodeDefinition, LibraryError> {
+    fn load_node_definition(node_folder: &Path) -> Result<NodeDefinition, LibraryError> {
         let node_json = node_folder.join("node.json");
 
         // Read and parse node.json
         let json_content = std::fs::read_to_string(&node_json)
             .map_err(|e| LibraryError::IoError(node_json.clone(), e))?;
 
-        let mut node: Node = serde_json::from_str(&json_content)
+        let node: Node = serde_json::from_str(&json_content)
             .map_err(|e| LibraryError::ParseError(node_json.clone(), e.to_string()))?;
 
         // Resolve shader file path if this is a shader node
@@ -118,7 +115,8 @@ impl NodeLibrary {
             }
 
             Some(absolute_path)
-        } else {
+        }
+        else {
             None
         };
 
