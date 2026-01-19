@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-
-/// Unique identifier for a node instance in the graph
-pub type NodeId = usize;
+use crate::node_library::node::NodeId;
 
 /// A single instance of a node in the graph
 #[derive(Debug, Clone, Serialize, Deserialize)]

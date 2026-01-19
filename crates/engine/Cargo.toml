@@ -11,7 +11,8 @@ util = { version = "0.1.0", path = "../util" }
 media = { version = "0.1.0", path = "../media" }
 thiserror = "2"
 bytemuck = "1.24.0"
-serde = "1.0.228"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
 
 [dev-dependencies]
 image = "0.25.9"

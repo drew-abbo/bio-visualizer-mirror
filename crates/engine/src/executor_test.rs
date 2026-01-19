@@ -1,7 +1,3 @@
-// test_executor.rs - Fixed version with proper texture readback
-
-use std::time::Duration;
-
 use crate::effect::Effect;
 use crate::engine_errors::EngineError;
 use crate::upload_stager::UploadStager;
@@ -125,6 +121,7 @@ impl SimpleTestExecutor {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
     use crate::pipelines::{
         brightness_pipeline::{BrightnessParams, BrightnessPipeline},
         common::Pipeline,

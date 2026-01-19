@@ -35,4 +35,7 @@ pub enum EngineError {
 
     #[error("Unsupported operation: {0}")]
     UnsupportedOperation(String),
+
+    #[error("No output node defined in the graph")]
+    NoOutputNode,
 }

@@ -1,16 +1,17 @@
-// graph_executor.rs
-use crate::node_graph::{InputValue, NodeGraph, NodeId, NodeInstance};
+pub mod enums;
+pub mod errors;
+use crate::node_graph::{InputValue, NodeGraph, NodeInstance};
+use crate::node_library::NodeLibrary;
+use crate::node_library::node::NodeId;
+use crate::node_library::node::{BuiltInHandler, Node, NodeExecutionPlan, NodeOutputKind};
+use crate::node_library::node_definition::NodeDefinition;
 use crate::pipelines::common::Pipeline;
+use crate::pipelines::dynamic_pipeline::DynamicPipeline;
 use crate::upload_stager::UploadStager;
-use std::any::Any;
-use std::collections::HashMap;
-
-mod enums;
-mod errors;
-mod node_library;
 use enums::*;
 use errors::*;
-use node_library::*;
+use std::any::Any;
+use std::collections::HashMap;
 
 /// The executor that runs a node graph and produces results
 pub struct GraphExecutor {
@@ -27,6 +28,13 @@ pub struct GraphExecutor {
 
     /// Target texture format for rendering
     target_format: wgpu::TextureFormat,
+}
+
+/// The result of executing a node graph
+#[derive(Debug, Clone)]
+pub struct ExecutionResult {
+    pub output_node_id: NodeId,
+    pub outputs: HashMap<String, OutputValue>,
 }
 
 impl GraphExecutor {
@@ -72,16 +80,12 @@ impl GraphExecutor {
             let resolved_inputs = self.resolve_inputs(graph, instance)?;
 
             // Execute the node based on its type
-            let outputs = match &definition.executor {
-                NodeExecutionPlan::Shader { file_path } => self.execute_shader_node(
-                    device,
-                    queue,
-                    definition,
-                    &resolved_inputs,
-                    file_path,
-                )?,
+            let outputs = match &definition.node.executor {
+                NodeExecutionPlan::Shader { source } => {
+                    self.execute_shader_node(device, queue, definition, &resolved_inputs)?
+                }
                 NodeExecutionPlan::BuiltIn(handler) => {
-                    self.execute_builtin_node(handler, &resolved_inputs, definition)?
+                    self.execute_builtin_node(handler, &resolved_inputs, &definition.node)?
                 }
             };
 
@@ -175,25 +179,27 @@ impl GraphExecutor {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        definition: &Node,
+        definition: &NodeDefinition,
         inputs: &HashMap<String, ResolvedInput>,
-        shader_path: &std::path::Path,
     ) -> Result<HashMap<String, OutputValue>, ExecutionError> {
         // Get or create the pipeline for this shader
-        let pipeline = if !self.pipeline_cache.contains_key(&definition.name) {
+        let pipeline = if !self.pipeline_cache.contains_key(&definition.node.name) {
             // Load shader code
-            let shader_code = std::fs::read_to_string(shader_path).map_err(|e| {
-                ExecutionError::ShaderLoadError(shader_path.to_path_buf(), e.to_string())
+            let shader_code = definition.load_shader_code().map_err(|e| {
+                ExecutionError::ShaderLoadError(
+                    definition.shader_path.clone().unwrap(),
+                    e.to_string(),
+                )
             })?;
 
             // Create pipeline from shader
             let pipeline = self.create_shader_pipeline(device, &shader_code, definition)?;
 
             self.pipeline_cache
-                .insert(definition.name.clone(), pipeline);
+                .insert(definition.node.name.clone(), pipeline);
         };
 
-        let pipeline = self.pipeline_cache.get(&definition.name).unwrap();
+        let pipeline = self.pipeline_cache.get(&definition.node.name).unwrap();
 
         // Find the primary frame input
         let primary_frame = inputs
@@ -202,7 +208,7 @@ impl GraphExecutor {
                 ResolvedInput::Frame(view) => Some(view),
                 _ => None,
             })
-            .ok_or(ExecutionError::NoFrameInput(definition.name.clone()))?;
+            .ok_or(ExecutionError::NoFrameInput(definition.node.name.clone()))?;
 
         // Collect additional frame inputs (if any)
         let additional_frames: Vec<&wgpu::TextureView> = inputs
@@ -256,7 +262,7 @@ impl GraphExecutor {
 
         // Return outputs based on node definition
         let mut outputs = HashMap::new();
-        for output_def in &definition.outputs {
+        for output_def in &definition.node.outputs {
             match output_def.kind {
                 NodeOutputKind::Frame => {
                     outputs.insert(
@@ -303,7 +309,33 @@ impl GraphExecutor {
                 let mut outputs = HashMap::new();
                 outputs.insert("Sum".to_string(), OutputValue::Int(a + b));
                 Ok(outputs)
-            } // Add more built-in handlers here
+            }
+            BuiltInHandler::ImageSource => {
+                let path = inputs
+                    .get("path")
+                    .and_then(|v| match v {
+                        ResolvedInput::File(p) => Some(p),
+                        _ => None,
+                    })
+                    .ok_or(ExecutionError::InvalidInputType)?;
+
+                // Load image from disk (image crate, stb, etc.)
+                let image = load_image(path)?;
+
+                // Upload to GPU
+                let texture =
+                    self.upload_stager
+                        .upload_image(device, queue, &image, self.target_format)?;
+
+                let view = texture.create_view(&Default::default());
+
+                let mut outputs = HashMap::new();
+                outputs.insert("output".to_string(), OutputValue::Frame(view));
+                Ok(outputs)
+            }
+            _ => Err(ExecutionError::UnsupportedOutputType(panic!(
+                "Built-in handler not implemented"
+            ))),
         }
     }
 
@@ -312,35 +344,28 @@ impl GraphExecutor {
         &self,
         device: &wgpu::Device,
         shader_code: &str,
-        definition: &Node,
+        definition: &NodeDefinition,
     ) -> Result<Box<dyn Pipeline>, ExecutionError> {
-        // TODO: Implement dynamic pipeline creation
-        // This would create a pipeline similar to ColorGradingPipeline
-        // but from shader code loaded at runtime
-
-        // For now, return an error
-        Err(ExecutionError::DynamicPipelineNotImplemented)
+        DynamicPipeline::from_shader(device, shader_code, definition, self.target_format)
+            .map(|p| Box::new(p) as Box<dyn Pipeline>)
+            .map_err(|e| ExecutionError::PipelineCreationError(e))
     }
 
     /// Convert resolved inputs into shader parameters
     fn inputs_to_shader_params(
         &self,
         inputs: &HashMap<String, ResolvedInput>,
-        definition: &Node,
+        definition: &NodeDefinition,
     ) -> Result<Box<dyn Any>, ExecutionError> {
-        // TODO: Build a parameter struct from inputs
-        // This needs to match the layout expected by the shader
+        // Filter out Frame inputs (they're bound as textures, not uniform params)
+        let shader_params: HashMap<String, ResolvedInput> = inputs
+            .iter()
+            .filter(|(name, value)| !matches!(value, ResolvedInput::Frame(_)))
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect();
 
-        // For now, return a placeholder
-        Err(ExecutionError::ParamConversionNotImplemented)
+        Ok(Box::new(shader_params))
     }
-}
-
-/// The result of executing a node graph
-#[derive(Debug, Clone)]
-pub struct ExecutionResult {
-    pub output_node_id: NodeId,
-    pub outputs: HashMap<String, OutputValue>,
 }
 
 #[cfg(test)]

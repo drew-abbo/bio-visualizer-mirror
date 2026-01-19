@@ -1,0 +1,32 @@
+{
+  "name": "Brightness",
+  "inputs": [
+    {
+      "name": "input",
+      "kind": "Frame"
+    },
+    {
+      "name": "brightness",
+      "kind": {
+        "Float": {
+          "default": 1.0,
+          "min": 0.0,
+          "max": 5.0,
+          "step": 0.1
+        }
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "name": "output",
+      "kind": "Frame"
+    }
+  ],
+  "executor": {
+    "Shader": {
+      "source": "shader.wgsl"
+    }
+  },
+  "short_description": "Adjusts the brightness of the input frame"
+}

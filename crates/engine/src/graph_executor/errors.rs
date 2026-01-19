@@ -1,6 +1,5 @@
-use crate::engine_errors::EngineError;
-use crate::graph_executor::enums::NodeOutputKind;
-use crate::node_graph::{GraphError, NodeId};
+use crate::node_library::node::NodeId;
+use crate::node_library::node::NodeOutputKind;
 
 impl std::error::Error for ExecutionError {}
 
@@ -34,11 +33,11 @@ impl std::fmt::Display for ExecutionError {
             ExecutionError::UnsupportedOutputType(kind) => {
                 write!(f, "Unsupported output type: {:?}", kind)
             }
-            ExecutionError::DynamicPipelineNotImplemented => {
-                write!(f, "Dynamic pipeline creation not yet implemented")
+            ExecutionError::PipelineCreationError(e) => {
+                write!(f, "Failed to create pipeline: {}", e)
             }
-            ExecutionError::ParamConversionNotImplemented => {
-                write!(f, "Parameter conversion not yet implemented")
+            ExecutionError::ParamConversionError(e) => {
+                write!(f, "Failed to convert parameters: {}", e)
             }
         }
     }
@@ -47,7 +46,7 @@ impl std::fmt::Display for ExecutionError {
 /// Errors that can occur during graph execution
 #[derive(Debug)]
 pub enum ExecutionError {
-    GraphError(GraphError),
+    GraphError(crate::node_graph::GraphError),
     NodeNotFound(NodeId),
     DefinitionNotFound(String),
     NodeNotExecuted(NodeId),
@@ -57,9 +56,9 @@ pub enum ExecutionError {
     UnconnectedFrameInput(NodeId, String),
     NoFrameInput(String),
     ShaderLoadError(std::path::PathBuf, String),
-    RenderError(EngineError),
+    RenderError(crate::engine_errors::EngineError),
     InvalidInputType,
     UnsupportedOutputType(NodeOutputKind),
-    DynamicPipelineNotImplemented,
-    ParamConversionNotImplemented,
+    PipelineCreationError(String),
+    ParamConversionError(String),
 }

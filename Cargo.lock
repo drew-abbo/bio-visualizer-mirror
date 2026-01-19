@@ -1289,6 +1289,7 @@ dependencies = [
  "media",
  "pollster",
  "serde",
+ "serde_json",
  "thiserror 2.0.17",
  "util",
  "wgpu 28.0.0",
@@ -3420,6 +3421,17 @@ name = "regex-syntax"
 version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
+
+[[package]]
+name = "render_testing"
+version = "0.1.0"
+dependencies = [
+ "engine",
+ "media",
+ "pollster",
+ "wgpu 28.0.0",
+ "winit",
+]
 
 [[package]]
 name = "renderdoc-sys"

@@ -3,6 +3,7 @@ pub mod common;
 pub mod grayscale_pipeline;
 pub mod invert_pipeline;
 pub mod shaders;
+pub mod dynamic_pipeline;
 
 use crate::engine_errors::EngineError;
 use common::Pipeline;

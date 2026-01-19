@@ -1,0 +1,31 @@
+{
+  "name": "Add",
+  "inputs": [
+    {
+      "name": "A",
+      "kind": {
+        "Int": {
+          "default": 0
+        }
+      }
+    },
+    {
+      "name": "B",
+      "kind": {
+        "Int": {
+          "default": 0
+        }
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "name": "Sum",
+      "kind": "Int"
+    }
+  ],
+  "executor": {
+    "BuiltIn": "SumInputs"
+  },
+  "short_description": "Adds two numbers together"
+}
