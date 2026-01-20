@@ -40,3 +40,9 @@ impl FrameStream for StillFrame {
         Ok(self.0.clone())
     }
 }
+
+impl From<Frame> for StillFrame {
+    fn from(frame: Frame) -> Self {
+        StillFrame::new(frame)
+    }
+}
