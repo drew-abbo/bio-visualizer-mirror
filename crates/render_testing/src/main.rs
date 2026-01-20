@@ -1,14 +1,14 @@
-// main.rs - Complete winit app that displays test results
-
-mod generate_test;
-
+use engine::node_graph::{InputValue, NodeGraph};
+use std::path::PathBuf;
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
-use crate::generate_test::RenderTests;
+use engine::graph_executor::GraphExecutor;
+use engine::graph_executor::enums::OutputValue;
+use engine::node::NodeLibrary;
 
 fn main() {
     let event_loop = EventLoop::new().unwrap();
@@ -22,8 +22,16 @@ fn main() {
 struct App {
     window: Option<Arc<Window>>,
     state: Option<RenderState>,
-    render_tests: Option<RenderTests>,
     last_output: Option<wgpu::TextureView>,
+
+    target_fps: f32,
+    next_frame_time: Option<std::time::Instant>,
+
+    video_graph: Option<NodeGraph>,
+    executor: Option<GraphExecutor>,
+    node_library: Option<NodeLibrary>,
+    device: Option<wgpu::Device>,
+    queue: Option<wgpu::Queue>,
 }
 
 struct RenderState {
@@ -34,7 +42,6 @@ struct RenderState {
     blit_pipeline: BlitPipeline,
 }
 
-/// Simple pipeline to blit (copy) a texture to the screen
 struct BlitPipeline {
     pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
@@ -51,14 +58,12 @@ impl BlitPipeline {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("blit_bind_group_layout"),
             entries: &[
-                // Sampler
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
-                // Texture
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -162,7 +167,7 @@ impl BlitPipeline {
 
             render_pass.set_pipeline(&self.pipeline);
             render_pass.set_bind_group(0, &bind_group, &[]);
-            render_pass.draw(0..3, 0..1); // Draw fullscreen triangle
+            render_pass.draw(0..3, 0..1);
         }
 
         queue.submit(Some(encoder.finish()));
@@ -178,7 +183,6 @@ struct VertexOutput {
 @vertex
 fn vs_main(@builtin(vertex_index) vid: u32) -> VertexOutput {
     var out: VertexOutput;
-    // Fullscreen triangle
     let x = f32((vid << 1u) & 2u);
     let y = f32(vid & 2u);
     out.position = vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
@@ -205,7 +209,6 @@ impl ApplicationHandler for App {
 
         let size = window.inner_size();
         let instance = wgpu::Instance::default();
-
         let surface = instance.create_surface(window.clone()).unwrap();
 
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -215,14 +218,10 @@ impl ApplicationHandler for App {
         }))
         .unwrap();
 
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: None,
-            ..Default::default()
-        }))
-        .unwrap();
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
 
         let format = surface.get_capabilities(&adapter).formats[0];
-
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
@@ -233,30 +232,80 @@ impl ApplicationHandler for App {
             view_formats: vec![],
             desired_maximum_frame_latency: 1,
         };
-
         surface.configure(&device, &config);
 
-        // Create blit pipeline
         let blit_pipeline = BlitPipeline::new(&device, format);
 
-        // Initialize render tests
-        match RenderTests::new(device.clone(), queue.clone(), format) {
-            Ok(mut rt) => {
-                println!("\nRunning initial tests...\n");
-                // Run tests and store result
-                self.last_output = Some(rt.test_invert().unwrap());
-                self.render_tests = Some(rt);
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let workspace_root = manifest_dir.parent().and_then(|p| p.parent()).unwrap();
+        let nodes_path = workspace_root.join("Nodes");
 
-                if self.last_output.is_some() {
-                    println!("\nPress 'T' to re-run tests");
-                    println!("Press 'Escape' to exit\n");
-                }
-            }
-            Err(e) => {
-                eprintln!("Error loading render tests: {:?}", e);
-                self.render_tests = None;
-            }
-        }
+        let node_library = NodeLibrary::load_from_disk(&nodes_path).unwrap();
+        let executor = GraphExecutor::new(format);
+
+        let mut graph = NodeGraph::new();
+        let video = graph.add_instance("Video".to_string());
+        let image = graph.add_instance("Image".to_string());
+
+        let invert = graph.add_instance("Invert".to_string());
+        // let brightness = graph.add_instance("Brightness".to_string());
+
+        let overlay = graph.add_instance("Overlay".to_string());
+        graph
+            .set_input_value(overlay, "opacity".to_string(), InputValue::Float(0.7))
+            .unwrap();
+
+        graph
+            .set_input_value(
+                video,
+                "path".to_string(),
+                InputValue::File(PathBuf::from("C:\\Users\\Zach\\Downloads\\rick.mp4")),
+            )
+            .unwrap();
+
+        graph
+            .set_input_value(
+                image,
+                "path".to_string(),
+                InputValue::File(PathBuf::from(
+                    "C:\\Users\\Zach\\Downloads\\backgroundtest.jpg",
+                )),
+            )
+            .unwrap();
+
+        graph
+            .connect(image, "output".to_string(), invert, "input".to_string())
+            .unwrap();
+
+        graph
+            .connect(
+                invert,
+                "output".to_string(),
+                overlay,
+                "background".to_string(),
+            )
+            .unwrap();
+        graph
+            .connect(
+                video,
+                "output".to_string(),
+                overlay,
+                "foreground".to_string(),
+            )
+            .unwrap();
+
+        self.target_fps = 30.0;
+        let frame_interval = std::time::Duration::from_secs_f32(1.0 / self.target_fps);
+        let now = std::time::Instant::now();
+        self.next_frame_time = Some(now + frame_interval);
+
+        self.video_graph = Some(graph);
+        self.executor = Some(executor);
+        self.node_library = Some(node_library);
+        self.device = Some(device.clone());
+        self.queue = Some(queue.clone());
+
+        event_loop.set_control_flow(ControlFlow::WaitUntil(now + frame_interval));
 
         self.state = Some(RenderState {
             surface,
@@ -267,26 +316,52 @@ impl ApplicationHandler for App {
         });
 
         self.window = Some(window);
+    }
 
-        // Request initial redraw
-        if let Some(window) = &self.window {
-            window.request_redraw();
+    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: winit::event::StartCause) {
+        if let winit::event::StartCause::ResumeTimeReached { .. } = cause {
+            if let Some(window) = &self.window {
+                window.request_redraw();
+            }
+
+            let frame_interval = std::time::Duration::from_secs_f32(1.0 / self.target_fps);
+
+            event_loop.set_control_flow(ControlFlow::WaitUntil(
+                std::time::Instant::now() + frame_interval,
+            ));
         }
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
-            WindowEvent::CloseRequested => {
-                event_loop.exit();
+            WindowEvent::Resized(size) => {
+                if let Some(state) = self.state.as_mut() {
+                    state.config.width = size.width;
+                    state.config.height = size.height;
+                    state.surface.configure(&state.device, &state.config);
+                }
             }
 
             WindowEvent::RedrawRequested => {
                 let state = self.state.as_mut().unwrap();
 
+                if let (Some(graph), Some(exec), Some(lib), Some(dev), Some(q)) = (
+                    self.video_graph.as_mut(),
+                    self.executor.as_mut(),
+                    self.node_library.as_ref(),
+                    self.device.as_ref(),
+                    self.queue.as_ref(),
+                ) {
+                    let result = exec.execute(graph, lib, dev, q).unwrap();
+                    if let Some(OutputValue::Frame(frame)) = result.outputs.get("output") {
+                        self.last_output = Some(frame.view().clone());
+                    }
+                }
+
                 let frame = match state.surface.get_current_texture() {
                     Ok(frame) => frame,
                     Err(e) => {
-                        eprintln!("Failed to get surface texture: {:?}", e);
+                        eprintln!("Surface error: {:?}", e);
                         return;
                     }
                 };
@@ -295,81 +370,20 @@ impl ApplicationHandler for App {
                     .texture
                     .create_view(&wgpu::TextureViewDescriptor::default());
 
-                // If we have test output, blit it to the screen
                 if let Some(output) = &self.last_output {
                     state
                         .blit_pipeline
                         .render(&state.device, &state.queue, output, &view);
-                } else {
-                    // No output yet - just clear to dark gray
-                    let mut encoder = state
-                        .device
-                        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
-                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("clear_pass"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(wgpu::Color {
-                                    r: 0.1,
-                                    g: 0.1,
-                                    b: 0.1,
-                                    a: 1.0,
-                                }),
-                                store: wgpu::StoreOp::Store,
-                            },
-                            depth_slice: None,
-                        })],
-                        depth_stencil_attachment: None,
-                        ..Default::default()
-                    });
-
-                    state.queue.submit(Some(encoder.finish()));
                 }
 
                 frame.present();
             }
 
-            WindowEvent::KeyboardInput { event, .. } => {
-                use winit::keyboard::{KeyCode, PhysicalKey};
-
-                if event.state == winit::event::ElementState::Pressed {
-                    match event.physical_key {
-                        PhysicalKey::Code(KeyCode::KeyT) => {
-                            // Press 'T' to re-run tests
-                            if let Some(render_tests) = &mut self.render_tests {
-                                println!("\nRe-running tests...\n");
-                                self.last_output = render_tests.run_all_tests();
-
-                                // Request redraw to show new results
-                                if let Some(window) = &self.window {
-                                    window.request_redraw();
-                                }
-                            }
-                        }
-                        PhysicalKey::Code(KeyCode::Escape) => {
-                            event_loop.exit();
-                        }
-                        _ => {}
-                    }
-                }
+            WindowEvent::CloseRequested => {
+                event_loop.exit();
             }
 
-            WindowEvent::Resized(new_size) => {
-                let state = self.state.as_mut().unwrap();
-                state.config.width = new_size.width.max(1);
-                state.config.height = new_size.height.max(1);
-                state.surface.configure(&state.device, &state.config);
-
-                // Request redraw after resize
-                if let Some(window) = &self.window {
-                    window.request_redraw();
-                }
-            }
-
-            _ => (),
+            _ => {}
         }
     }
 }

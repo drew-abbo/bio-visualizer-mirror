@@ -38,4 +38,13 @@ pub enum EngineError {
 
     #[error("No output node defined in the graph")]
     NoOutputNode,
+
+    #[error(
+        "Bind group layout mismatch in pipeline '{pipeline}', expected {expected}, got {actual}'"
+    )]
+    BindGroupMismatch {
+        pipeline: String,
+        expected: usize,
+        actual: usize,
+    },
 }

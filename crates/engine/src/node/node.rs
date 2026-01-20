@@ -1,11 +1,5 @@
-use crate::pipeline::common::Pipeline;
-use media::frame::Frame;
 use serde::{Deserialize, Serialize};
-use std::any::Any;
 use std::path::PathBuf;
-
-/// Unique identifier for a node instance in the graph
-pub type NodeId = usize;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Node {
@@ -36,25 +30,6 @@ pub struct Node {
     /// Keywords used to help find this node when searching
     #[serde(default)]
     pub search_keywords: Vec<String>,
-}
-
-pub enum NodeType {
-    // Source nodes
-    MediaInput {
-        frame: Frame,
-    },
-
-    // Effect nodes (single input → single output)
-    Effect {
-        pipeline: Box<dyn Pipeline>,
-        params: Box<dyn Any>,
-    },
-
-    // Merge nodes (multiple inputs → single output)
-    // Merge { blend_mode: BlendMode },
-
-    // Output node
-    Output,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -167,9 +142,9 @@ pub enum NodeExecutionPlan {
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum BuiltInHandler {
-    SumInputs,
-    MultiplyInputs,
     ImageSource,
+    VideoSource,
+    MidiSource,
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Default)]

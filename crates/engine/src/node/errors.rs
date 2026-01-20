@@ -9,6 +9,8 @@ pub enum LibraryError {
     NotAShaderNode(String),
 }
 
+impl std::error::Error for LibraryError {}
+
 impl std::fmt::Display for LibraryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -30,5 +32,3 @@ impl std::fmt::Display for LibraryError {
         }
     }
 }
-
-impl std::error::Error for LibraryError {}

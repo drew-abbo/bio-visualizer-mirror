@@ -1,5 +1,5 @@
-use crate::node_library::errors::LibraryError;
-use crate::node_library::node::Node;
+use crate::node::Node;
+use crate::node::errors::LibraryError;
 use std::path::PathBuf;
 
 /// A loaded node definition with resolved paths

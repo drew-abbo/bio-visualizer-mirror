@@ -1,5 +1,6 @@
-use crate::node_library::node::NodeId;
-use crate::node_library::node::NodeOutputKind;
+use crate::node::node::NodeOutputKind;
+use crate::node_graph::NodeId;
+use std::path::PathBuf;
 
 impl std::error::Error for ExecutionError {}
 
@@ -36,8 +37,17 @@ impl std::fmt::Display for ExecutionError {
             ExecutionError::PipelineCreationError(e) => {
                 write!(f, "Failed to create pipeline: {}", e)
             }
-            ExecutionError::ParamConversionError(e) => {
-                write!(f, "Failed to convert parameters: {}", e)
+            ExecutionError::ProducerCreateError(path, err) => {
+                write!(f, "Failed to create producer for {:?}: {}", path, err)
+            }
+            ExecutionError::VideoFetchError(path, err) => {
+                write!(f, "Failed to fetch video frame from {:?}: {}", path, err)
+            }
+            ExecutionError::VideoStreamError(path, err) => {
+                write!(f, "Video stream error for {:?}: {}", path, err)
+            }
+            ExecutionError::TextureUploadError(err) => {
+                write!(f, "Texture upload error: {}", err)
             }
         }
     }
@@ -60,5 +70,8 @@ pub enum ExecutionError {
     InvalidInputType,
     UnsupportedOutputType(NodeOutputKind),
     PipelineCreationError(String),
-    ParamConversionError(String),
+    ProducerCreateError(PathBuf, String),
+    VideoFetchError(PathBuf, String),
+    VideoStreamError(PathBuf, String),
+    TextureUploadError(String),
 }

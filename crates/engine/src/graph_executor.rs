@@ -1,16 +1,18 @@
 pub mod enums;
 pub mod errors;
+use crate::node::NodeDefinition;
+use crate::node::NodeLibrary;
+use crate::node::handler::image_handler::ImageSourceHandler;
+use crate::node::handler::node_handler::NodeHandler;
+use crate::node::handler::video_handler::VideoSourceHandler;
+use crate::node::node::{BuiltInHandler, NodeExecutionPlan, NodeOutputKind};
+use crate::node_graph::NodeId;
 use crate::node_graph::{InputValue, NodeGraph, NodeInstance};
-use crate::node_library::NodeLibrary;
-use crate::node_library::node::NodeId;
-use crate::node_library::node::{BuiltInHandler, NodeExecutionPlan, NodeOutputKind};
-use crate::node_library::node_definition::NodeDefinition;
-use crate::pipeline::common::Pipeline;
-use crate::pipeline::dynamic_pipeline::DynamicPipeline;
+use crate::node_render_pipeline::NodeRenderPipeline;
+use crate::node_render_pipeline::PipelineBase;
 use crate::upload_stager::UploadStager;
 use enums::*;
 use errors::*;
-use media::frame::Frame;
 use std::any::Any;
 use std::collections::HashMap;
 
@@ -25,10 +27,13 @@ pub struct GraphExecutor {
 
     /// Cache of compiled pipelines
     /// Maps: definition_name -> compiled pipeline
-    pipeline_cache: HashMap<String, Box<dyn Pipeline>>,
+    pipeline_cache: HashMap<String, Box<dyn PipelineBase>>,
 
     /// Target texture format for rendering
     target_format: wgpu::TextureFormat,
+
+    /// Handler for video sources (maintains producer cache)
+    video_handler: VideoSourceHandler,
 }
 
 /// The result of executing a node graph
@@ -44,8 +49,14 @@ impl GraphExecutor {
             upload_stager: UploadStager::new(),
             output_cache: HashMap::new(),
             pipeline_cache: HashMap::new(),
+            video_handler: VideoSourceHandler::new(),
             target_format: format,
         }
+    }
+
+    /// Clear producer cache to release video files
+    pub fn clear_producer_cache(&mut self) {
+        self.video_handler.clear_cache();
     }
 
     /// Execute the entire node graph
@@ -140,7 +151,7 @@ impl GraphExecutor {
 
                     // Convert OutputValue to ResolvedInput
                     match output {
-                        OutputValue::Frame(view) => ResolvedInput::Frame(view.clone()),
+                        OutputValue::Frame(frame) => ResolvedInput::Frame(frame.clone()),
                         OutputValue::Bool(b) => ResolvedInput::Bool(*b),
                         OutputValue::Int(i) => ResolvedInput::Int(*i),
                         OutputValue::Float(f) => ResolvedInput::Float(*f),
@@ -201,34 +212,38 @@ impl GraphExecutor {
 
         let pipeline = self.pipeline_cache.get(&definition.node.name).unwrap();
 
-        // Find the primary frame input
-        let primary_frame = inputs
-            .values()
-            .find_map(|input| match input {
-                ResolvedInput::Frame(view) => Some(view),
-                _ => None,
-            })
-            .ok_or(ExecutionError::NoFrameInput(definition.node.name.clone()))?;
-
-        // Collect additional frame inputs (if any)
-        let additional_frames: Vec<&wgpu::TextureView> = inputs
-            .values()
-            .skip(1) // Skip the first frame (primary)
-            .filter_map(|input| match input {
-                ResolvedInput::Frame(view) => Some(view),
-                _ => None,
+        // Collect frame inputs in the order defined by the node definition
+        let frame_inputs: Vec<&GpuFrame> = definition
+            .node
+            .inputs
+            .iter()
+            .filter_map(|input_def| {
+                if matches!(input_def.kind, crate::node::node::NodeInputKind::Frame) {
+                    inputs.get(&input_def.name).and_then(|input| match input {
+                        ResolvedInput::Frame(frame) => Some(frame),
+                        _ => None,
+                    })
+                } else {
+                    None
+                }
             })
             .collect();
 
-        // Create output texture (same size as input for now)
-        // TODO: Get actual dimensions from input texture
+        let primary_frame = frame_inputs
+            .first()
+            .ok_or(ExecutionError::NoFrameInput(definition.node.name.clone()))?;
+
+        let additional_frames: Vec<&wgpu::TextureView> = frame_inputs
+            .iter()
+            .skip(1)
+            .map(|frame| frame.view())
+            .collect();
+
+        let output_size = primary_frame.size();
+
         let output_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("shader_output"),
-            size: wgpu::Extent3d {
-                width: 1920, // TODO: Get from input
-                height: 1080,
-                depth_or_array_layers: 1,
-            },
+            size: output_size,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -237,6 +252,7 @@ impl GraphExecutor {
             view_formats: &[],
         });
         let output_view = output_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let output_frame = enums::GpuFrame::new(output_view.clone(), output_size);
 
         // Convert inputs to shader parameters
         let params = self.inputs_to_shader_params(inputs)?;
@@ -251,7 +267,7 @@ impl GraphExecutor {
                 device,
                 queue,
                 &mut encoder,
-                primary_frame,
+                primary_frame.view(),
                 &additional_frames,
                 &output_view,
                 params.as_ref(),
@@ -267,7 +283,7 @@ impl GraphExecutor {
                 NodeOutputKind::Frame => {
                     outputs.insert(
                         output_def.name.clone(),
-                        OutputValue::Frame(output_view.clone()),
+                        OutputValue::Frame(output_frame.clone()),
                     );
                 }
                 _ => {
@@ -283,35 +299,18 @@ impl GraphExecutor {
     /// Execute a built-in node (CPU-based operations)
     fn execute_builtin_node(
         &mut self,
-        handler: &BuiltInHandler,
+        handler_type: &BuiltInHandler,
         inputs: &HashMap<String, ResolvedInput>,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<HashMap<String, OutputValue>, ExecutionError> {
-        match handler {
-            BuiltInHandler::SumInputs => {
-                // Example: Add two numbers
-                let a = inputs
-                    .get("A")
-                    .and_then(|v| match v {
-                        ResolvedInput::Int(i) => Some(*i),
-                        _ => None,
-                    })
-                    .ok_or(ExecutionError::InvalidInputType)?;
-
-                let b = inputs
-                    .get("B")
-                    .and_then(|v| match v {
-                        ResolvedInput::Int(i) => Some(*i),
-                        _ => None,
-                    })
-                    .ok_or(ExecutionError::InvalidInputType)?;
-
-                let mut outputs = HashMap::new();
-                outputs.insert("Sum".to_string(), OutputValue::Int(a + b));
-                Ok(outputs)
-            }
+        match handler_type {
             BuiltInHandler::ImageSource => {
+                let handler = ImageSourceHandler;
+                handler.execute(inputs, device, queue, &mut self.upload_stager)
+            }
+            BuiltInHandler::VideoSource => {
+                // VideoSource needs special handling for mutable state
                 let path = inputs
                     .get("path")
                     .and_then(|v| match v {
@@ -320,28 +319,47 @@ impl GraphExecutor {
                     })
                     .ok_or(ExecutionError::InvalidInputType)?;
 
-                // Load image from disk (image crate, stb, etc.)
-                let frame = Frame::from_img_file(path).unwrap(); // Handle errors properly TODO
+                let frame = self.video_handler.fetch_frame(path)?;
+                let (fps, duration_secs) = self.video_handler.get_stats(path)?;
 
-                // Upload to GPU
+                let width = frame.dimensions().width();
+                let height = frame.dimensions().height();
+
+                // Upload frame to GPU
                 let texture_view = self
                     .upload_stager
-                    .cpu_to_gpu_rgba(
-                        &device,
-                        &queue,
-                        frame.dimensions().width(),
-                        frame.dimensions().height(),
-                        frame.raw_data(),
-                    )
-                    .unwrap(); // Handle errors properly TODO
+                    .cpu_to_gpu_rgba(device, queue, width, height, frame.raw_data())
+                    .map_err(|e| {
+                        ExecutionError::TextureUploadError(format!(
+                            "Failed to upload texture: {:?}",
+                            e
+                        ))
+                    })?;
 
+                let gpu_frame = enums::GpuFrame::new(
+                    texture_view,
+                    wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                );
+
+                // Prepare outputs
                 let mut outputs = HashMap::new();
-                outputs.insert("output".to_string(), OutputValue::Frame(texture_view));
+                outputs.insert("output".to_string(), OutputValue::Frame(gpu_frame));
+                outputs.insert("fps".to_string(), OutputValue::Float(fps as f32));
+                outputs.insert(
+                    "duration".to_string(),
+                    OutputValue::Float(duration_secs as f32),
+                );
+
                 Ok(outputs)
             }
-            _ => Err(ExecutionError::UnsupportedOutputType(panic!(
-                "Built-in handler not implemented"
-            ))),
+            BuiltInHandler::MidiSource => {
+                // TODO: implement MidiSource
+                Err(ExecutionError::InvalidInputType)
+            }
         }
     }
 
@@ -351,9 +369,9 @@ impl GraphExecutor {
         device: &wgpu::Device,
         shader_code: &str,
         definition: &NodeDefinition,
-    ) -> Result<Box<dyn Pipeline>, ExecutionError> {
-        DynamicPipeline::from_shader(device, shader_code, definition, self.target_format)
-            .map(|p| Box::new(p) as Box<dyn Pipeline>)
+    ) -> Result<Box<dyn PipelineBase>, ExecutionError> {
+        NodeRenderPipeline::from_shader(device, shader_code, definition, self.target_format)
+            .map(|pipeline| Box::new(pipeline) as Box<dyn PipelineBase>)
             .map_err(|e| ExecutionError::PipelineCreationError(e))
     }
 

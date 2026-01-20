@@ -1,13 +1,9 @@
+use crate::node::Node;
+use crate::node::errors::LibraryError;
+use crate::node::node::NodeExecutionPlan;
+use crate::node::node_definition::NodeDefinition;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-
-pub mod errors;
-pub mod node;
-pub mod node_definition;
-
-use errors::LibraryError;
-use node::{Node, NodeExecutionPlan};
-use node_definition::NodeDefinition;
 
 /// The node library - holds all available node definitions loaded from disk
 #[derive(Debug)]
