@@ -28,7 +28,7 @@ import sys
 import tempfile
 import urllib.request
 import typing
-from typing import Literal, NoReturn, Iterable, Sequence, Any
+from typing import Literal, NoReturn, Iterable, Sequence, Any, Union
 
 
 output_is_terminal = sys.stdout.isatty()
@@ -49,7 +49,7 @@ class Color:
 def fatal(
     *args: Any,
     include_run_again_msg: bool = True,
-    sep: str | None = " ",
+    sep: Union[str, None] = " ",
 ) -> NoReturn:
     print(f"{Color.ERROR}FATAL{Color.RESET}: ", end="", file=sys.stderr)
     print(*args, sep=sep, file=sys.stderr)
@@ -64,8 +64,8 @@ def fatal(
 # Print a warning.
 def warning(
     *args: Any,
-    sep: str | None = " ",
-    end: str | None = "\n",
+    sep: Union[str, None] = " ",
+    end: Union[str, None] = "\n",
     flush: bool = False,
 ) -> None:
     print(
@@ -80,8 +80,8 @@ def warning(
 # Print some info.
 def info(
     *args: Any,
-    sep: str | None = " ",
-    end: str | None = "\n",
+    sep: Union[str, None] = " ",
+    end: Union[str, None] = "\n",
     flush: bool = False,
 ) -> None:
     print(f"{Color.INFO}INFO{Color.RESET}: ", end="", flush=False)
@@ -91,8 +91,8 @@ def info(
 # Print that the process is done (success).
 def success(
     *args: Any,
-    sep: str | None = " ",
-    end: str | None = "\n",
+    sep: Union[str, None] = " ",
+    end: Union[str, None] = "\n",
     flush: bool = False,
 ) -> None:
     print(f"{Color.SUCCESS}SUCCESS{Color.RESET}: ", end="", flush=False)
@@ -105,7 +105,7 @@ confirm_auto_answer = None
 
 
 # Print a message and await a "yes"/"no" from the user.
-def confirm(*args: Any, sep: str | None = " ") -> bool:
+def confirm(*args: Any, sep: Union[str, None] = " ") -> bool:
     print(f"{Color.CONFIRM}CONFIRM{Color.RESET}: ", end="")
     print(*args, sep=sep, end="")
     print(f" ({Color.CONFIRM}y{Color.RESET}/n): {Color.CONFIRM}", end="")
@@ -121,7 +121,7 @@ def confirm(*args: Any, sep: str | None = " ") -> bool:
 
 
 # Print a message and wait for the user to hit enter.
-def action_needed(*args: Any, sep: str | None = " ") -> None:
+def action_needed(*args: Any, sep: Union[str, None] = " ") -> None:
     print(f"{Color.ACTION_NEEDED}MANUAL ACTION NEEDED{Color.RESET}: ", end="")
     print(*args, sep=sep, end="")
     print(
@@ -151,9 +151,9 @@ def parse_args() -> None:
             fatal(f"Unknown argument `{arg}`.\n" + f"Usage: {arg0} [-y]")
 
 
-def get_supported_arch() -> Literal["x86_64", "arm64"] | None:
+def get_supported_arch() -> Union[Literal["x86_64", "arm64"], None]:
     return typing.cast(
-        Literal["x86_64", "arm64"] | None,
+        Union[Literal["x86_64", "arm64"], None],
         {
             "x86_64": "x86_64",
             "amd64": "x86_64",
@@ -164,7 +164,7 @@ def get_supported_arch() -> Literal["x86_64", "arm64"] | None:
 
 # Does a check to see if a path exists.
 def ensure_path_exists(
-    path: str, help_msg: str | None = None, non_fatal: bool = False
+    path: str, help_msg: Union[str, None] = None, non_fatal: bool = False
 ) -> None:
     if not os.path.exists(path):
         err_msg = f"Couldn't find `{path}`." + (
@@ -177,7 +177,7 @@ def ensure_path_exists(
 
 # Does a check to see if a command exists on the `PATH`.
 def ensure_cmd_exists(
-    cmd: str, help_msg: str | None = None, non_fatal: bool = False
+    cmd: str, help_msg: Union[str, None] = None, non_fatal: bool = False
 ) -> None:
     if shutil.which(cmd) is None:
         err_msg = f"Couldn't find `{cmd}` on the path." + (
@@ -406,7 +406,7 @@ def windows() -> None:
 
     # Try and ensure we're using the right header files for generating rust
     # bindings for FFmpeg.
-    def try_to_get_clang_include_dir() -> str | None:
+    def try_to_get_clang_include_dir() -> Union[str, None]:
         try:
             clang_dir = (
                 f"{vs_installation_path}\\VC\\Tools\\LLVM\\x64\\lib\\clang"
@@ -543,6 +543,9 @@ def windows() -> None:
     libclang_path = get_libclang_path()
     clang_include_dir = try_to_get_clang_include_dir()
     ffmpeg_dir = get_ffmpeg_dir()
+    
+    def to_unix_path(path: str) -> str:
+        return path.replace("\\", "/")
 
     # We need to set `LIBCLANG_PATH` so that `ffmpeg-next` can build its
     # bindings.
@@ -552,8 +555,8 @@ def windows() -> None:
     # See https://github.com/zmwangx/rust-ffmpeg/wiki/Notes-on-building
     cargo_config = (
         "[env]\n"
-        + f'LIBCLANG_PATH = "{libclang_path.replace("\\", "/")}"\n'
-        + f'FFMPEG_DIR = "{ffmpeg_dir.replace("\\", "/")}"\n'
+        + f'LIBCLANG_PATH = "{to_unix_path(libclang_path)}"\n'
+        + f'FFMPEG_DIR = "{to_unix_path(ffmpeg_dir)}"\n'
     )
     if clang_include_dir is not None:
         # If we found Clang's include directory we'll explicitly pass it to
@@ -562,7 +565,7 @@ def windows() -> None:
         # or something else weird.
         cargo_config += (
             "BINDGEN_EXTRA_CLANG_ARGS = "
-            + f'"-I{clang_include_dir.replace("\\", "/")}"\n'
+            + f'"-I{to_unix_path(clang_include_dir)}"\n'
         )
 
     create_cargo_config(cargo_config)
@@ -574,12 +577,13 @@ def windows() -> None:
     success("Build setup complete. Try running `cargo build`.")
 
 
+# Handles build setup for MacOS builds.
 def mac_os() -> None:
     arch = get_supported_arch()
     if arch is None:
         fatal("MacOS builds only support x86_64 and arm64")
 
-    fatal("TODO: the rest of this function...")
+    fatal("unimplemented")
 
 
 def main() -> None:
