@@ -135,6 +135,7 @@ mod signal_sleeper_impl {
     use super::{SignalSleeperImpl, SignalSleeperTrait};
 
     use std::ffi::{c_int, c_void};
+    use std::io;
     use std::sync::atomic::{AtomicI32, Ordering};
 
     use signal_hook::low_level;
@@ -148,7 +149,9 @@ mod signal_sleeper_impl {
     static WRITE_FD: AtomicI32 = AtomicI32::new(-1);
 
     fn get_errno() -> c_int {
-        unsafe { *libc::__errno_location() }
+        // NOTE: `libc::__errno_location()` is not available on all platforms,
+        // so we have to do this:
+        io::Error::last_os_error().raw_os_error().unwrap_or(0) as c_int
     }
 
     macro_rules! libc_try {

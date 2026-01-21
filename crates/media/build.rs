@@ -6,7 +6,7 @@ fn main() {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
     match target_os.as_str() {
         "windows" => windows(),
-        "macos" => unimplemented!(),
+        "macos" => {}
         "linux" => unimplemented!(),
         _ => panic!("Unsupported target OS `{target_os}`."),
     }
