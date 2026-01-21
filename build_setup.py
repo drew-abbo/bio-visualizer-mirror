@@ -28,7 +28,7 @@ import sys
 import tempfile
 import urllib.request
 import typing
-from typing import Literal, NoReturn, Iterable, Sequence, Any, Union
+from typing import Literal, NoReturn, Iterable, Sequence, Any, Union, Optional
 
 
 output_is_terminal = sys.stdout.isatty()
@@ -49,7 +49,7 @@ class Color:
 def fatal(
     *args: Any,
     include_run_again_msg: bool = True,
-    sep: Union[str, None] = " ",
+    sep: Optional[str] = " ",
 ) -> NoReturn:
     print(f"{Color.ERROR}FATAL{Color.RESET}: ", end="", file=sys.stderr)
     print(*args, sep=sep, file=sys.stderr)
@@ -64,8 +64,8 @@ def fatal(
 # Print a warning.
 def warning(
     *args: Any,
-    sep: Union[str, None] = " ",
-    end: Union[str, None] = "\n",
+    sep: Optional[str] = " ",
+    end: Optional[str] = "\n",
     flush: bool = False,
 ) -> None:
     print(
@@ -80,8 +80,8 @@ def warning(
 # Print some info.
 def info(
     *args: Any,
-    sep: Union[str, None] = " ",
-    end: Union[str, None] = "\n",
+    sep: Optional[str] = " ",
+    end: Optional[str] = "\n",
     flush: bool = False,
 ) -> None:
     print(f"{Color.INFO}INFO{Color.RESET}: ", end="", flush=False)
@@ -91,8 +91,8 @@ def info(
 # Print that the process is done (success).
 def success(
     *args: Any,
-    sep: Union[str, None] = " ",
-    end: Union[str, None] = "\n",
+    sep: Optional[str] = " ",
+    end: Optional[str] = "\n",
     flush: bool = False,
 ) -> None:
     print(f"{Color.SUCCESS}SUCCESS{Color.RESET}: ", end="", flush=False)
@@ -105,7 +105,7 @@ confirm_auto_answer = None
 
 
 # Print a message and await a "yes"/"no" from the user.
-def confirm(*args: Any, sep: Union[str, None] = " ") -> bool:
+def confirm(*args: Any, sep: Optional[str] = " ") -> bool:
     print(f"{Color.CONFIRM}CONFIRM{Color.RESET}: ", end="")
     print(*args, sep=sep, end="")
     print(f" ({Color.CONFIRM}y{Color.RESET}/n): {Color.CONFIRM}", end="")
@@ -121,7 +121,7 @@ def confirm(*args: Any, sep: Union[str, None] = " ") -> bool:
 
 
 # Print a message and wait for the user to hit enter.
-def action_needed(*args: Any, sep: Union[str, None] = " ") -> None:
+def action_needed(*args: Any, sep: Optional[str] = " ") -> None:
     print(f"{Color.ACTION_NEEDED}MANUAL ACTION NEEDED{Color.RESET}: ", end="")
     print(*args, sep=sep, end="")
     print(
@@ -151,9 +151,9 @@ def parse_args() -> None:
             fatal(f"Unknown argument `{arg}`.\n" + f"Usage: {arg0} [-y]")
 
 
-def get_supported_arch() -> Union[Literal["x86_64", "arm64"], None]:
+def get_supported_arch() -> Optional[Literal["x86_64", "arm64"]]:
     return typing.cast(
-        Union[Literal["x86_64", "arm64"], None],
+        Optional[Literal["x86_64", "arm64"]],
         {
             "x86_64": "x86_64",
             "amd64": "x86_64",
@@ -164,7 +164,7 @@ def get_supported_arch() -> Union[Literal["x86_64", "arm64"], None]:
 
 # Does a check to see if a path exists.
 def ensure_path_exists(
-    path: str, help_msg: Union[str, None] = None, non_fatal: bool = False
+    path: str, help_msg: Optional[str] = None, non_fatal: bool = False
 ) -> None:
     if not os.path.exists(path):
         err_msg = f"Couldn't find `{path}`." + (
@@ -175,17 +175,19 @@ def ensure_path_exists(
         fatal(err_msg)
 
 
-# Does a check to see if a command exists on the `PATH`.
+# Does a check to see if a command exists on the `PATH` or the file system.
 def ensure_cmd_exists(
-    cmd: str, help_msg: Union[str, None] = None, non_fatal: bool = False
+    cmd: str, help_msg: Optional[str] = None, non_fatal: bool = False
 ) -> None:
-    if shutil.which(cmd) is None:
-        err_msg = f"Couldn't find `{cmd}` on the path." + (
-            f"\n{help_msg}" if help_msg is not None else ""
-        )
-        if non_fatal:
-            raise DoesntExistException(err_msg)
-        fatal(err_msg)
+    if shutil.which(cmd) is not None or os.path.exists(cmd):
+        return
+
+    err_msg = f"Couldn't find `{cmd}` on the path." + (
+        f"\n{help_msg}" if help_msg is not None else ""
+    )
+    if non_fatal:
+        raise DoesntExistException(err_msg)
+    fatal(err_msg)
 
 
 # Raised if something goes wrong running a command.
@@ -295,11 +297,14 @@ def windows() -> None:
     if get_supported_arch() != "x86_64":
         fatal("Windows builds currently only support x86_64.")
 
-    program_files = os.environ.get("ProgramFiles(x86)")
-    if program_files is None:
-        fatal("Coldn't find ProgramFiles(x86).")
+    program_files_x86 = os.environ.get("ProgramFiles(x86)")
+    program_files = os.environ.get("ProgramFiles")
+    if program_files_x86 is None or program_files is None:
+        fatal("Coldn't find program files.")
 
-    vs_installer_dir = f"{program_files}\\Microsoft Visual Studio\\Installer"
+    vs_installer_dir = (
+        f"{program_files_x86}\\Microsoft Visual Studio\\Installer"
+    )
 
     ensure_path_exists(
         vs_installer_dir,
@@ -415,7 +420,7 @@ def windows() -> None:
 
     # Try and ensure we're using the right header files for generating rust
     # bindings for FFmpeg.
-    def try_to_get_clang_include_dir() -> Union[str, None]:
+    def try_to_get_clang_include_dir() -> Optional[str]:
         try:
             clang_dir = (
                 f"{vs_installation_path}\\VC\\Tools\\LLVM\\x64\\lib\\clang"
@@ -442,18 +447,88 @@ def windows() -> None:
     # Make sure we have FFmpeg installed in the project directory.
     def get_ffmpeg_dir() -> str:
         FFMPEG_ZIP_PATH = ".\\ffmpeg.7z"
-        FFMPEG_DIR_LOCAL = ".\\ffmpeg"
-        ffmpeg_dir = os.path.abspath(FFMPEG_DIR_LOCAL)
+        FFMPEG_DIR = ".\\ffmpeg"
 
-        ffmpeg_dir_exists = os.path.exists(ffmpeg_dir)
+        def download_ffmpeg_zip() -> None:
+            FFMPEG_DOWNLOAD_URL = "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-8.0.1-full_build-shared.7z"
 
-        # If they've already got a downloaded zip file for it then we can just
-        # tell them to extract it. We can't extract it for them because the
-        # download is a 7z file for some reason and there's no way to extract a
-        # 7z file on windows without using the file explorer UI or downloading
-        # an external utility. The external utility we could download (7za)
-        # comes as a zipped .7z file so we can't even do that automatically.
-        if os.path.exists(FFMPEG_ZIP_PATH) and not ffmpeg_dir_exists:
+            MANUAL_INSTALL_MSG = (
+                "You can still manually install.\n"
+                + "Please rerun this script after downloading and extracting"
+                + f" FFmpeg to `{FFMPEG_DIR}`"
+                + f" from the link below (or anywhere):\n{FFMPEG_DOWNLOAD_URL}"
+            )
+
+            if not confirm(
+                "You don't have FFmpeg installed locally yet."
+                + " Do you want to download FFmpeg from the internet now?"
+            ):
+                fatal(f"Skipping auto-download. {MANUAL_INSTALL_MSG}")
+
+            info(
+                "Installing FFmpeg. This may take a while... ",
+                end="",
+                flush=True,
+            )
+
+            try:
+                urllib.request.urlretrieve(FFMPEG_DOWNLOAD_URL, FFMPEG_ZIP_PATH)
+            except KeyboardInterrupt:
+                try:
+                    os.remove(FFMPEG_ZIP_PATH)
+                except:
+                    pass
+                warning(f"\nDownload cancelled. {MANUAL_INSTALL_MSG}")
+                raise
+            except Exception:
+                fatal(f"\nDownload failed. {MANUAL_INSTALL_MSG}")
+            print("Done.")
+            info("FFmpeg zip file downloaded.")
+
+        def get_7z_cmd() -> Optional[str]:
+            info("Checking for 7z utility.")
+            sevenzip_cmd: Optional[str] = None
+            for cmd in (
+                "7z",
+                "7z.exe",
+                f"{program_files}\\7-Zip\\7z.exe",
+                f"{program_files_x86}\\7-Zip\\7z.exe",
+            ):
+                try:
+                    ensure_cmd_exists(cmd, non_fatal=True)
+                except DoesntExistException:
+                    continue
+                else:
+                    sevenzip_cmd = cmd
+                    break
+
+            if sevenzip_cmd is not None:
+                info("7z utility found.")
+            else:
+                info("7z utility not found.")
+
+            return sevenzip_cmd
+
+        def extract_ffmpeg() -> None:
+            if (sevenzip_cmd := get_7z_cmd()) is not None:
+                info("Auto-extracting FFmpeg zip file with 7z utility.")
+                try:
+                    run_cmd(
+                        sevenzip_cmd,
+                        "x",
+                        FFMPEG_ZIP_PATH,
+                        f"-o{FFMPEG_DIR}",
+                    )
+                except:
+                    warning("Failed to extract with 7z utility.")
+                else:
+                    return
+
+            # Without the 7z command utility we can't extract it for the
+            # user since the download is a 7z file for some reason and
+            # there's no default way to extract a 7z file on windows without
+            # using the file explorer UI.
+
             info("Attempting to open file explorer on FFmpeg zip file.")
             start_cmd(
                 "explorer",
@@ -461,93 +536,61 @@ def windows() -> None:
                 f"{os.path.abspath(FFMPEG_ZIP_PATH)}",
             )
             action_needed(
-                f"Please extract `{FFMPEG_ZIP_PATH}`"
-                + f" to `{FFMPEG_DIR_LOCAL}`.",
+                f"Please extract `{FFMPEG_ZIP_PATH}`" + f" to `{FFMPEG_DIR}`.",
             )
 
-            ffmpeg_dir_exists = os.path.exists(ffmpeg_dir)
+            ffmpeg_dir_exists = os.path.exists(FFMPEG_DIR)
             if not ffmpeg_dir_exists:
                 fatal("The FFmpeg directory wasn't extracted.")
 
-        if ffmpeg_dir_exists:
-            # If there's only 1 item in the FFmpeg directory, it's probably
-            # because when it was extracted the useful stuff was left inside a
-            # nested directory. If we detect this we can pull all of that out
-            # into the root `ffmpeg` directory (but we still ask first).
-            if len(ffmpeg_dir_list := os.listdir(ffmpeg_dir)) == 1 and confirm(
+        def un_nest_ffmpeg_dir() -> None:
+            try:
+                ffmpeg_dir_list = os.listdir(FFMPEG_DIR)
+            except:
+                fatal("Failed to check FFmpeg directory contents.")
+
+            if len(ffmpeg_dir_list) != 1 or not confirm(
                 "FFmpeg directory contains only 1 subfolder"
                 + f" `{ffmpeg_dir_list[0]}`."
                 + " Attempt auto-fix?"
             ):
-                try:
-                    nested_dir = f"{ffmpeg_dir}\\{ffmpeg_dir_list[0]}"
-                    for nested_child in os.listdir(nested_dir):
-                        shutil.move(
-                            f"{nested_dir}\\{nested_child}",
-                            f"{ffmpeg_dir}\\{nested_child}",
-                        )
-                    os.rmdir(nested_dir)
-                except:
-                    warning("FFmpeg directory structure fix failed.")
-                    if not confirm("Auto-fix failed. Continue anyway?"):
-                        fatal("Not continuing.")
-                else:
-                    info("FFmpeg directory structure fix attempted.")
+                return
 
-            ensure_path_exists(f"{ffmpeg_dir}\\include")
-            ensure_path_exists(f"{ffmpeg_dir}\\lib")
-            ensure_path_exists(f"{ffmpeg_dir}\\bin")
-            info("FFmpeg found locally.")
+            try:
+                tmp_location = f"{FFMPEG_DIR}__tmp"
+                shutil.move(FFMPEG_DIR, tmp_location)
+                shutil.move(f"{tmp_location}\\{ffmpeg_dir_list[0]}", FFMPEG_DIR)
+                os.rmdir(tmp_location)
+            except:
+                warning("FFmpeg directory structure fix failed.")
+                if not confirm("Auto-fix failed. Continue anyway?"):
+                    fatal("Not continuing.")
+            else:
+                info("FFmpeg directory structure fix attempted.")
 
-            if os.path.exists(FFMPEG_ZIP_PATH) and confirm(
-                "Auto-downloaded FFmpeg zip file no longer needed."
-                + f" Would you like to remove it (`{FFMPEG_ZIP_PATH}`)?",
-            ):
-                os.remove(FFMPEG_ZIP_PATH)
+        if not os.path.exists(FFMPEG_DIR):
+            if not os.path.exists(FFMPEG_ZIP_PATH):
+                download_ffmpeg_zip()
+            extract_ffmpeg()
 
-            return ffmpeg_dir
+        # If there's only 1 item in the FFmpeg directory, it's probably because
+        # when it was extracted the useful stuff was left inside a nested
+        # directory. If we detect this we can pull all of that out into the root
+        # `ffmpeg` directory (but we still ask first).
+        un_nest_ffmpeg_dir()
 
-        # We can at least ask to download the FFmpeg zip file automatically if
-        # they don't have it.
+        ensure_path_exists(f"{FFMPEG_DIR}\\include")
+        ensure_path_exists(f"{FFMPEG_DIR}\\lib")
+        ensure_path_exists(f"{FFMPEG_DIR}\\bin")
+        info("FFmpeg found locally.")
 
-        FFMPEG_DOWNLOAD_URL = "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-8.0.1-full_build-shared.7z"
-
-        MANUAL_INSTALL_MSG = (
-            "You can still manually install.\n"
-            + "Please rerun this script after downloading and extracting"
-            + f" FFmpeg to `{FFMPEG_DIR_LOCAL}`"
-            + f" from the link below (or anywhere):\n{FFMPEG_DOWNLOAD_URL}"
-        )
-
-        if not confirm(
-            "You don't have FFmpeg installed locally yet."
-            + " Do you want to download FFmpeg from the internet now?"
+        if os.path.exists(FFMPEG_ZIP_PATH) and confirm(
+            "Auto-downloaded FFmpeg zip file no longer needed."
+            + f" Would you like to remove it (`{FFMPEG_ZIP_PATH}`)?",
         ):
-            fatal(f"Skipping auto-download. {MANUAL_INSTALL_MSG}")
+            os.remove(FFMPEG_ZIP_PATH)
 
-        info(
-            "Installing FFmpeg. This may take a while... ",
-            end="",
-            flush=True,
-        )
-
-        try:
-            urllib.request.urlretrieve(FFMPEG_DOWNLOAD_URL, FFMPEG_ZIP_PATH)
-        except Exception as e:
-            if isinstance(e, KeyboardInterrupt):
-                try:
-                    os.remove(FFMPEG_ZIP_PATH)
-                except:
-                    pass
-                print("")
-                warning(f"Download cancelled. {MANUAL_INSTALL_MSG}")
-                raise
-            fatal(f"\nDownload failed. {MANUAL_INSTALL_MSG}")
-        print("Done.")
-        info("FFmpeg zip file downloaded.")
-
-        # Start from the top.
-        return get_ffmpeg_dir()
+        return os.path.abspath(FFMPEG_DIR)
 
     libclang_path = get_libclang_path()
     clang_include_dir = try_to_get_clang_include_dir()
@@ -608,7 +651,7 @@ def mac_os() -> None:
 
         info("Found Homebrew package manager.")
 
-    last_installed_pkgs: Union[list[dict[str, Any]], None] = None
+    last_installed_pkgs: Optional[list[dict[str, Any]]] = None
 
     def is_installed_with_brew(
         pkg_name: str, ask_to_install: bool = False
