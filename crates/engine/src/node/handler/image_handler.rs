@@ -1,10 +1,10 @@
 use crate::graph_executor::enums::{OutputValue, ResolvedInput};
 use crate::graph_executor::errors::ExecutionError;
+use crate::graph_executor::gpu_frame::GpuFrame;
 use crate::node::handler::node_handler::NodeHandler;
 use crate::upload_stager::UploadStager;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use crate::graph_executor::gpu_frame::GpuFrame;
 
 /// Loads an image file to GPU texture with caching
 pub struct ImageSourceHandler {

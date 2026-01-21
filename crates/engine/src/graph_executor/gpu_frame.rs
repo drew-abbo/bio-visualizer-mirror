@@ -10,7 +10,10 @@ pub struct GpuFrame {
 
 impl GpuFrame {
     pub fn new(view: wgpu::TextureView, size: wgpu::Extent3d) -> Self {
-        Self { view: Arc::new(view), size }
+        Self {
+            view: Arc::new(view),
+            size,
+        }
     }
 
     pub fn view(&self) -> &wgpu::TextureView {
