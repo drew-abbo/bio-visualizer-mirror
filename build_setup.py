@@ -543,7 +543,7 @@ def windows() -> None:
     libclang_path = get_libclang_path()
     clang_include_dir = try_to_get_clang_include_dir()
     ffmpeg_dir = get_ffmpeg_dir()
-    
+
     def to_unix_path(path: str) -> str:
         return path.replace("\\", "/")
 
@@ -570,11 +570,8 @@ def windows() -> None:
 
     create_cargo_config(cargo_config)
 
-    ensure_cmd_exists("cargo")
     run_cmd("cargo", "clean")
     info("Build directory cleaned.")
-
-    success("Build setup complete. Try running `cargo build`.")
 
 
 # Handles build setup for MacOS builds.
@@ -583,22 +580,71 @@ def mac_os() -> None:
     if arch is None:
         fatal("MacOS builds only support x86_64 and arm64")
 
-    fatal("unimplemented")
+    def ensure_brew_is_installed() -> None:
+        try:
+            ensure_cmd_exists("brew", non_fatal=True)
+        except DoesntExistException:
+            if not confirm(
+                "You do not have the Homebrew package manager installed."
+                + " Start Homebrew install? (you'll need to be a system admin)"
+            ):
+                fatal("Homebrew is required.")
+
+            # This comes from the download instructions here: https://brew.sh/
+            run_cmd(
+                '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
+                shell=True,
+            )
+            ensure_cmd_exists("brew")
+
+        info("Found Homebrew package manager.")
+
+    def is_installed_with_brew(pkg: str, ask_to_install: bool = False) -> bool:
+        is_already_installed = (
+            json.loads(run_cmd("brew", "info", pkg, "--installed", "--json"))
+            != []
+        )
+        if is_already_installed or not ask_to_install:
+            return is_already_installed
+
+        if should_install := confirm(
+            f"It doesn't look like you have `{pkg}` installed."
+            + " Install with Homebrew?"
+        ):
+            info(
+                f"Installing `{pkg}` with Homebrew."
+                + " This will likely take a while."
+            )
+            run_cmd("brew", "install", pkg)
+        return should_install
+
+    ensure_brew_is_installed()
+    if not is_installed_with_brew("ffmpeg@8", ask_to_install=True):
+        warning("Continuing without installing FFmpeg (8).")
+    if not is_installed_with_brew("pkg-config", ask_to_install=True):
+        warning("Continuing without installing `pkg-config`.")
+
+    run_cmd("cargo", "clean")
+    info("Build directory cleaned.")
 
 
 def main() -> None:
     try:
         parse_args()
 
-        system = platform.system()
-        if system == "Windows":
+        ensure_cmd_exists("cargo")
+
+        system = platform.system().lower()
+        if system == "windows":
             windows()
-        elif system == "Darwin":  # MacOS
+        elif system == "darwin":  # MacOS
             mac_os()
-        elif system == "Linux":
+        elif system == "linux":
             fatal("unimplemented")
         else:
             fatal(f"Unsupported system: `{system}`")
+
+        success("Build setup complete. Try running `cargo build`.")
 
     except KeyboardInterrupt:
         print(Color.RESET, end="")
