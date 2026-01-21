@@ -1,9 +1,9 @@
 pub mod enums;
 pub mod errors;
+pub mod gpu_frame;
 use crate::node::NodeDefinition;
 use crate::node::NodeLibrary;
 use crate::node::handler::image_handler::ImageSourceHandler;
-use crate::node::handler::node_handler::NodeHandler;
 use crate::node::handler::video_handler::VideoSourceHandler;
 use crate::node::node::{BuiltInHandler, NodeExecutionPlan, NodeOutputKind};
 use crate::node_graph::NodeId;
@@ -13,6 +13,7 @@ use crate::node_render_pipeline::PipelineBase;
 use crate::upload_stager::UploadStager;
 use enums::*;
 use errors::*;
+use gpu_frame::GpuFrame;
 use std::any::Any;
 use std::collections::HashMap;
 
@@ -34,13 +35,19 @@ pub struct GraphExecutor {
 
     /// Handler for video sources (maintains producer cache)
     video_handler: VideoSourceHandler,
+
+    /// Handler for image sources (maintains frame cache)
+    image_handler: ImageSourceHandler,
+
+    /// Cached execution order to avoid recomputing topology every frame
+    cached_execution_order: Option<Vec<NodeId>>,
 }
 
 /// The result of executing a node graph
-#[derive(Debug, Clone)]
-pub struct ExecutionResult {
+#[derive(Debug)]
+pub struct ExecutionResult<'a> {
     pub output_node_id: NodeId,
-    pub outputs: HashMap<String, OutputValue>,
+    pub outputs: &'a HashMap<String, OutputValue>,
 }
 
 impl GraphExecutor {
@@ -50,7 +57,9 @@ impl GraphExecutor {
             output_cache: HashMap::new(),
             pipeline_cache: HashMap::new(),
             video_handler: VideoSourceHandler::new(),
+            image_handler: ImageSourceHandler::new(),
             target_format: format,
+            cached_execution_order: None,
         }
     }
 
@@ -59,21 +68,37 @@ impl GraphExecutor {
         self.video_handler.clear_cache();
     }
 
+    /// Clear image cache to release textures
+    pub fn clear_image_cache(&mut self) {
+        self.image_handler.clear_cache();
+    }
+
+    /// Invalidate cached execution order (call when graph structure changes)
+    pub fn invalidate_execution_order(&mut self) {
+        self.cached_execution_order = None;
+    }
+
     /// Execute the entire node graph
-    pub fn execute(
-        &mut self,
+    pub fn execute<'a>(
+        &'a mut self,
         graph: &NodeGraph,
         library: &NodeLibrary,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-    ) -> Result<ExecutionResult, ExecutionError> {
+    ) -> Result<ExecutionResult<'a>, ExecutionError> {
         // Clear cache from previous execution
         self.output_cache.clear();
 
-        // Get execution order (topologically sorted)
-        let order = graph
-            .execution_order()
-            .map_err(ExecutionError::GraphError)?;
+        // Get execution order (topologically sorted) - use cache if available
+        let order = if let Some(ref cached) = self.cached_execution_order {
+            cached.clone()
+        } else {
+            let computed_order = graph
+                .execution_order()
+                .map_err(ExecutionError::GraphError)?;
+            self.cached_execution_order = Some(computed_order.clone());
+            computed_order
+        };
 
         // Execute each node in order
         for &node_id in &order {
@@ -121,7 +146,7 @@ impl GraphExecutor {
 
         Ok(ExecutionResult {
             output_node_id,
-            outputs: outputs.clone(),
+            outputs,
         })
     }
 
@@ -252,7 +277,11 @@ impl GraphExecutor {
             view_formats: &[],
         });
         let output_view = output_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let output_frame = enums::GpuFrame::new(output_view.clone(), output_size);
+        let output_view_arc = std::sync::Arc::new(output_view);
+        let output_frame = GpuFrame {
+            view: output_view_arc.clone(),
+            size: output_size,
+        };
 
         // Convert inputs to shader parameters
         let params = self.inputs_to_shader_params(inputs)?;
@@ -269,7 +298,7 @@ impl GraphExecutor {
                 &mut encoder,
                 primary_frame.view(),
                 &additional_frames,
-                &output_view,
+                &*output_view_arc,
                 params.as_ref(),
             )
             .map_err(ExecutionError::RenderError)?;
@@ -306,8 +335,56 @@ impl GraphExecutor {
     ) -> Result<HashMap<String, OutputValue>, ExecutionError> {
         match handler_type {
             BuiltInHandler::ImageSource => {
-                let handler = ImageSourceHandler;
-                handler.execute(inputs, device, queue, &mut self.upload_stager)
+                // ImageSource needs special handling for mutable state (frame cache)
+                let path = inputs
+                    .get("path")
+                    .and_then(|v| match v {
+                        ResolvedInput::File(p) => Some(p),
+                        _ => None,
+                    })
+                    .ok_or(ExecutionError::InvalidInputType)?;
+
+                // Check if we have this image cached
+                if !self.image_handler.frame_cache.contains_key(path) {
+                    // Load image from disk
+                    let frame = media::frame::Frame::from_img_file(path).map_err(|e| {
+                        ExecutionError::TextureUploadError(format!("Failed to load image: {:?}", e))
+                    })?;
+
+                    let width = frame.dimensions().width();
+                    let height = frame.dimensions().height();
+
+                    // Upload to GPU
+                    let texture_view = self
+                        .upload_stager
+                        .cpu_to_gpu_rgba(device, queue, width, height, frame.raw_data())
+                        .map_err(|e| {
+                            ExecutionError::TextureUploadError(format!(
+                                "Failed to upload texture: {:?}",
+                                e
+                            ))
+                        })?;
+
+                    let gpu_frame = GpuFrame::new(
+                        texture_view,
+                        wgpu::Extent3d {
+                            width,
+                            height,
+                            depth_or_array_layers: 1,
+                        },
+                    );
+
+                    // Cache the GPU frame
+                    self.image_handler
+                        .frame_cache
+                        .insert(path.clone(), gpu_frame);
+                }
+
+                // Return cached frame
+                let gpu_frame = self.image_handler.frame_cache.get(path).unwrap().clone();
+                let mut outputs = HashMap::new();
+                outputs.insert("output".to_string(), OutputValue::Frame(gpu_frame));
+                Ok(outputs)
             }
             BuiltInHandler::VideoSource => {
                 // VideoSource needs special handling for mutable state
@@ -336,7 +413,7 @@ impl GraphExecutor {
                         ))
                     })?;
 
-                let gpu_frame = enums::GpuFrame::new(
+                let gpu_frame = GpuFrame::new(
                     texture_view,
                     wgpu::Extent3d {
                         width,
