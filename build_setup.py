@@ -599,24 +599,48 @@ def mac_os() -> None:
 
         info("Found Homebrew package manager.")
 
-    def is_installed_with_brew(pkg: str, ask_to_install: bool = False) -> bool:
-        is_already_installed = (
-            json.loads(run_cmd("brew", "info", pkg, "--installed", "--json"))
-            != []
+    def is_installed_with_brew(
+        pkg_name: str, ask_to_install: bool = False
+    ) -> bool:
+        installed_pkgs = typing.cast(
+            list[dict[str, Any]],
+            json.loads(run_cmd("brew", "info", "--installed", "--json")),
         )
+
+        def names_from_pkg_dict(pkg_dict: dict[str, Any]) -> list[str]:
+            ret: list[str] = []
+            for key in ("name", "full_name", "oldnames", "aliases"):
+                val = pkg_dict.get(key)
+                if isinstance(val, str):
+                    ret.append(val)
+                elif isinstance(val, list):
+                    ret.extend(
+                        sub_val
+                        for sub_val in typing.cast(list[Union[str, Any]], val)
+                        if isinstance(sub_val, str)
+                    )
+            return ret
+
+        is_already_installed = any(
+            pkg_name in names_from_pkg_dict(pkg_dict)
+            for pkg_dict in installed_pkgs
+        )
+
         if is_already_installed or not ask_to_install:
             return is_already_installed
 
-        if should_install := confirm(
-            f"It doesn't look like you have `{pkg}` installed."
+        if not confirm(
+            f"It doesn't look like you have `{pkg_name}` installed."
             + " Install with Homebrew?"
         ):
-            info(
-                f"Installing `{pkg}` with Homebrew."
-                + " This will likely take a while."
-            )
-            run_cmd("brew", "install", pkg)
-        return should_install
+            return False
+
+        info(
+            f"Installing `{pkg_name}` with Homebrew."
+            + " This can take a very long time."
+        )
+        run_cmd("brew", "install", pkg_name)
+        return True
 
     ensure_brew_is_installed()
     if not is_installed_with_brew("ffmpeg@8", ask_to_install=True):
