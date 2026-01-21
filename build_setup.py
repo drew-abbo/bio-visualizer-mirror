@@ -219,9 +219,16 @@ def print_running_cmd(cmd: Sequence[str]) -> None:
 
 # Runs a shell command and returns its output (minus a trailing newline if it
 # has one).
-def run_cmd(*cmd: str, shell: bool = False, non_fatal: bool = False) -> str:
+def run_cmd(
+    *cmd: str,
+    shell: bool = False,
+    non_fatal: bool = False,
+    show_output: bool = True,
+) -> str:
     print_running_cmd(cmd)
-    print(f"{Color.COMMAND}{' OUTPUT ':~^80}{Color.RESET}", flush=True)
+
+    if show_output:
+        print(f"{Color.COMMAND}{' OUTPUT ':~^80}{Color.RESET}", flush=True)
 
     try:
         process = subprocess.Popen(
@@ -233,18 +240,20 @@ def run_cmd(*cmd: str, shell: bool = False, non_fatal: bool = False) -> str:
             bufsize=1,  # Line buffering.
         )
 
-        # Capture and print lines as they come in.
+        # Capture lines as they come in.
         output = ""
         if process.stdout is not None:
             for line in process.stdout:
                 output += line
-                print(line, end="", flush=True)
+                if show_output:
+                    print(line, end="", flush=True)
         process.wait()
 
     except KeyboardInterrupt:
         raise
     finally:
-        print(f"\n{Color.RESET + Color.COMMAND}{'~' * 80}{Color.RESET}")
+        if show_output:
+            print(f"\n{Color.RESET + Color.COMMAND}{'~' * 80}{Color.RESET}")
 
     if (exit_code := process.returncode) != 0:
         err_msg = f"`{format_cmd(cmd)}` failed with exit code {exit_code}."
@@ -599,13 +608,26 @@ def mac_os() -> None:
 
         info("Found Homebrew package manager.")
 
+    last_installed_pkgs: Union[list[dict[str, Any]], None] = None
+
     def is_installed_with_brew(
         pkg_name: str, ask_to_install: bool = False
     ) -> bool:
-        installed_pkgs = typing.cast(
-            list[dict[str, Any]],
-            json.loads(run_cmd("brew", "info", "--installed", "--json")),
-        )
+        nonlocal last_installed_pkgs
+        if last_installed_pkgs is None:
+            last_installed_pkgs = typing.cast(
+                list[dict[str, Any]],
+                json.loads(
+                    run_cmd(
+                        "brew",
+                        "info",
+                        "--installed",
+                        "--json",
+                        show_output=False,
+                    )
+                ),
+            )
+        installed_pkgs = last_installed_pkgs
 
         def names_from_pkg_dict(pkg_dict: dict[str, Any]) -> list[str]:
             ret: list[str] = []
@@ -639,6 +661,7 @@ def mac_os() -> None:
             f"Installing `{pkg_name}` with Homebrew."
             + " This can take a very long time."
         )
+        last_installed_pkgs = None
         run_cmd("brew", "install", pkg_name)
         return True
 
