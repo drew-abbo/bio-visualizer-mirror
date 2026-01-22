@@ -7,3 +7,12 @@ members = [
   "crates/launcher",
 ]
 resolver = "2"
+
+# Debugging essentially becomes impossible with this profile, but it will
+# generate the best performing code (also at the cost of compile times).
+[profile.release-plus]
+inherits = "release"
+lto = "fat"          # Max link-time optimizations
+codegen-units = 1    # One codegen unit per crate (easier optimization)
+panic = "abort"      # Remove most panic handling code
+strip = "symbols"    # Strip symbols
