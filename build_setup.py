@@ -1,22 +1,27 @@
 #!/usr/bin/env python3
 
-# This is nasty but it's the nicest solution I could come up with. Run this
-# before you try and run `cargo build`. Follow the instructions (possibly
-# re-running it a few times) until it says you're done.
-#
-# This script:
-# - Ensures you have the proper C compiler dependencies to build ffmpeg-next's
-#   rust bindings.
-# - Ensures you have FFmpeg shared libraries/headers (with an option to
-#   download them automatically).
-# - Generates a `.cargo/config.toml` that sets all the needed environment
-#   variables to build ffmpeg-next.
-#
-# Usage:
-#     build_setup.py [-y]
-#
-# On Windows, the compiled executable may depend on shared library files (DLLs).
-# These should be placed in the same directory as the executable.
+HELP = """
+This is nasty but it's the nicest solution I could come up with. Run this before
+you try and run `cargo build`. Follow the instructions (possibly re-running it a
+few times) until it says you're done.
+
+On Windows, this script:
+- Ensures you have the proper C compiler dependencies to build ffmpeg-next's
+  rust bindings.
+- Ensures you have FFmpeg shared libraries/headers (with an option to download
+  them automatically).
+- Generates a `.cargo/config.toml` that sets all the needed environment
+  variables to build ffmpeg-next.
+
+On MacOS, this script:
+- Ensures you have Homebrew installed (with an option to install it
+  automatically).
+- Uses Homebrew to ensure you have the required ffmpeg and pkg-config packages
+  installed.
+
+The compiled executable will depend on shared library files (e.g. dll/dylib
+files).
+"""
 
 import json
 import os
@@ -142,13 +147,18 @@ def action_needed(*args: Any, sep: Optional[str] = " ") -> None:
 
 # Parses command line arguments.
 def parse_args() -> None:
-    arg0 = sys.argv[0]
+    USAGE = f"Usage: {sys.argv[0]} [-y]"
+
     for arg in sys.argv[1:]:
+        if arg in ("-h", "--help", "help", "/h", "/?", "h", "?"):
+            print(f"{USAGE}\n{HELP}".rstrip())
+            sys.exit(int(len(sys.argv) != 2))
+
         if arg == "-y":
             global confirm_auto_answer
             confirm_auto_answer = "y"
         else:
-            fatal(f"Unknown argument `{arg}`.\n" + f"Usage: {arg0} [-y]")
+            fatal(f"Unknown argument `{arg}`.\n" + USAGE)
 
 
 def get_supported_arch() -> Optional[Literal["x86_64", "arm64"]]:
