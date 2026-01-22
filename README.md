@@ -1,4 +1,4 @@
-# Bio Vizualizer
+# Bio Visualizer
 
 We really need a better name...
 
