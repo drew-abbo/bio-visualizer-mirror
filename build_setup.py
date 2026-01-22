@@ -28,121 +28,15 @@ import os
 import platform
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
 import urllib.request
 import typing
-from typing import Literal, NoReturn, Iterable, Sequence, Any, Union, Optional
+from typing import Any, Union, Optional
 
-
-output_is_terminal = sys.stdout.isatty()
-
-
-class Color:
-    ERROR = "\033[31m" if output_is_terminal else ""
-    WARNING = "\033[33m" if output_is_terminal else ""
-    INFO = "\033[36m" if output_is_terminal else ""
-    SUCCESS = "\033[32m" if output_is_terminal else ""
-    CONFIRM = "\033[35m" if output_is_terminal else ""
-    ACTION_NEEDED = "\033[35m\033[1m" if output_is_terminal else ""
-    COMMAND = "\033[34m" if output_is_terminal else ""
-    RESET = "\033[0m" if output_is_terminal else ""
-
-
-# Print an error and exit.
-def fatal(
-    *args: Any,
-    include_run_again_msg: bool = True,
-    sep: Optional[str] = " ",
-) -> NoReturn:
-    print(f"{Color.ERROR}FATAL{Color.RESET}: ", end="", file=sys.stderr)
-    print(*args, sep=sep, file=sys.stderr)
-    if include_run_again_msg:
-        print(
-            "\nPlease run this script again once the issue is resolved.",
-            file=sys.stderr,
-        )
-    sys.exit(1)
-
-
-# Print a warning.
-def warning(
-    *args: Any,
-    sep: Optional[str] = " ",
-    end: Optional[str] = "\n",
-    flush: bool = False,
-) -> None:
-    print(
-        f"{Color.WARNING}WARNING{Color.RESET}: ",
-        end="",
-        file=sys.stderr,
-        flush=False,
-    )
-    print(*args, sep=sep, file=sys.stderr, end=end, flush=flush)
-
-
-# Print some info.
-def info(
-    *args: Any,
-    sep: Optional[str] = " ",
-    end: Optional[str] = "\n",
-    flush: bool = False,
-) -> None:
-    print(f"{Color.INFO}INFO{Color.RESET}: ", end="", flush=False)
-    print(*args, sep=sep, end=end, flush=flush)
-
-
-# Print that the process is done (success).
-def success(
-    *args: Any,
-    sep: Optional[str] = " ",
-    end: Optional[str] = "\n",
-    flush: bool = False,
-) -> None:
-    print(f"{Color.SUCCESS}SUCCESS{Color.RESET}: ", end="", flush=False)
-    print(*args, sep=sep, end=end, flush=flush)
-
-
-# When set, all `confirm` confirmations with be responded to with this instead
-# of prompting the user.
-confirm_auto_answer = None
-
-
-# Print a message and await a "yes"/"no" from the user.
-def confirm(*args: Any, sep: Optional[str] = " ") -> bool:
-    print(f"{Color.CONFIRM}CONFIRM{Color.RESET}: ", end="")
-    print(*args, sep=sep, end="")
-    print(f" ({Color.CONFIRM}y{Color.RESET}/n): {Color.CONFIRM}", end="")
-
-    if confirm_auto_answer is None:
-        response = input().strip().lower()
-        print(f"{Color.RESET}", end="", flush=True)
-    else:
-        response = confirm_auto_answer
-        print(f"{confirm_auto_answer}{Color.RESET} (auto)")
-
-    return response in ("y", "yes")
-
-
-# Print a message and wait for the user to hit enter.
-def action_needed(*args: Any, sep: Optional[str] = " ") -> None:
-    print(f"{Color.ACTION_NEEDED}MANUAL ACTION NEEDED{Color.RESET}: ", end="")
-    print(*args, sep=sep, end="")
-    print(
-        f" (press [{Color.ACTION_NEEDED}ENTER{Color.RESET}] if you have "
-        + "completed the action manually or enter a shell command to run): "
-        + f"{Color.ACTION_NEEDED}",
-        end="",
-    )
-
-    response = input()
-    if not output_is_terminal:
-        print(f"{response}{Color.RESET} (auto)")
-    print(f"{Color.RESET}", end="", flush=True)
-
-    if len(response) != 0 and not response.isspace():
-        run_cmd(response, shell=True)
+import build_util.log as log
+import build_util.sh as sh
+import build_util.user as user
 
 
 # Parses command line arguments.
@@ -155,168 +49,49 @@ def parse_args() -> None:
             sys.exit(int(len(sys.argv) != 2))
 
         if arg == "-y":
-            global confirm_auto_answer
-            confirm_auto_answer = "y"
+            user.set_confirm_auto_answer("y")
         else:
-            fatal(f"Unknown argument `{arg}`.\n" + USAGE)
+            log.fatal(f"Unknown argument `{arg}`.\n" + USAGE)
 
 
-def get_supported_arch() -> Optional[Literal["x86_64", "arm64"]]:
-    return typing.cast(
-        Optional[Literal["x86_64", "arm64"]],
-        {
-            "x86_64": "x86_64",
-            "amd64": "x86_64",
-            "arm64": "arm64",
-        }.get(platform.machine().lower()),
-    )
-
-
-# Does a check to see if a path exists.
-def ensure_path_exists(
-    path: str, help_msg: Optional[str] = None, non_fatal: bool = False
-) -> None:
-    if not os.path.exists(path):
-        err_msg = f"Couldn't find `{path}`." + (
-            f"\n{help_msg}" if help_msg is not None else ""
-        )
-        if non_fatal:
-            raise DoesntExistException(err_msg)
-        fatal(err_msg)
-
-
-# Does a check to see if a command exists on the `PATH` or the file system.
-def ensure_cmd_exists(
-    cmd: str, help_msg: Optional[str] = None, non_fatal: bool = False
-) -> None:
-    if shutil.which(cmd) is not None or os.path.exists(cmd):
-        return
-
-    err_msg = f"Couldn't find `{cmd}` on the path." + (
-        f"\n{help_msg}" if help_msg is not None else ""
-    )
-    if non_fatal:
-        raise DoesntExistException(err_msg)
-    fatal(err_msg)
-
-
-# Raised if something goes wrong running a command.
-class CmdException(Exception):
-    pass
-
-
-class DoesntExistException(Exception):
-    pass
-
-
-# Joins the command arguments into a single string, naively wrapping arguments
-# that contain spaces in double quotes.
-def format_cmd(cmd: Iterable[str]) -> str:
-    return " ".join(arg if " " not in arg else f'"{arg}"' for arg in cmd)
-
-
-def print_running_cmd(cmd: Sequence[str]) -> None:
-    # Highlight the file name in the first argument.
-    last_slash_idx = max(cmd[0].rfind("/"), cmd[0].rfind("\\"))
-    highlight_start_idx = 0 if last_slash_idx == -1 else last_slash_idx + 1
-
-    cmd = [
-        f"{cmd[0][:highlight_start_idx]}"
-        + f"{Color.COMMAND}{cmd[0][highlight_start_idx:]}{Color.RESET}",
-        *cmd[1:],
-    ]
-
-    print(f"{Color.COMMAND}RUNNING COMMAND{Color.RESET}: `{format_cmd(cmd)}`")
-
-
-# Runs a shell command and returns its output (minus a trailing newline if it
-# has one).
-def run_cmd(
-    *cmd: str,
-    shell: bool = False,
-    non_fatal: bool = False,
-    show_output: bool = True,
-) -> str:
-    print_running_cmd(cmd)
-
-    if show_output:
-        print(f"{Color.COMMAND}{' OUTPUT ':~^80}{Color.RESET}", flush=True)
-
-    try:
-        process = subprocess.Popen(
-            cmd if not shell else " ".join(cmd),
-            shell=shell,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,  # Combine stderr and stdout to stdout.
-            text=True,
-            bufsize=1,  # Line buffering.
-        )
-
-        # Capture lines as they come in.
-        output = ""
-        if process.stdout is not None:
-            for line in process.stdout:
-                output += line
-                if show_output:
-                    print(line, end="", flush=True)
-        process.wait()
-
-    except KeyboardInterrupt:
-        raise
-    finally:
-        if show_output:
-            print(f"\n{Color.RESET + Color.COMMAND}{'~' * 80}{Color.RESET}")
-
-    if (exit_code := process.returncode) != 0:
-        err_msg = f"`{format_cmd(cmd)}` failed with exit code {exit_code}."
-        if non_fatal:
-            raise CmdException(err_msg)
-        fatal(err_msg)
-
-    return output[:-1] if output.endswith("\n") else output
-
-
-# Like `run_cmd` except it doesn't wait for the command to finish.
-def start_cmd(*cmd: str, shell: bool = False) -> None:
-    print_running_cmd(cmd)
-    subprocess.Popen(cmd if not shell else " ".join(cmd), shell=shell)
-
-
-# Create a `.cargo/config.toml` file.
 def create_cargo_config(contents: str) -> None:
+    """
+    Create a `.cargo/config.toml` file.
+    """
+
     path = (
         ".cargo\\config.toml"
         if platform.system() == "Windows"
         else ".cargo/config.toml"
     )
 
-    if os.path.exists(path) and not confirm(
+    if os.path.exists(path) and not user.confirm(
         f"A `{path}` file already exists. Overwrite?"
     ):
-        fatal(f"Failed to create `{path}`.")
+        log.fatal(f"Failed to create `{path}`.")
     else:
         os.makedirs(".cargo", exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write("# Generated by `build_setup.py`.\n" + contents)
 
-    info(f"Cargo config generated (`{path}`).")
+    log.info(f"Cargo config generated (`{path}`).")
 
 
 # Handles build setup for Windows builds.
 def windows() -> None:
-    if get_supported_arch() != "x86_64":
-        fatal("Windows builds currently only support x86_64.")
+    if sh.get_supported_arch() != "x86_64":
+        log.fatal("Windows builds currently only support x86_64.")
 
     program_files_x86 = os.environ.get("ProgramFiles(x86)")
     program_files = os.environ.get("ProgramFiles")
     if program_files_x86 is None or program_files is None:
-        fatal("Coldn't find program files.")
+        log.fatal("Coldn't find program files.")
 
     vs_installer_dir = (
         f"{program_files_x86}\\Microsoft Visual Studio\\Installer"
     )
 
-    ensure_path_exists(
+    sh.ensure_path_exists(
         vs_installer_dir,
         help_msg="You likely don't have `Visual Studio Installer`"
         + " on your system. Please install it from here:\n"
@@ -324,9 +99,9 @@ def windows() -> None:
     )
 
     # `vswhere` lets us find where a specific version is installed.
-    ensure_path_exists(f"{vs_installer_dir}\\vswhere.exe")
+    sh.ensure_path_exists(f"{vs_installer_dir}\\vswhere.exe")
     try:
-        vs_installation_path = run_cmd(
+        vs_installation_path = sh.run_cmd(
             f"{vs_installer_dir}\\vswhere.exe",
             "-property",
             "installationPath",
@@ -335,13 +110,13 @@ def windows() -> None:
             "-latest",
             non_fatal=True,
         )
-    except CmdException:
-        fatal("Couldn't find Visual Studio (2022 or 2026).")
-    info("MSVC found.")
+    except sh.CmdException:
+        log.fatal("Couldn't find Visual Studio (2022 or 2026).")
+    log.info("MSVC found.")
 
     # Collect a list of all Visual Studio components that are installed.
     def get_installed_vs_components() -> list[str]:
-        info("Exporting installed Visual Studio components...")
+        log.info("Exporting installed Visual Studio components...")
 
         # We'll use `vs_installer` to query installed components. The result
         # will be written to a JSON config file we can read.
@@ -356,7 +131,7 @@ def windows() -> None:
         )
 
         try:
-            run_cmd(
+            sh.run_cmd(
                 f"{vs_installer_dir}\\vs_installer.exe",
                 "--installPath",
                 vs_installation_path,
@@ -367,17 +142,17 @@ def windows() -> None:
                 "--noUpdateInstaller",
                 non_fatal=True,
             )
-        except CmdException as e:
-            fatal(f"{e}\n{vs_installer_err_msg}")
+        except sh.CmdException as e:
+            log.fatal(f"{e}\n{vs_installer_err_msg}")
 
         try:
             with open(temp_vs_installer_config_path) as f:
                 installed_components = json.load(f)["components"]
             os.remove(temp_vs_installer_config_path)
         except FileNotFoundError:
-            fatal(vs_installer_err_msg)
+            log.fatal(vs_installer_err_msg)
 
-        info("Installed Visual Studio components exported.")
+        log.info("Installed Visual Studio components exported.")
         return installed_components
 
     installed_vs_components = get_installed_vs_components()
@@ -392,14 +167,16 @@ def windows() -> None:
         )
 
         if not component_is_installed:
-            start_cmd(f"{vs_installer_dir}\\vs_installer.exe")
-            fatal(
+            sh.start_cmd(f"{vs_installer_dir}\\vs_installer.exe")
+            log.fatal(
                 f"Missing the `{component_name}` component."
                 + " Please use the Visual Studio Installer to install it.\n"
                 + "Trying to opening the Visual Studio Installer..."
             )
 
-        info(f"The `{component_name}` Visual Studio component is installed.")
+        log.info(
+            f"The `{component_name}` Visual Studio component is installed."
+        )
 
     # At a minimum, rust needs C++ build tools and a Windows 11 SDK.
     ensure_vs_component_is_installed(
@@ -423,8 +200,8 @@ def windows() -> None:
         # `libclang` needs to be installed for FFmpeg-next to be able to create
         # rust bindings.
         libclang_path = f"{vs_installation_path}\\VC\\Tools\\LLVM\\x64\\bin"
-        ensure_path_exists(f"{libclang_path}\\libclang.dll")
-        info("Found `libclang`.")
+        sh.ensure_path_exists(f"{libclang_path}\\libclang.dll")
+        log.info("Found `libclang`.")
 
         return libclang_path
 
@@ -443,11 +220,11 @@ def windows() -> None:
             )[-1]
 
             clang_include_dir = f"{clang_dir}\\{newest_clang_version}\\include"
-            ensure_path_exists(clang_include_dir, non_fatal=True)
+            sh.ensure_path_exists(clang_include_dir, non_fatal=True)
 
-            info("Found Clang include directory.")
-        except (FileNotFoundError, IndexError, DoesntExistException):
-            warning(
+            log.info("Found Clang include directory.")
+        except (FileNotFoundError, IndexError, sh.DoesntExistException):
+            log.warning(
                 "Failed to find Clang include directory. Compilation may fail."
             )
             clang_include_dir = None
@@ -469,13 +246,13 @@ def windows() -> None:
                 + f" from the link below (or anywhere):\n{FFMPEG_DOWNLOAD_URL}"
             )
 
-            if not confirm(
+            if not user.confirm(
                 "You don't have FFmpeg installed locally yet."
                 + " Do you want to download FFmpeg from the internet now?"
             ):
-                fatal(f"Skipping auto-download. {MANUAL_INSTALL_MSG}")
+                log.fatal(f"Skipping auto-download. {MANUAL_INSTALL_MSG}")
 
-            info(
+            log.info(
                 "Installing FFmpeg. This may take a while... ",
                 end="",
                 flush=True,
@@ -488,15 +265,15 @@ def windows() -> None:
                     os.remove(FFMPEG_ZIP_PATH)
                 except:
                     pass
-                warning(f"\nDownload cancelled. {MANUAL_INSTALL_MSG}")
+                log.warning(f"\nDownload cancelled. {MANUAL_INSTALL_MSG}")
                 raise
             except Exception:
-                fatal(f"\nDownload failed. {MANUAL_INSTALL_MSG}")
+                log.fatal(f"\nDownload failed. {MANUAL_INSTALL_MSG}")
             print("Done.")
-            info("FFmpeg zip file downloaded.")
+            log.info("FFmpeg zip file downloaded.")
 
         def get_7z_cmd() -> Optional[str]:
-            info("Checking for 7z utility.")
+            log.info("Checking for 7z utility.")
             sevenzip_cmd: Optional[str] = None
             for cmd in (
                 "7z",
@@ -505,32 +282,32 @@ def windows() -> None:
                 f"{program_files_x86}\\7-Zip\\7z.exe",
             ):
                 try:
-                    ensure_cmd_exists(cmd, non_fatal=True)
-                except DoesntExistException:
+                    sh.ensure_cmd_exists(cmd, non_fatal=True)
+                except sh.DoesntExistException:
                     continue
                 else:
                     sevenzip_cmd = cmd
                     break
 
             if sevenzip_cmd is not None:
-                info("7z utility found.")
+                log.info("7z utility found.")
             else:
-                info("7z utility not found.")
+                log.info("7z utility not found.")
 
             return sevenzip_cmd
 
         def extract_ffmpeg() -> None:
             if (sevenzip_cmd := get_7z_cmd()) is not None:
-                info("Auto-extracting FFmpeg zip file with 7z utility.")
+                log.info("Auto-extracting FFmpeg zip file with 7z utility.")
                 try:
-                    run_cmd(
+                    sh.run_cmd(
                         sevenzip_cmd,
                         "x",
                         FFMPEG_ZIP_PATH,
                         f"-o{FFMPEG_DIR}",
                     )
                 except:
-                    warning("Failed to extract with 7z utility.")
+                    log.warning("Failed to extract with 7z utility.")
                 else:
                     return
 
@@ -539,27 +316,27 @@ def windows() -> None:
             # there's no default way to extract a 7z file on windows without
             # using the file explorer UI.
 
-            info("Attempting to open file explorer on FFmpeg zip file.")
-            start_cmd(
+            log.info("Attempting to open file explorer on FFmpeg zip file.")
+            sh.start_cmd(
                 "explorer",
                 "/select,",
                 f"{os.path.abspath(FFMPEG_ZIP_PATH)}",
             )
-            action_needed(
+            user.action_needed(
                 f"Please extract `{FFMPEG_ZIP_PATH}`" + f" to `{FFMPEG_DIR}`.",
             )
 
             ffmpeg_dir_exists = os.path.exists(FFMPEG_DIR)
             if not ffmpeg_dir_exists:
-                fatal("The FFmpeg directory wasn't extracted.")
+                log.fatal("The FFmpeg directory wasn't extracted.")
 
         def un_nest_ffmpeg_dir() -> None:
             try:
                 ffmpeg_dir_list = os.listdir(FFMPEG_DIR)
             except:
-                fatal("Failed to check FFmpeg directory contents.")
+                log.fatal("Failed to check FFmpeg directory contents.")
 
-            if len(ffmpeg_dir_list) != 1 or not confirm(
+            if len(ffmpeg_dir_list) != 1 or not user.confirm(
                 "FFmpeg directory contains only 1 subfolder"
                 + f" `{ffmpeg_dir_list[0]}`."
                 + " Attempt auto-fix?"
@@ -572,11 +349,11 @@ def windows() -> None:
                 shutil.move(f"{tmp_location}\\{ffmpeg_dir_list[0]}", FFMPEG_DIR)
                 os.rmdir(tmp_location)
             except:
-                warning("FFmpeg directory structure fix failed.")
-                if not confirm("Auto-fix failed. Continue anyway?"):
-                    fatal("Not continuing.")
+                log.warning("FFmpeg directory structure fix failed.")
+                if not user.confirm("Auto-fix failed. Continue anyway?"):
+                    log.fatal("Not continuing.")
             else:
-                info("FFmpeg directory structure fix attempted.")
+                log.info("FFmpeg directory structure fix attempted.")
 
         if not os.path.exists(FFMPEG_DIR):
             if not os.path.exists(FFMPEG_ZIP_PATH):
@@ -589,12 +366,12 @@ def windows() -> None:
         # `ffmpeg` directory (but we still ask first).
         un_nest_ffmpeg_dir()
 
-        ensure_path_exists(f"{FFMPEG_DIR}\\include")
-        ensure_path_exists(f"{FFMPEG_DIR}\\lib")
-        ensure_path_exists(f"{FFMPEG_DIR}\\bin")
-        info("FFmpeg found locally.")
+        sh.ensure_path_exists(f"{FFMPEG_DIR}\\include")
+        sh.ensure_path_exists(f"{FFMPEG_DIR}\\lib")
+        sh.ensure_path_exists(f"{FFMPEG_DIR}\\bin")
+        log.info("FFmpeg found locally.")
 
-        if os.path.exists(FFMPEG_ZIP_PATH) and confirm(
+        if os.path.exists(FFMPEG_ZIP_PATH) and user.confirm(
             "Auto-downloaded FFmpeg zip file no longer needed."
             + f" Would you like to remove it (`{FFMPEG_ZIP_PATH}`)?",
         ):
@@ -632,34 +409,34 @@ def windows() -> None:
 
     create_cargo_config(cargo_config)
 
-    run_cmd("cargo", "clean")
-    info("Build directory cleaned.")
+    sh.run_cmd("cargo", "clean")
+    log.info("Build directory cleaned.")
 
 
 # Handles build setup for MacOS builds.
 def mac_os() -> None:
-    arch = get_supported_arch()
+    arch = sh.get_supported_arch()
     if arch is None:
-        fatal("MacOS builds only support x86_64 and arm64")
+        log.fatal("MacOS builds only support x86_64 and arm64")
 
     def ensure_brew_is_installed() -> None:
         try:
-            ensure_cmd_exists("brew", non_fatal=True)
-        except DoesntExistException:
-            if not confirm(
+            sh.ensure_cmd_exists("brew", non_fatal=True)
+        except sh.DoesntExistException:
+            if not user.confirm(
                 "You do not have the Homebrew package manager installed."
                 + " Start Homebrew install? (you'll need to be a system admin)"
             ):
-                fatal("Homebrew is required.")
+                log.fatal("Homebrew is required.")
 
             # This comes from the download instructions here: https://brew.sh/
-            run_cmd(
+            sh.run_cmd(
                 '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
                 shell=True,
             )
-            ensure_cmd_exists("brew")
+            sh.ensure_cmd_exists("brew")
 
-        info("Found Homebrew package manager.")
+        log.info("Found Homebrew package manager.")
 
     last_installed_pkgs: Optional[list[dict[str, Any]]] = None
 
@@ -671,7 +448,7 @@ def mac_os() -> None:
             last_installed_pkgs = typing.cast(
                 list[dict[str, Any]],
                 json.loads(
-                    run_cmd(
+                    sh.run_cmd(
                         "brew",
                         "info",
                         "--installed",
@@ -704,53 +481,47 @@ def mac_os() -> None:
         if is_already_installed or not ask_to_install:
             return is_already_installed
 
-        if not confirm(
+        if not user.confirm(
             f"It doesn't look like you have `{pkg_name}` installed."
             + " Install with Homebrew?"
         ):
             return False
 
-        info(
+        log.info(
             f"Installing `{pkg_name}` with Homebrew."
             + " This can take a very long time."
         )
         last_installed_pkgs = None
-        run_cmd("brew", "install", pkg_name)
+        sh.run_cmd("brew", "install", pkg_name)
         return True
 
     ensure_brew_is_installed()
     if not is_installed_with_brew("ffmpeg@8", ask_to_install=True):
-        warning("Continuing without installing FFmpeg (8).")
+        log.warning("Continuing without installing FFmpeg (8).")
     if not is_installed_with_brew("pkg-config", ask_to_install=True):
-        warning("Continuing without installing `pkg-config`.")
+        log.warning("Continuing without installing `pkg-config`.")
 
-    run_cmd("cargo", "clean")
-    info("Build directory cleaned.")
+    sh.run_cmd("cargo", "clean")
+    log.info("Build directory cleaned.")
 
 
 def main() -> None:
-    try:
-        parse_args()
+    parse_args()
 
-        ensure_cmd_exists("cargo")
+    sh.ensure_cmd_exists("cargo")
 
-        system = platform.system().lower()
-        if system == "windows":
-            windows()
-        elif system == "darwin":  # MacOS
-            mac_os()
-        elif system == "linux":
-            fatal("unimplemented")
-        else:
-            fatal(f"Unsupported system: `{system}`")
+    system = platform.system().lower()
+    if system == "windows":
+        windows()
+    elif system == "darwin":  # MacOS
+        mac_os()
+    elif system == "linux":
+        log.fatal("unimplemented")
+    else:
+        log.fatal(f"Unsupported system: `{system}`")
 
-        success("Build setup complete. Try running `cargo build`.")
-
-    except KeyboardInterrupt:
-        print(Color.RESET, end="")
-        print(Color.RESET, file=sys.stderr)
-        fatal(f"Stop signal received.", include_run_again_msg=False)
+    log.success("Build setup complete.")
 
 
 if __name__ == "__main__":
-    main()
+    sh.catch_stop_signal(main)

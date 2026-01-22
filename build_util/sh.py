@@ -1,0 +1,170 @@
+"""
+Contains shell and OS utilities.
+"""
+
+import os
+import platform
+import sys
+import shutil
+import subprocess
+import typing
+from typing import Literal, Iterable, Sequence, Optional, Callable
+
+from . import log
+from .log import Color
+
+
+def get_supported_arch() -> Optional[Literal["x86_64", "arm64"]]:
+    """
+    Returns `"x86_64"`, `"arm64"`, or `None` depending on the architecture of
+    the current machine.
+    """
+
+    return typing.cast(
+        Optional[Literal["x86_64", "arm64"]],
+        {
+            "x86_64": "x86_64",
+            "amd64": "x86_64",
+            "arm64": "arm64",
+        }.get(platform.machine().lower()),
+    )
+
+
+def ensure_path_exists(
+    path: str, help_msg: Optional[str] = None, non_fatal: bool = False
+) -> None:
+    """
+    Does a check to see if a path exists.
+    """
+
+    if not os.path.exists(path):
+        err_msg = f"Couldn't find `{path}`." + (
+            f"\n{help_msg}" if help_msg is not None else ""
+        )
+        if non_fatal:
+            raise DoesntExistException(err_msg)
+        log.fatal(err_msg)
+
+
+def ensure_cmd_exists(
+    cmd: str, help_msg: Optional[str] = None, non_fatal: bool = False
+) -> None:
+    """
+    Does a check to see if a command exists on the `PATH` or the file system.
+    """
+
+    if shutil.which(cmd) is not None or os.path.exists(cmd):
+        return
+
+    err_msg = f"Couldn't find `{cmd}` on the path." + (
+        f"\n{help_msg}" if help_msg is not None else ""
+    )
+    if non_fatal:
+        raise DoesntExistException(err_msg)
+    log.fatal(err_msg)
+
+
+def run_cmd(
+    *cmd: str,
+    shell: bool = False,
+    non_fatal: bool = False,
+    show_output: bool = True,
+) -> str:
+    """
+    Runs a shell command and returns its output (minus a trailing newline if it
+    has one).
+    """
+
+    __print_running_cmd(cmd)
+
+    if show_output:
+        print(f"{Color.COMMAND}{' OUTPUT ':~^80}{Color.RESET}", flush=True)
+
+    try:
+        process = subprocess.Popen(
+            cmd if not shell else " ".join(cmd),
+            shell=shell,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # Combine stderr and stdout to stdout.
+            text=True,
+            bufsize=1,  # Line buffering.
+        )
+
+        # Capture lines as they come in.
+        output = ""
+        if process.stdout is not None:
+            for line in process.stdout:
+                output += line
+                if show_output:
+                    print(line, end="", flush=True)
+        process.wait()
+
+    except KeyboardInterrupt:
+        raise
+    finally:
+        if show_output:
+            print(f"\n{Color.RESET + Color.COMMAND}{'~' * 80}{Color.RESET}")
+
+    if (exit_code := process.returncode) != 0:
+        err_msg = f"`{__format_cmd(cmd)}` failed with exit code {exit_code}."
+        if non_fatal:
+            raise CmdException(err_msg)
+        log.fatal(err_msg)
+
+    return output[:-1] if output.endswith("\n") else output
+
+
+def start_cmd(*cmd: str, shell: bool = False) -> None:
+    """
+    Like `run_cmd()` except it doesn't wait for the command to finish.
+    """
+
+    __print_running_cmd(cmd)
+    subprocess.Popen(cmd if not shell else " ".join(cmd), shell=shell)
+
+
+class CmdException(Exception):
+    """
+    Raised if something goes wrong running a command.
+    """
+
+
+class DoesntExistException(Exception):
+    """
+    Raised if something doesn't exist.
+    """
+
+
+def catch_stop_signal(fn: Callable[[], None]) -> None:
+    try:
+        fn()
+    except KeyboardInterrupt:
+        print(Color.RESET, end="")
+        print(Color.RESET, file=sys.stderr)
+        log.fatal(f"Stop signal received.", include_run_again_msg=False)
+
+
+def __format_cmd(cmd: Iterable[str]) -> str:
+    """
+    Joins the command arguments into a single string, naively wrapping arguments
+    that contain spaces in double quotes.
+    """
+
+    return " ".join(arg if " " not in arg else f'"{arg}"' for arg in cmd)
+
+
+def __print_running_cmd(cmd: Sequence[str]) -> None:
+    """
+    Highlight the file name in the first argument.
+    """
+
+    last_slash_idx = max(cmd[0].rfind("/"), cmd[0].rfind("\\"))
+    highlight_start_idx = 0 if last_slash_idx == -1 else last_slash_idx + 1
+
+    cmd = [
+        f"{cmd[0][:highlight_start_idx]}"
+        + f"{Color.COMMAND}{cmd[0][highlight_start_idx:]}{Color.RESET}",
+        *cmd[1:],
+    ]
+
+    print(f"{Color.COMMAND}RUNNING COMMAND{Color.RESET}: `{__format_cmd(cmd)}`")

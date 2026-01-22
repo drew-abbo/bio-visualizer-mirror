@@ -1,5 +1,7 @@
 target/
 .cargo/config.toml
 Cargo.lock
+
 ffmpeg/
 ffmpeg.7z
+__pycache__
