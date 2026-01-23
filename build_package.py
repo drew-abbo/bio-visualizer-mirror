@@ -22,12 +22,13 @@ import sys
 import os
 import platform
 import json
+import time
 import shutil
 import tempfile
 from functools import cache
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypedDict, Optional
+from typing import TypedDict, Optional, Union
 
 import build_util.log as log
 import build_util.sh as sh
@@ -101,7 +102,12 @@ Usage:
         else:
             log.fatal(f"Unknown argument `{arg}`." + USAGE)
 
-    return Args(clean, out or "package")
+    try:
+        out = os.path.abspath(out or "package")
+    except:
+        log.fatal(f"`{out}` is not a valid path.")
+
+    return Args(clean, out)
 
 
 def clear_up_path(path: str) -> None:
@@ -320,13 +326,42 @@ def build_and_stage_bin(crate_name: str, out_dir: str):
         log.fatal("Failed to copy binary to output directory.")
 
 
+def fmt_time(secs: float) -> str:
+    """
+    Formats a time to be human readable (e.g. `"1 minute and 15 seconds"`).
+    """
+
+    hours, sub_hour_secs = divmod(int(secs), 3600)
+    mins, secs = sub_hour_secs // 60, (sub_hour_secs % 60) + (secs - int(secs))
+
+    def pluralize(noun: str, n: Union[int, float]) -> str:
+        return f"{noun}{'s' if n < 0.95 or n >= 1.05 else ''}"
+
+    hours_str = f"{hours} {pluralize('hour', hours)}"
+    mins_str = f"{mins} {pluralize('min', mins)}"
+    secs_str = (
+        f"{int(secs)} " if round(secs, 1).is_integer() else f"{secs:.1f} "
+    ) + pluralize("second", secs)
+
+    if hours:
+        if mins:
+            return f"{hours_str}, {mins_str}, and {secs_str}"
+        return f"{hours_str} and {secs_str}"
+    if mins:
+        return f"{mins_str} and {secs_str}"
+    return secs_str
+
+
 def main() -> None:
+    start_time = time.time()
+
     args = parse_args()
 
     if args.clean:
-        log.success("Removing output.")
-        sh.rm_path(args.out, allow_missing=True)
-        log.success("Output cleaned.")
+        if sh.rm_path(args.out, allow_missing=True):
+            log.success(f"Removed `{args.out}`.")
+        else:
+            log.success("Nothing changed.")
         return
 
     archive_fmt = get_archive_fmt(args.out)
@@ -357,7 +392,11 @@ def main() -> None:
         archive_was_made = out_path == args.out
     out_kind = "archive" if archive_was_made else "directory"
 
-    log.success(f"Packaging completed. See {out_kind}: {out_path}")
+    elapsed_time = time.time() - start_time
+    log.success(
+        f"Packaging completed in {fmt_time(elapsed_time)}. "
+        + f"See {out_kind}: {out_path}"
+    )
 
 
 if __name__ == "__main__":

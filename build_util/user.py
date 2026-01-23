@@ -34,8 +34,8 @@ def confirm(*args: Any, sep: Optional[str] = " ") -> bool:
         try:
             response = input().strip().lower()
         except KeyboardInterrupt:
-            print()
-            log.fatal("No input supplied.", include_run_again_msg=False)
+            print(f"{Color.RESET}({Color.ERROR}cancelled{Color.RESET})")
+            response = ""
 
         print(f"{Color.RESET}", end="", flush=True)
     else:
@@ -65,7 +65,7 @@ def action_needed(*args: Any, sep: Optional[str] = " ") -> None:
     try:
         response = input()
     except KeyboardInterrupt:
-        print()
+        print(f"{Color.RESET}({Color.ERROR}cancelled{Color.RESET})")
         log.fatal("No input supplied.", include_run_again_msg=False)
 
     if not output_is_terminal:
