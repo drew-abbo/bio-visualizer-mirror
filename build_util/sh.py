@@ -30,6 +30,41 @@ def get_supported_arch() -> Optional[Literal["x86_64", "arm64"]]:
     )
 
 
+def rm_path(
+    path: str,
+    allow_missing: bool = False,
+    help_msg: Optional[str] = None,
+    non_fatal: bool = False,
+) -> None:
+    """
+    Removes a file or directory (and its contents).
+    """
+
+    if not os.path.exists(path):
+        if allow_missing:
+            return
+
+        err_msg = f"Couldn't remove `{path}` because it doesn't exist." + (
+            f"\n{help_msg}" if help_msg is not None else ""
+        )
+        if non_fatal:
+            raise DoesntExistException(err_msg)
+        log.fatal(err_msg)
+
+    try:
+        if os.path.isdir(path):
+            shutil.rmtree(path)
+        elif os.path.exists(path):
+            os.remove(path)
+    except:
+        err_msg = f"Failed to remove `{path}`." + (
+            f"\n{help_msg}" if help_msg is not None else ""
+        )
+        if non_fatal:
+            raise RemovePathException(err_msg)
+        log.fatal(err_msg)
+
+
 def ensure_path_exists(
     path: str, help_msg: Optional[str] = None, non_fatal: bool = False
 ) -> None:
@@ -56,7 +91,7 @@ def ensure_cmd_exists(
     if shutil.which(cmd) is not None or os.path.exists(cmd):
         return
 
-    err_msg = f"Couldn't find `{cmd}` on the path." + (
+    err_msg = f"Couldn't find command `{cmd}`." + (
         f"\n{help_msg}" if help_msg is not None else ""
     )
     if non_fatal:
@@ -132,6 +167,12 @@ class CmdException(Exception):
 class DoesntExistException(Exception):
     """
     Raised if something doesn't exist.
+    """
+
+
+class RemovePathException(Exception):
+    """
+    Raised if something failed to be removed.
     """
 
 
