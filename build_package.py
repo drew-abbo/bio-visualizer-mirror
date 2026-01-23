@@ -145,13 +145,20 @@ def create_staging_dir(path: Optional[str]) -> str:
             clear_up_path(path)
             os.makedirs(path)
             log.info(f"Staging directory created (`{path}`).")
-            return path
-
-        staging_dir = tempfile.mkdtemp()
-        log.info(f"Temporary staging directory created (`{staging_dir}`).")
-        return staging_dir
+            staging_dir = path
+        else:
+            staging_dir = tempfile.mkdtemp()
+            log.info(f"Temporary staging directory created (`{staging_dir}`).")
     except:
         log.fatal("Failed to initialize staging directory.")
+
+    ends_with_slash = staging_dir.endswith(os.sep) or (
+        os.altsep and staging_dir.endswith(os.altsep)
+    )
+    if ends_with_slash:
+        staging_dir = staging_dir[:-1]
+
+    return staging_dir
 
 
 def file_ext(path: str) -> Optional[str]:
@@ -352,6 +359,26 @@ def fmt_time(secs: float) -> str:
     return secs_str
 
 
+def windows(staging_dir: str) -> None:
+    FFMPEG_DLL_DIR = ".\\ffmpeg\\bin"
+    sh.ensure_path_exists(
+        FFMPEG_DLL_DIR,
+        help_msg="The directory where FFmpeg DLLs were expected was not found.",
+    )
+
+    log.info(f"Copying DLLs from `{FFMPEG_DLL_DIR}` to staging directory.")
+    try:
+        for subfile in os.listdir(FFMPEG_DLL_DIR):
+            if not subfile.endswith(".dll"):
+                continue
+            shutil.copy(
+                f"{FFMPEG_DLL_DIR}\\{subfile}",
+                f"{staging_dir}\\{subfile}",
+            )
+    except:
+        log.fatal("Failed top copy DLLs to staging directory.")
+
+
 def main() -> None:
     start_time = time.time()
 
@@ -376,7 +403,7 @@ def main() -> None:
 
     system = platform.system().lower()
     if system == "windows":
-        log.fatal("unimplemented")
+        windows(staging_dir)
     elif system == "darwin":  # MacOS
         log.fatal("unimplemented")
     elif system == "linux":
