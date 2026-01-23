@@ -77,7 +77,7 @@ python3 ./build_package.py --help
 
 ## Development
 
-There are 2 binary crates. `launcher` is acts mainly as a project selector for
+There are 2 binary crates. `launcher` acts mainly as a project selector for
 starting up editor instances. `app` is an actual project editor.
 
 Run a binary like this:
