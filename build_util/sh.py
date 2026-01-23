@@ -35,14 +35,15 @@ def rm_path(
     allow_missing: bool = False,
     help_msg: Optional[str] = None,
     non_fatal: bool = False,
-) -> None:
+) -> bool:
     """
-    Removes a file or directory (and its contents).
+    Removes a file or directory (and its contents). Whether the file existed or
+    not is returned.
     """
 
     if not os.path.exists(path):
         if allow_missing:
-            return
+            return False
 
         err_msg = f"Couldn't remove `{path}` because it doesn't exist." + (
             f"\n{help_msg}" if help_msg is not None else ""
@@ -63,6 +64,8 @@ def rm_path(
         if non_fatal:
             raise RemovePathException(err_msg)
         log.fatal(err_msg)
+
+    return True
 
 
 def ensure_path_exists(

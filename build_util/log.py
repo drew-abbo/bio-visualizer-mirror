@@ -3,6 +3,7 @@ Contains logging functions.
 """
 
 import sys
+import os
 from typing import NoReturn, Any, Optional
 
 
@@ -25,14 +26,18 @@ def fatal(
     include_run_again_msg: bool = True,
     sep: Optional[str] = " ",
 ) -> NoReturn:
+    sys.stdout.flush()
+
     print(f"{Color.ERROR}FATAL{Color.RESET}: ", end="", file=sys.stderr)
     print(*args, sep=sep, file=sys.stderr)
     if include_run_again_msg:
         print(
             "\nPlease run this script again once the issue is resolved.",
             file=sys.stderr,
+            flush=True,
         )
-    sys.exit(1)
+
+    os._exit(1)
 
 
 # Print a warning.

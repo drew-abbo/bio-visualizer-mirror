@@ -1,6 +1,11 @@
 [package]
 name = "app"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
+
+[features]
+# Disables the console that automatically opens when you run an executable on
+# Windows.
+no-console = []

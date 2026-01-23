@@ -5,6 +5,7 @@ Contains utilities for getting user input.
 from typing import Any, Optional
 
 from . import sh
+from . import log
 from .log import Color
 
 __confirm_auto_answer = None
@@ -30,7 +31,12 @@ def confirm(*args: Any, sep: Optional[str] = " ") -> bool:
     print(f" ({Color.CONFIRM}y{Color.RESET}/n): {Color.CONFIRM}", end="")
 
     if __confirm_auto_answer is None:
-        response = input().strip().lower()
+        try:
+            response = input().strip().lower()
+        except KeyboardInterrupt:
+            print()
+            log.fatal("No input supplied.", include_run_again_msg=False)
+
         print(f"{Color.RESET}", end="", flush=True)
     else:
         response = __confirm_auto_answer
@@ -56,7 +62,12 @@ def action_needed(*args: Any, sep: Optional[str] = " ") -> None:
 
     output_is_terminal = Color.RESET != ""
 
-    response = input()
+    try:
+        response = input()
+    except KeyboardInterrupt:
+        print()
+        log.fatal("No input supplied.", include_run_again_msg=False)
+
     if not output_is_terminal:
         print(f"{response}{Color.RESET} (auto)")
     print(f"{Color.RESET}", end="", flush=True)
