@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use thiserror::Error;
 
 /// Unique identifier for a node instance in the graph
 pub type NodeId = usize;
@@ -330,20 +331,6 @@ impl NodeGraph {
     }
 }
 
-impl std::fmt::Display for GraphError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            GraphError::NodeNotFound(id) => write!(f, "Node {} not found", id),
-            GraphError::SelfConnection => write!(f, "Cannot connect node to itself"),
-            GraphError::InputAlreadyConnected => write!(f, "Input already connected"),
-            GraphError::CyclicGraph => write!(f, "Graph contains cycles"),
-            GraphError::InvalidInput(name) => write!(f, "Invalid input: {}", name),
-            GraphError::InvalidOutput(name) => write!(f, "Invalid output: {}", name),
-            GraphError::UseConnectMethod => write!(f, "Use connect() method for connections"),
-        }
-    }
-}
-
 /// The value of a node input - either a direct value or a connection
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum InputValue {
@@ -382,31 +369,36 @@ pub enum InputValue {
 }
 
 /// Errors that can occur when working with the node graph
-#[derive(Debug, Clone)]
+#[derive(Error, Debug, Clone)]
 pub enum GraphError {
     /// Node with given ID not found
+    #[error("Node {0} not found")]
     NodeNotFound(NodeId),
 
     /// Attempted to connect a node to itself
+    #[error("Cannot connect node to itself")]
     SelfConnection,
 
     /// The input is already connected to another node
+    #[error("Input already connected")]
     InputAlreadyConnected,
 
     /// The graph contains a cycle
+    #[error("Graph contains cycles")]
     CyclicGraph,
 
     /// Input doesn't exist on the node
+    #[error("Invalid input: {0}")]
     InvalidInput(String),
 
     /// Output doesn't exist on the node
+    #[error("Invalid output: {0}")]
     InvalidOutput(String),
 
     /// Tried to set InputValue::Connection directly (use connect() instead)
+    #[error("Use connect() method for connections")]
     UseConnectMethod,
 }
-
-impl std::error::Error for GraphError {}
 
 #[cfg(test)]
 mod tests {

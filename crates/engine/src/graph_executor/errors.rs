@@ -1,77 +1,62 @@
 use crate::node::node::NodeOutputKind;
 use crate::node_graph::NodeId;
 use std::path::PathBuf;
-
-impl std::error::Error for ExecutionError {}
-
-impl std::fmt::Display for ExecutionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ExecutionError::GraphError(e) => write!(f, "Graph error: {}", e),
-            ExecutionError::NodeNotFound(id) => write!(f, "Node {} not found", id),
-            ExecutionError::DefinitionNotFound(name) => {
-                write!(f, "Node definition '{}' not found", name)
-            }
-            ExecutionError::NodeNotExecuted(id) => {
-                write!(f, "Node {} has not been executed yet", id)
-            }
-            ExecutionError::OutputNotFound(id, name) => {
-                write!(f, "Output '{}' not found on node {}", name, id)
-            }
-            ExecutionError::NoOutputNode => write!(f, "No output node in graph"),
-            ExecutionError::NoOutputProduced => write!(f, "No output produced"),
-            ExecutionError::UnconnectedFrameInput(id, name) => {
-                write!(f, "Frame input '{}' on node {} is not connected", name, id)
-            }
-            ExecutionError::NoFrameInput(name) => {
-                write!(f, "Node '{}' has no frame input", name)
-            }
-            ExecutionError::ShaderLoadError(path, err) => {
-                write!(f, "Failed to load shader from {:?}: {}", path, err)
-            }
-            ExecutionError::RenderError(e) => write!(f, "Render error: {:?}", e),
-            ExecutionError::InvalidInputType => write!(f, "Invalid input type"),
-            ExecutionError::UnsupportedOutputType(kind) => {
-                write!(f, "Unsupported output type: {:?}", kind)
-            }
-            ExecutionError::PipelineCreationError(e) => {
-                write!(f, "Failed to create pipeline: {}", e)
-            }
-            ExecutionError::ProducerCreateError(path, err) => {
-                write!(f, "Failed to create producer for {:?}: {}", path, err)
-            }
-            ExecutionError::VideoFetchError(path, err) => {
-                write!(f, "Failed to fetch video frame from {:?}: {}", path, err)
-            }
-            ExecutionError::VideoStreamError(path, err) => {
-                write!(f, "Video stream error for {:?}: {}", path, err)
-            }
-            ExecutionError::TextureUploadError(err) => {
-                write!(f, "Texture upload error: {}", err)
-            }
-        }
-    }
-}
+use thiserror::Error;
 
 /// Errors that can occur during graph execution
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum ExecutionError {
-    GraphError(crate::node_graph::GraphError),
+    #[error("Graph error: {0}")]
+    GraphError(#[from] crate::node_graph::GraphError),
+
+    #[error("Node {0} not found")]
     NodeNotFound(NodeId),
+
+    #[error("Node definition '{0}' not found")]
     DefinitionNotFound(String),
+
+    #[error("Node {0} has not been executed yet")]
     NodeNotExecuted(NodeId),
+
+    #[error("Output '{1}' not found on node {0}")]
     OutputNotFound(NodeId, String),
+
+    #[error("No output node in graph")]
     NoOutputNode,
+
+    #[error("No output produced")]
     NoOutputProduced,
+
+    #[error("Frame input '{1}' on node {0} is not connected")]
     UnconnectedFrameInput(NodeId, String),
+
+    #[error("Node '{0}' has no frame input")]
     NoFrameInput(String),
-    ShaderLoadError(std::path::PathBuf, String),
+
+    #[error("Failed to load shader from {0:?}: {1}")]
+    ShaderLoadError(PathBuf, String),
+
+    #[error("Render error: {0:?}")]
     RenderError(crate::engine_errors::EngineError),
+
+    #[error("Invalid input type")]
     InvalidInputType,
+
+    #[error("Unsupported output type: {0:?}")]
     UnsupportedOutputType(NodeOutputKind),
+
+    #[error("Failed to create pipeline: {0}")]
     PipelineCreationError(String),
+
+    #[error("Failed to create producer for {0:?}: {1}")]
     ProducerCreateError(PathBuf, String),
+
+    #[error("Failed to fetch video frame from {0:?}: {1}")]
     VideoFetchError(PathBuf, String),
+
+    #[error("Video stream error for {0:?}: {1}")]
     VideoStreamError(PathBuf, String),
+
+    #[error("Texture upload error: {0}")]
     TextureUploadError(String),
 }

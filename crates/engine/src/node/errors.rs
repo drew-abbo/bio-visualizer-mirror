@@ -1,34 +1,20 @@
 use std::path::PathBuf;
+use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum LibraryError {
+    #[error("Nodes folder not found: {0:?}")]
     NodesFolderNotFound(PathBuf),
+
+    #[error("IO error reading {0:?}: {1}")]
     IoError(PathBuf, std::io::Error),
+
+    #[error("Failed to parse {0:?}: {1}")]
     ParseError(PathBuf, String),
+
+    #[error("Shader file not found: {0:?}")]
     ShaderNotFound(PathBuf),
+
+    #[error("Node '{0}' is not a shader node")]
     NotAShaderNode(String),
-}
-
-impl std::error::Error for LibraryError {}
-
-impl std::fmt::Display for LibraryError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            LibraryError::NodesFolderNotFound(path) => {
-                write!(f, "Nodes folder not found: {:?}", path)
-            }
-            LibraryError::IoError(path, err) => {
-                write!(f, "IO error reading {:?}: {}", path, err)
-            }
-            LibraryError::ParseError(path, err) => {
-                write!(f, "Failed to parse {:?}: {}", path, err)
-            }
-            LibraryError::ShaderNotFound(path) => {
-                write!(f, "Shader file not found: {:?}", path)
-            }
-            LibraryError::NotAShaderNode(name) => {
-                write!(f, "Node '{}' is not a shader node", name)
-            }
-        }
-    }
 }
