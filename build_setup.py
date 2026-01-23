@@ -5,6 +5,9 @@ This is nasty but it's the nicest solution I could come up with. Run this before
 you try and run `cargo build`. Follow the instructions (possibly re-running it a
 few times) until it says you're done.
 
+The `-y` or `-n` flags can be provided to auto-accept or auto-deny any prompts
+for user confirmation.
+
 On Windows, this script:
 - Ensures you have the proper C compiler dependencies to build ffmpeg-next's
   rust bindings.
@@ -21,7 +24,7 @@ On MacOS, this script:
 
 The compiled executable will depend on shared library files (e.g. dll/dylib
 files).
-"""
+""".rstrip()
 
 import json
 import os
@@ -39,19 +42,40 @@ import build_util.sh as sh
 import build_util.user as user
 
 
-# Parses command line arguments.
 def parse_args() -> None:
-    USAGE = f"Usage: {sys.argv[0]} [-y]"
+    """
+    Parses command line arguments.
+    """
+
+    ARG_0 = sys.argv[0]
+    USAGE = f"""
+Usage:
+    {ARG_0} [-y|-n]
+    {ARG_0} --help
+""".rstrip()
+
+    auto_confirm = None
 
     for arg in sys.argv[1:]:
         if arg in ("-h", "--help", "help", "/h", "/?", "h", "?"):
-            print(f"{USAGE}\n{HELP}".rstrip())
+            print(f"{USAGE}{HELP}")
             sys.exit(int(len(sys.argv) != 2))
 
-        if arg == "-y":
-            user.set_confirm_auto_answer("y")
+        if arg in ("-y", "-n"):
+            if auto_confirm:
+                if arg[1] == auto_confirm:
+                    log.fatal(f"Repeat argument `{arg}`." + USAGE)
+                else:
+                    log.fatal(
+                        f"Arguments `{arg}` and `-{auto_confirm}`"
+                        + " are incompatible."
+                        + USAGE
+                    )
+            auto_confirm = arg[1]
+            user.set_confirm_auto_answer(auto_confirm)
+
         else:
-            log.fatal(f"Unknown argument `{arg}`.\n" + USAGE)
+            log.fatal(f"Unknown argument `{arg}`." + USAGE)
 
 
 def create_cargo_config(contents: str) -> None:
@@ -77,8 +101,11 @@ def create_cargo_config(contents: str) -> None:
     log.info(f"Cargo config generated (`{path}`).")
 
 
-# Handles build setup for Windows builds.
 def windows() -> None:
+    """
+    Handles build setup for Windows builds.
+    """
+
     if sh.get_supported_arch() != "x86_64":
         log.fatal("Windows builds currently only support x86_64.")
 
@@ -344,7 +371,7 @@ def windows() -> None:
                 return
 
             try:
-                tmp_location = f"{FFMPEG_DIR}__tmp"
+                tmp_location = tempfile.gettempdir()
                 shutil.move(FFMPEG_DIR, tmp_location)
                 shutil.move(f"{tmp_location}\\{ffmpeg_dir_list[0]}", FFMPEG_DIR)
                 os.rmdir(tmp_location)
@@ -413,8 +440,11 @@ def windows() -> None:
     log.info("Build directory cleaned.")
 
 
-# Handles build setup for MacOS builds.
 def mac_os() -> None:
+    """
+    Handles build setup for MacOS builds.
+    """
+
     arch = sh.get_supported_arch()
     if arch is None:
         log.fatal("MacOS builds only support x86_64 and arm64")
