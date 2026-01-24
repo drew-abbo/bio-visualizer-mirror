@@ -1,5 +1,6 @@
-use crate::engine_errors::EngineError;
 use std::any::Any;
+
+use crate::engine_errors::EngineError;
 
 /// Trait for runtime pipelines; implementors provide `apply` to execute the pipeline.
 #[allow(clippy::too_many_arguments)]

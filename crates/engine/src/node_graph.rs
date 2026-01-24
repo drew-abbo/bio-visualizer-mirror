@@ -3,9 +3,10 @@
 //! Provides [NodeInstance], [Connection], and [NodeGraph] for building and
 //! mutating node graphs, plus utilities such as topological sorting to compute
 //! execution order.
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Unique identifier for a node instance in the graph
@@ -149,10 +150,8 @@ impl NodeGraph {
             .map(|idx| self.connections.remove(idx))
             .is_some();
 
-        if removed {
-            if let Some(instance) = self.instances.get_mut(&to_node) {
-                instance.input_values.remove(input_name);
-            }
+        if removed && let Some(instance) = self.instances.get_mut(&to_node) {
+            instance.input_values.remove(input_name);
         }
 
         removed

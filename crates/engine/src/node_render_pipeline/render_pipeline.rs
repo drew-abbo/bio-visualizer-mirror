@@ -28,14 +28,13 @@ use crate::node_render_pipeline::helpers::create_linear_sampler;
 use crate::node_render_pipeline::pipeline_base::PipelineBase;
 
 /// Pipeline created dynamically from node definition and WGSL shader.
-
 /// Responsibilities:
 /// - Build a [wgpu::RenderPipeline] from WGSL source and the node's name.
 /// - Create a bind group layout and bind group for sampler, input textures and params.
 /// - Marshal non-texture inputs [ResolvedInput] into a contiguous uniform buffer.
 /// - Validate input counts and run a fullscreen draw to produce the output texture.
-/// Runtime GPU render pipeline constructed from WGSL and a [NodeDefinition].
 ///
+/// Runtime GPU render pipeline constructed from WGSL and a [NodeDefinition].
 /// Responsible for creating the [wgpu::RenderPipeline], bind group layout,
 /// uniform buffer for parameters and providing a `PipelineBase::apply` implementation.
 pub struct NodeRenderPipeline {

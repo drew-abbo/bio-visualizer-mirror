@@ -2,6 +2,9 @@
 //! at [crate::graph_executor]: [ResolvedInput], [OutputValue], [ExecutionError].
 mod enums;
 mod errors;
+use std::any::Any;
+use std::collections::HashMap;
+
 use crate::gpu_frame::GpuFrame;
 use crate::node::NodeDefinition;
 use crate::node::NodeLibrary;
@@ -14,10 +17,9 @@ use crate::node_graph::{InputValue, NodeGraph, NodeInstance};
 use crate::node_render_pipeline::NodeRenderPipeline;
 use crate::node_render_pipeline::PipelineBase;
 use crate::upload_stager::UploadStager;
+
 pub use enums::*;
 pub use errors::*;
-use std::any::Any;
-use std::collections::HashMap;
 
 /// The executor that runs a node graph and produces results.
 ///
@@ -83,6 +85,7 @@ impl GraphExecutor {
 
     /// Create a default GraphExecutor with RGBA8Unorm target format.
     /// For UI use it will be a different format more than likely.
+    #[allow(clippy::should_implement_trait)]
     pub fn default() -> Self {
         Self::new(wgpu::TextureFormat::Rgba8Unorm)
     }
@@ -395,6 +398,12 @@ impl GraphExecutor {
             .collect();
 
         Ok(Box::new(shader_params))
+    }
+}
+
+impl Default for GraphExecutor {
+    fn default() -> Self {
+        Self::new(wgpu::TextureFormat::Rgba8Unorm)
     }
 }
 

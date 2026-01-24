@@ -1,7 +1,7 @@
-use crate::graph_executor::ExecutionError;
-use crate::graph_executor::{OutputValue, ResolvedInput};
-use crate::upload_stager::UploadStager;
 use std::collections::HashMap;
+
+use crate::graph_executor::{ExecutionError, OutputValue, ResolvedInput};
+use crate::upload_stager::UploadStager;
 
 pub trait NodeHandler {
     fn execute(

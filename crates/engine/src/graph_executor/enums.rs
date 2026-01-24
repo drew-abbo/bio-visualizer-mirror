@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crate::gpu_frame::GpuFrame;
 
 /// Resolved input value after [crate::graph_executor::GraphExecutor] resolves [crate::node_graph::InputValue] references.
@@ -17,7 +19,7 @@ pub enum ResolvedInput {
     /// Enum selection index
     Enum(usize),
     /// File path (used by source nodes)
-    File(std::path::PathBuf),
+    File(PathBuf),
 }
 
 /// Output value produced by a node execution.

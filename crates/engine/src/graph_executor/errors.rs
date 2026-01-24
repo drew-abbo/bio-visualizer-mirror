@@ -1,7 +1,9 @@
+use std::path::PathBuf;
+
+use thiserror::Error;
+
 use crate::node::node::NodeOutputKind;
 use crate::node_graph::NodeId;
-use std::path::PathBuf;
-use thiserror::Error;
 
 /// Errors that can occur during graph execution
 #[derive(Error, Debug)]
