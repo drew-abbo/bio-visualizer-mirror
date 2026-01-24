@@ -99,6 +99,41 @@ def ensure_path_exists(
     log.fatal(err_msg)
 
 
+def copy_files_dir_to_dir(
+    src_dir: str, dest_dir: str, file_ext_filter: Optional[str] = None
+) -> int:
+    """
+    Copy regular files from `src_dir` (non-recursive) to `dest_dir`. If
+    `file_ext_filter` isn't `None`, only files with a matching file extension
+    will be copied. The number of files copied is returned.
+    """
+
+    ensure_path_exists(src_dir, kind="dir")
+
+    if file_ext_filter is not None and not file_ext_filter.startswith("."):
+        file_ext_filter = f".{file_ext_filter}"
+
+    file_kind = "all" if file_ext_filter is None else f"`{file_ext_filter}`"
+    log.info(f"Copying {file_kind} files from `{src_dir}` to `{dest_dir}`.")
+
+    copied = 0
+    try:
+        for file_name in os.listdir(src_dir):
+            file_path = f"{src_dir}/{file_name}"
+
+            if not os.path.isfile(file_path) or (
+                file_ext_filter is not None
+                and not file_name.endswith(file_ext_filter)
+            ):
+                continue
+
+            shutil.copy(file_path, f"{dest_dir}/{file_name}")
+            copied += 1
+    except:
+        log.fatal("Failed top copy files from one directory to another.")
+    return copied
+
+
 def ensure_cmd_exists(
     cmd: str, help_msg: Optional[str] = None, non_fatal: bool = False
 ) -> None:

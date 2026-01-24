@@ -7,6 +7,9 @@ machines (with the same OS and architecture).
 The `-y` or `-n` flags can be provided to auto-accept or auto-deny any prompts
 for user confirmation.
 
+The `--profile` flag can be used to build with a different profile than
+`release-plus`.
+
 When the `-o` flag is provided, a file extension can also be provided so that an
 archive is created instead of a directory. For example `-o out` will create a
 directory, but `-o out.zip` or `-o out.tar.xz` will create an archive. The
@@ -37,8 +40,9 @@ import build_util.user as user
 
 @dataclass
 class Args:
-    clean: bool
+    profile: str
     out: str
+    clean: bool
 
 
 def parse_args() -> Args:
@@ -49,12 +53,17 @@ def parse_args() -> Args:
     ARG_0 = sys.argv[0]
     USAGE = f"""
 Usage:
-    {ARG_0} [-y|-n] [-o <OUTPUT_PATH>[.zip|.tar|.tar.gz|.tar.bz|.tar.xz]] [--clean]
+    {ARG_0:<60}\\
+        [-y|-n]                                                 \\
+        [--profile <BUILD_PROFILE>]                             \\
+        [-o <OUTPUT_PATH>[.zip|.tar|.tar.gz|.tar.bz|.tar.xz]]   \\
+        [--clean]
     {ARG_0} --help
 """.rstrip()
 
-    clean = False
+    profile = None
     out = None
+    clean = False
 
     args = iter(sys.argv[1:])
     seen_args: set[str] = set()
@@ -99,6 +108,14 @@ Usage:
                 )
             out = arg
 
+        elif arg == "--profile":
+            if not (arg := next_arg_or_none()):
+                log.fatal(
+                    f"Missing argument parameter `<BUILD_PROFILE>` for `{arg}`."
+                    + USAGE
+                )
+            profile = arg
+
         else:
             log.fatal(f"Unknown argument `{arg}`." + USAGE)
 
@@ -107,7 +124,14 @@ Usage:
     except:
         log.fatal(f"`{out}` is not a valid path.")
 
-    return Args(clean, out)
+    if profile is None:
+        profile = "release-plus"
+    elif clean:
+        log.fatal(
+            f"Arguments `--profile` and `--clean` are incompatible." + USAGE
+        )
+
+    return Args(profile, out, clean)
 
 
 def clear_up_path(path: str) -> None:
@@ -292,13 +316,11 @@ def get_bin_crates() -> list[str]:
     ]
 
 
-def build_and_stage_bin(crate_name: str, out_dir: str):
+def build_and_stage_bin(crate_name: str, out_dir: str, profile: str):
     """
     Builds a package-ready binary and copies it into to the provided output
     directory.
     """
-
-    PROFILE = "release-plus"
 
     try:
         sh.run_cmd(
@@ -307,7 +329,7 @@ def build_and_stage_bin(crate_name: str, out_dir: str):
             "--bin",
             crate_name,
             "--profile",
-            PROFILE,
+            profile,
             "--features",
             "no-console",
             non_fatal=True,
@@ -321,7 +343,7 @@ def build_and_stage_bin(crate_name: str, out_dir: str):
 
     target_dir = cargo_metadata()["target_directory"]
     ext = ".exe" if platform.system().lower() == "windows" else ""
-    bin_path = f"{target_dir}/{PROFILE}/{crate_name}{ext}"
+    bin_path = f"{target_dir}/{profile}/{crate_name}{ext}"
     sh.ensure_path_exists(
         bin_path,
         kind="file",
@@ -360,48 +382,13 @@ def fmt_time(secs: float) -> str:
     return secs_str
 
 
-def copy_files_dir_to_dir(
-    src_dir: str, dest_dir: str, file_ext_filter: Optional[str] = None
-) -> int:
-    """
-    Copy regular files from `src_dir` (non-recursive) to `dest_dir`. If
-    `file_ext_filter` isn't `None`, only files with a matching file extension
-    will be copied. The number of files copied is returned.
-    """
-
-    sh.ensure_path_exists(src_dir, kind="dir")
-
-    if file_ext_filter is not None and not file_ext_filter.startswith("."):
-        file_ext_filter = f".{file_ext_filter}"
-
-    file_kind = "all" if file_ext_filter is None else f"`{file_ext_filter}`"
-    log.info(f"Copying {file_kind} files from `{src_dir}` to `{dest_dir}`.")
-
-    copied = 0
-    try:
-        for file_name in os.listdir(src_dir):
-            file_path = f"{src_dir}/{file_name}"
-
-            if not os.path.isfile(file_path) or (
-                file_ext_filter is not None
-                and not file_name.endswith(file_ext_filter)
-            ):
-                continue
-
-            shutil.copy(file_path, f"{dest_dir}/{file_name}")
-            copied += 1
-    except:
-        log.fatal("Failed top copy files from one directory to another.")
-    return copied
-
-
 def windows(staging_dir: str) -> None:
     """
     Handles Windows-specific packaging steps.
     """
 
     FFMPEG_DLL_DIR = ".\\ffmpeg\\bin"
-    dlls = copy_files_dir_to_dir(
+    dlls = sh.copy_files_dir_to_dir(
         FFMPEG_DLL_DIR, staging_dir, file_ext_filter=".dll"
     )
     log.info(f"Copied {dlls} DLLs into staging directory.")
@@ -426,7 +413,7 @@ def main() -> None:
     sh.ensure_cmd_exists("cargo")
     for bin_crate in get_bin_crates():
         log.info(f"Building binary crate `{bin_crate}`.")
-        build_and_stage_bin(bin_crate, staging_dir)
+        build_and_stage_bin(bin_crate, staging_dir, args.profile)
         log.info(f"Staged binary `{bin_crate}`.")
 
     system = platform.system().lower()

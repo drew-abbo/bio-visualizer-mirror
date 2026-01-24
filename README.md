@@ -67,9 +67,10 @@ Once the above is satisfied, you're set to build with `cargo`.
 
 To package the app into a self-contained directory/archive, run
 [build_package.py](./build_package.py). This script will build all binaries with
-the `no-console` feature and the `release-plus` profile, copying all binaries
-and non-standard dynamic library dependencies (`.dll`/`.dylib`/`.so` files) into
-an output directory/archive.
+the `no-console` feature and by default the `release-plus` profile, moving them
+to an output directory/archive (`./package/` by default). It then ensures that
+all non-standard dynamic library dependencies the executables need are available
+inside the directory/archive.
 
 ```sh
 python3 ./build_package.py --help
