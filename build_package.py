@@ -330,14 +330,20 @@ def build_and_stage_bin(crate_name: str, out_dir: str, profile: str):
     directory.
     """
 
+    if profile == "debug":
+        profile_args = []
+    elif profile == "release":
+        profile_args = ["--release"]
+    else:
+        profile_args = ["--profile", profile]
+
     try:
         sh.run_cmd(
             "cargo",
             "build",
             "--bin",
             crate_name,
-            "--profile",
-            profile,
+            *profile_args,
             "--features",
             "no-console",
             non_fatal=True,
