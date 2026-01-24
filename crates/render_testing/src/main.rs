@@ -244,24 +244,24 @@ impl ApplicationHandler for App {
         let executor = GraphExecutor::new(format);
 
         let mut graph = NodeGraph::new();
-        // let video = graph.add_instance("Video".to_string());
+        let video = graph.add_instance("Video".to_string());
         let image = graph.add_instance("Image".to_string());
 
         let invert = graph.add_instance("Invert".to_string());
         // let brightness = graph.add_instance("Brightness".to_string());
 
-        // let overlay = graph.add_instance("Overlay".to_string());
-        // graph
-        //     .set_input_value(overlay, "opacity".to_string(), InputValue::Float(0.7))
-        //     .unwrap();
+        let overlay = graph.add_instance("Overlay".to_string());
+        graph
+            .set_input_value(overlay, "opacity".to_string(), InputValue::Float(0.7))
+            .unwrap();
 
-        // graph
-        //     .set_input_value(
-        //         video,
-        //         "path".to_string(),
-        //         InputValue::File(PathBuf::from("C:\\Users\\Zach\\Downloads\\rick.mp4")),
-        //     )
-        //     .unwrap();
+        graph
+            .set_input_value(
+                video,
+                "path".to_string(),
+                InputValue::File(PathBuf::from("C:\\Users\\Zach\\Downloads\\rick.mp4")),
+            )
+            .unwrap();
 
         graph
             .set_input_value(
@@ -286,23 +286,23 @@ impl ApplicationHandler for App {
         //     )
         //     .unwrap();
 
-        // graph
-        //     .connect(
-        //         image,
-        //         "output".to_string(),
-        //         overlay,
-        //         "background".to_string(),
-        //     )
-        //     .unwrap();
+        graph
+            .connect(
+                invert,
+                "output".to_string(),
+                overlay,
+                "background".to_string(),
+            )
+            .unwrap();
 
-        // graph
-        //     .connect(
-        //         video,
-        //         "output".to_string(),
-        //         overlay,
-        //         "foreground".to_string(),
-        //     )
-        //     .unwrap();
+        graph
+            .connect(
+                video,
+                "output".to_string(),
+                overlay,
+                "foreground".to_string(),
+            )
+            .unwrap();
 
         self.target_fps = 30.0;
         let frame_interval = std::time::Duration::from_secs_f32(1.0 / self.target_fps);

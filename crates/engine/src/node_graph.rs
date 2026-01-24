@@ -101,7 +101,7 @@ impl NodeGraph {
             return Err(GraphError::NodeNotFound(to_node));
         }
 
-        // Check for cycles (connecting a node to itself or creating a loop)
+        // Check for cycles
         if from_node == to_node {
             return Err(GraphError::SelfConnection);
         }
@@ -156,7 +156,7 @@ impl NodeGraph {
         removed
     }
 
-    /// Set a direct value for a node's input (not connected to another node)
+    /// Set a direct value for a node's input
     pub fn set_input_value(
         &mut self,
         node_id: NodeId,
@@ -273,7 +273,7 @@ impl NodeGraph {
         let mut in_degree: HashMap<NodeId, usize> = HashMap::new();
         let mut order = Vec::new();
 
-        // Initialize in-degrees
+        // Initialize in degrees
         for &node_id in self.instances.keys() {
             in_degree.insert(node_id, 0);
         }
@@ -294,7 +294,7 @@ impl NodeGraph {
         while let Some(node_id) = queue.pop() {
             order.push(node_id);
 
-            // Reduce in-degree for all neighbors
+            // Reduce in degree for all neighbors
             for conn in self.outgoing_connections(node_id) {
                 let degree = in_degree.get_mut(&conn.to_node).unwrap();
                 *degree -= 1;
@@ -313,7 +313,7 @@ impl NodeGraph {
         }
     }
 
-    /// Find the output node (if any)
+    /// Find the output node if any
     /// Output nodes are typically nodes with no outgoing connections
     pub fn find_output_nodes(&self) -> Vec<NodeId> {
         self.instances

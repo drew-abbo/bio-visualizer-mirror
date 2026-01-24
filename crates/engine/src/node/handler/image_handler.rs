@@ -1,6 +1,6 @@
+use crate::gpu_frame::GpuFrame;
 use crate::graph_executor::enums::{OutputValue, ResolvedInput};
 use crate::graph_executor::errors::ExecutionError;
-use crate::graph_executor::gpu_frame::GpuFrame;
 use crate::node::handler::node_handler::NodeHandler;
 use crate::upload_stager::UploadStager;
 use std::collections::HashMap;
@@ -25,13 +25,13 @@ impl ImageSourceHandler {
 
 impl NodeHandler for ImageSourceHandler {
     fn execute(
-        &self,
+        &mut self,
         inputs: &HashMap<String, ResolvedInput>,
-        _device: &wgpu::Device,
-        _queue: &wgpu::Queue,
-        _upload_stager: &mut UploadStager,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        upload_stager: &mut UploadStager,
     ) -> Result<HashMap<String, OutputValue>, ExecutionError> {
-        let _path = inputs
+        let path = inputs
             .get("path")
             .and_then(|v| match v {
                 ResolvedInput::File(p) => Some(p),
@@ -39,8 +39,37 @@ impl NodeHandler for ImageSourceHandler {
             })
             .ok_or(ExecutionError::InvalidInputType)?;
 
-        // ImageSourceHandler is handled specially in execute_builtin_node
-        // because it requires mutable access to the frame cache
-        Err(ExecutionError::InvalidInputType)
+        if !self.frame_cache.contains_key(path) {
+            // Load image from disk (CPU)
+            let frame = media::frame::Frame::from_img_file(path).map_err(|e| {
+                ExecutionError::TextureUploadError(format!("Failed to load image: {:?}", e))
+            })?;
+
+            let width = frame.dimensions().width();
+            let height = frame.dimensions().height();
+
+            // Upload to GPU on this thread
+            let texture_view = upload_stager
+                .cpu_to_gpu_rgba(device, queue, width, height, frame.raw_data())
+                .map_err(|e| {
+                    ExecutionError::TextureUploadError(format!("Failed to upload texture: {:?}", e))
+                })?;
+
+            let gpu_frame = GpuFrame::new(
+                texture_view,
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+            );
+
+            self.frame_cache.insert(path.clone(), gpu_frame);
+        }
+
+        let gpu_frame = self.frame_cache.get(path).unwrap().clone();
+        let mut outputs = HashMap::new();
+        outputs.insert("output".to_string(), OutputValue::Frame(gpu_frame));
+        Ok(outputs)
     }
 }

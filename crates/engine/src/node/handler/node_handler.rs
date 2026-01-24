@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 pub trait NodeHandler {
     fn execute(
-        &self,
+        &mut self,
         inputs: &HashMap<String, ResolvedInput>,
         device: &wgpu::Device,
         queue: &wgpu::Queue,

@@ -1,3 +1,4 @@
+use crate::gpu_frame::GpuFrame;
 use crate::graph_executor::enums::{OutputValue, ResolvedInput};
 use crate::graph_executor::errors::ExecutionError;
 use crate::node::handler::node_handler::NodeHandler;
@@ -65,14 +66,51 @@ impl VideoSourceHandler {
 
 impl NodeHandler for VideoSourceHandler {
     fn execute(
-        &self,
-        _inputs: &HashMap<String, ResolvedInput>,
-        _device: &wgpu::Device,
-        _queue: &wgpu::Queue,
-        _upload_stager: &mut UploadStager,
+        &mut self,
+        inputs: &HashMap<String, ResolvedInput>,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        upload_stager: &mut UploadStager,
     ) -> Result<HashMap<String, OutputValue>, ExecutionError> {
-        // VideoSourceHandler is handled specially in execute_builtin_node
-        // because it requires mutable access to the producer cache
-        Err(ExecutionError::InvalidInputType)
+        let path = inputs
+            .get("path")
+            .and_then(|v| match v {
+                ResolvedInput::File(p) => Some(p),
+                _ => None,
+            })
+            .ok_or(ExecutionError::InvalidInputType)?;
+
+        let frame = self.fetch_frame(path)?;
+        let (fps, duration_secs) = self.get_stats(path)?;
+
+        let width = frame.dimensions().width();
+        let height = frame.dimensions().height();
+
+        // Upload frame to GPU
+        let texture_view = upload_stager
+            .cpu_to_gpu_rgba(device, queue, width, height, frame.raw_data())
+            .map_err(|e| {
+                ExecutionError::TextureUploadError(format!("Failed to upload texture: {:?}", e))
+            })?;
+
+        let gpu_frame = GpuFrame::new(
+            texture_view,
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        // Prepare outputs
+        let mut outputs = HashMap::new();
+        outputs.insert("output".to_string(), OutputValue::Frame(gpu_frame));
+        outputs.insert("fps".to_string(), OutputValue::Float(fps as f32));
+        outputs.insert(
+            "duration".to_string(),
+            OutputValue::Float(duration_secs as f32),
+        );
+
+        Ok(outputs)
     }
 }

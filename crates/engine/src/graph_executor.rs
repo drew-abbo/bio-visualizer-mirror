@@ -1,9 +1,10 @@
 pub mod enums;
 pub mod errors;
-pub mod gpu_frame;
+use crate::gpu_frame::GpuFrame;
 use crate::node::NodeDefinition;
 use crate::node::NodeLibrary;
 use crate::node::handler::image_handler::ImageSourceHandler;
+use crate::node::handler::node_handler::NodeHandler;
 use crate::node::handler::video_handler::VideoSourceHandler;
 use crate::node::node::{BuiltInHandler, NodeExecutionPlan, NodeOutputKind};
 use crate::node_graph::NodeId;
@@ -13,7 +14,6 @@ use crate::node_render_pipeline::PipelineBase;
 use crate::upload_stager::UploadStager;
 use enums::*;
 use errors::*;
-use gpu_frame::GpuFrame;
 use std::any::Any;
 use std::collections::HashMap;
 
@@ -325,7 +325,7 @@ impl GraphExecutor {
         Ok(outputs)
     }
 
-    /// Execute a built-in node (CPU-based operations)
+    /// Execute a built-in node
     fn execute_builtin_node(
         &mut self,
         handler_type: &BuiltInHandler,
@@ -333,110 +333,16 @@ impl GraphExecutor {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<HashMap<String, OutputValue>, ExecutionError> {
-        match handler_type {
+        match *handler_type {
             BuiltInHandler::ImageSource => {
-                // ImageSource needs special handling for mutable state (frame cache)
-                let path = inputs
-                    .get("path")
-                    .and_then(|v| match v {
-                        ResolvedInput::File(p) => Some(p),
-                        _ => None,
-                    })
-                    .ok_or(ExecutionError::InvalidInputType)?;
-
-                // Check if we have this image cached
-                if !self.image_handler.frame_cache.contains_key(path) {
-                    // Load image from disk
-                    let frame = media::frame::Frame::from_img_file(path).map_err(|e| {
-                        ExecutionError::TextureUploadError(format!("Failed to load image: {:?}", e))
-                    })?;
-
-                    let width = frame.dimensions().width();
-                    let height = frame.dimensions().height();
-
-                    // Upload to GPU
-                    let texture_view = self
-                        .upload_stager
-                        .cpu_to_gpu_rgba(device, queue, width, height, frame.raw_data())
-                        .map_err(|e| {
-                            ExecutionError::TextureUploadError(format!(
-                                "Failed to upload texture: {:?}",
-                                e
-                            ))
-                        })?;
-
-                    let gpu_frame = GpuFrame::new(
-                        texture_view,
-                        wgpu::Extent3d {
-                            width,
-                            height,
-                            depth_or_array_layers: 1,
-                        },
-                    );
-
-                    // Cache the GPU frame
-                    self.image_handler
-                        .frame_cache
-                        .insert(path.clone(), gpu_frame);
-                }
-
-                // Return cached frame
-                let gpu_frame = self.image_handler.frame_cache.get(path).unwrap().clone();
-                let mut outputs = HashMap::new();
-                outputs.insert("output".to_string(), OutputValue::Frame(gpu_frame));
-                Ok(outputs)
+                self.image_handler
+                    .execute(inputs, device, queue, &mut self.upload_stager)
             }
             BuiltInHandler::VideoSource => {
-                // VideoSource needs special handling for mutable state
-                let path = inputs
-                    .get("path")
-                    .and_then(|v| match v {
-                        ResolvedInput::File(p) => Some(p),
-                        _ => None,
-                    })
-                    .ok_or(ExecutionError::InvalidInputType)?;
-
-                let frame = self.video_handler.fetch_frame(path)?;
-                let (fps, duration_secs) = self.video_handler.get_stats(path)?;
-
-                let width = frame.dimensions().width();
-                let height = frame.dimensions().height();
-
-                // Upload frame to GPU
-                let texture_view = self
-                    .upload_stager
-                    .cpu_to_gpu_rgba(device, queue, width, height, frame.raw_data())
-                    .map_err(|e| {
-                        ExecutionError::TextureUploadError(format!(
-                            "Failed to upload texture: {:?}",
-                            e
-                        ))
-                    })?;
-
-                let gpu_frame = GpuFrame::new(
-                    texture_view,
-                    wgpu::Extent3d {
-                        width,
-                        height,
-                        depth_or_array_layers: 1,
-                    },
-                );
-
-                // Prepare outputs
-                let mut outputs = HashMap::new();
-                outputs.insert("output".to_string(), OutputValue::Frame(gpu_frame));
-                outputs.insert("fps".to_string(), OutputValue::Float(fps as f32));
-                outputs.insert(
-                    "duration".to_string(),
-                    OutputValue::Float(duration_secs as f32),
-                );
-
-                Ok(outputs)
+                self.video_handler
+                    .execute(inputs, device, queue, &mut self.upload_stager)
             }
-            BuiltInHandler::MidiSource => {
-                // TODO: implement MidiSource
-                Err(ExecutionError::InvalidInputType)
-            }
+            BuiltInHandler::MidiSource => Err(ExecutionError::InvalidInputType),
         }
     }
 

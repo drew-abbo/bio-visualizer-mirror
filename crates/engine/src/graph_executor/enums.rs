@@ -1,4 +1,4 @@
-use crate::graph_executor::gpu_frame::GpuFrame;
+use crate::gpu_frame::GpuFrame;
 
 /// Resolved input value (after looking up connections)
 #[derive(Debug, Clone)]
