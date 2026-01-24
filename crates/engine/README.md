@@ -12,7 +12,7 @@ Key modules
 - `upload_stager` - utilities to upload CPU image/frame data to GPU textures.
 - `node_render_pipeline` - dynamic creation of shader pipelines from WGSL shaders.
 
-Usage (short)
+Usage
 -------------
 - Create an executor:
 
