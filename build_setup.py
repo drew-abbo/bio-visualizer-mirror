@@ -120,13 +120,14 @@ def windows() -> None:
 
     sh.ensure_path_exists(
         vs_installer_dir,
+        kind="dir",
         help_msg="You likely don't have `Visual Studio Installer`"
         + " on your system. Please install it from here:\n"
         + "https://visualstudio.microsoft.com/",
     )
 
     # `vswhere` lets us find where a specific version is installed.
-    sh.ensure_path_exists(f"{vs_installer_dir}\\vswhere.exe")
+    sh.ensure_path_exists(f"{vs_installer_dir}\\vswhere.exe", kind="file")
     try:
         vs_installation_path = sh.run_cmd(
             f"{vs_installer_dir}\\vswhere.exe",
@@ -227,7 +228,7 @@ def windows() -> None:
         # `libclang` needs to be installed for FFmpeg-next to be able to create
         # rust bindings.
         libclang_path = f"{vs_installation_path}\\VC\\Tools\\LLVM\\x64\\bin"
-        sh.ensure_path_exists(f"{libclang_path}\\libclang.dll")
+        sh.ensure_path_exists(f"{libclang_path}\\libclang.dll", kind="file")
         log.info("Found `libclang`.")
 
         return libclang_path
@@ -247,7 +248,7 @@ def windows() -> None:
             )[-1]
 
             clang_include_dir = f"{clang_dir}\\{newest_clang_version}\\include"
-            sh.ensure_path_exists(clang_include_dir, non_fatal=True)
+            sh.ensure_path_exists(clang_include_dir, kind="dir", non_fatal=True)
 
             log.info("Found Clang include directory.")
         except (FileNotFoundError, IndexError, sh.DoesntExistException):
@@ -393,9 +394,9 @@ def windows() -> None:
         # `ffmpeg` directory (but we still ask first).
         un_nest_ffmpeg_dir()
 
-        sh.ensure_path_exists(f"{FFMPEG_DIR}\\include")
-        sh.ensure_path_exists(f"{FFMPEG_DIR}\\lib")
-        sh.ensure_path_exists(f"{FFMPEG_DIR}\\bin")
+        sh.ensure_path_exists(f"{FFMPEG_DIR}\\include", kind="dir")
+        sh.ensure_path_exists(f"{FFMPEG_DIR}\\lib", kind="dir")
+        sh.ensure_path_exists(f"{FFMPEG_DIR}\\bin", kind="dir")
         log.info("FFmpeg found locally.")
 
         if os.path.exists(FFMPEG_ZIP_PATH) and user.confirm(
