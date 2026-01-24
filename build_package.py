@@ -185,12 +185,20 @@ def create_staging_dir(path: Optional[str]) -> str:
     return staging_dir
 
 
+def file_name(path: str) -> str:
+    """
+    The file name from a path.
+    """
+
+    return Path(path).name
+
+
 def file_ext(path: str) -> Optional[str]:
     """
     The file extension of a path.
     """
 
-    out_name = Path(path).name
+    out_name = file_name(path)
     return out_name.split(".", 1)[-1] if "." in out_name else None
 
 
@@ -394,6 +402,82 @@ def windows(staging_dir: str) -> None:
     log.info(f"Copied {dlls} DLLs into staging directory.")
 
 
+def mac_os(staging_dir: str, bin_crates: list[str]) -> None:
+    """
+    Handles MacOS-specific packaging steps.
+    """
+
+    def ensure_cli_tools_installed() -> None:
+        try:
+            sh.ensure_cmd_exists("otool", non_fatal=True)
+            sh.ensure_cmd_exists("install_name_tool", non_fatal=True)
+        except sh.DoesntExistException:
+            if not user.confirm(
+                "It doesn't look like Xcode's Command Line Tools are installed."
+                + " Would you like to install them?"
+            ):
+                log.fatal("Xcode's Command Line Tools are required.")
+
+            sh.ensure_cmd_exists("xcode-select")
+            sh.run_cmd("xcode-select", "--install")
+
+            sh.ensure_cmd_exists("otool")
+            sh.ensure_cmd_exists("install_name_tool")
+
+    def find_ffmpeg_dylib_dir() -> str:
+        log.info("Locating FFmpeg dylib files.")
+        sh.ensure_cmd_exists("brew")
+        ffmpeg_dylib_dir = f"{sh.run_cmd('brew', '--prefix', 'ffmpeg@8')}/lib"
+        sh.ensure_path_exists(ffmpeg_dylib_dir, kind="dir")
+        log.info(f"Found FFmpeg dylib files in `{ffmpeg_dylib_dir}`.")
+        return ffmpeg_dylib_dir
+
+    def get_dylibs_names(dylib_dir: str, bin_crate: str) -> list[str]:
+        otool_lines = [
+            line.lstrip()
+            for line in sh.run_cmd(
+                "otool", "-L", f"{staging_dir}/{bin_crate}"
+            ).splitlines()
+        ]
+        return [
+            line[len(dylib_dir) + 1 :].split(" ")[0]
+            for line in otool_lines
+            if line.startswith(dylib_dir)
+        ]
+
+    def stage_dylib(dylib_path: str) -> None:
+        src = os.path.realpath(dylib_path)
+        dest = f"{staging_dir}/{file_name(dylib_path)}"
+        try:
+            shutil.copy(src, dest)
+        except:
+            log.fatal(f"Failed to copy `{src}` to `{dest}`.")
+
+    ensure_cli_tools_installed()
+    ffmpeg_dylib_dir = find_ffmpeg_dylib_dir()
+
+    for bin_crate in bin_crates:
+        bin_path = f"{staging_dir}/{bin_crate}"
+
+        dylibs = get_dylibs_names(ffmpeg_dylib_dir, bin_crate)
+        if len(dylibs) == 0:
+            log.info(f"No FFmpeg dylibs required for `{bin_crate}`")
+            continue
+
+        log.info(f"Remapping {len(dylibs)} FFmpeg dylibs for `{bin_crate}`.")
+        for dylib in dylibs:
+            dylib_src_path = f"{ffmpeg_dylib_dir}/{dylib}"
+            stage_dylib(dylib_src_path)
+            sh.run_cmd(
+                "install_name_tool",
+                "-change",
+                dylib_src_path,
+                f"@executable_path/{dylib}",
+                bin_path,
+                show_output=False,
+            )
+
+
 def main() -> None:
     start_time = time.time()
 
@@ -411,7 +495,8 @@ def main() -> None:
     staging_dir = create_staging_dir(None if user_wants_archive else args.out)
 
     sh.ensure_cmd_exists("cargo")
-    for bin_crate in get_bin_crates():
+    bin_crates = get_bin_crates()
+    for bin_crate in bin_crates:
         log.info(f"Building binary crate `{bin_crate}`.")
         build_and_stage_bin(bin_crate, staging_dir, args.profile)
         log.info(f"Staged binary `{bin_crate}`.")
@@ -420,7 +505,7 @@ def main() -> None:
     if system == "windows":
         windows(staging_dir)
     elif system == "darwin":  # MacOS
-        log.fatal("unimplemented")
+        mac_os(staging_dir, bin_crates)
     elif system == "linux":
         log.fatal("unimplemented")
     else:
