@@ -33,3 +33,22 @@ View the `render_testing` crate for examples.
 Errors
 ------
 Use `ExecutionError` to inspect and handle runtime failures (e.g. `TextureUploadError`, `VideoFetchError`, `ShaderLoadError`).
+
+Shaders and bind groups
+-----------------------
+The engine loads WGSL shaders from node definitions and expects a small convention:
+
+- Entry points: the shader must provide `vs_main` (vertex) and `fs_main` (fragment).
+- Bind group layout used by the runtime:
+  - binding 0: a `sampler` (linear filtering)
+  - bindings 1..N: `texture_2d` views corresponding to each `Frame` input (primary input is binding 1)
+  - binding (N+1): a uniform buffer containing non-texture parameters (bool/int/float/pixel/dimensions/enum)
+
+Parameters are passed as a `HashMap<String, ResolvedInput>` by name and packed into a uniform buffer
+using a simple std140-like alignment. Text/file inputs are not passed to the shader; `Frame` inputs
+are provided as texture views in the order declared by the node definition.
+
+Examples
+--------
+See the `nodes/` folder at the repository root for example `shader.wgsl` files demonstrating
+bindings and entry points.
