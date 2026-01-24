@@ -69,19 +69,34 @@ def rm_path(
 
 
 def ensure_path_exists(
-    path: str, help_msg: Optional[str] = None, non_fatal: bool = False
+    path: str,
+    kind: Literal["file", "dir", "any"] = "any",
+    help_msg: Optional[str] = None,
+    non_fatal: bool = False,
 ) -> None:
     """
     Does a check to see if a path exists.
     """
 
-    if not os.path.exists(path):
-        err_msg = f"Couldn't find `{path}`." + (
-            f"\n{help_msg}" if help_msg is not None else ""
-        )
-        if non_fatal:
-            raise DoesntExistException(err_msg)
-        log.fatal(err_msg)
+    if kind == "file":
+        check_exists = os.path.isfile
+        kind_str = "file"
+    elif kind == "dir":
+        check_exists = os.path.isdir
+        kind_str = "directory"
+    elif kind == "any":
+        check_exists = os.path.exists
+        kind_str = "anything"
+
+    if check_exists(path):
+        return
+
+    err_msg = f"Couldn't find {kind_str} at `{path}`." + (
+        f"\n{help_msg}" if help_msg is not None else ""
+    )
+    if non_fatal:
+        raise DoesntExistException(err_msg)
+    log.fatal(err_msg)
 
 
 def ensure_cmd_exists(

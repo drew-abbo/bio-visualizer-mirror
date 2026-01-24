@@ -324,6 +324,7 @@ def build_and_stage_bin(crate_name: str, out_dir: str):
     bin_path = f"{target_dir}/{PROFILE}/{crate_name}{ext}"
     sh.ensure_path_exists(
         bin_path,
+        kind="file",
         help_msg="Cargo built a binary somewhere unexpected.",
     )
 
@@ -359,24 +360,51 @@ def fmt_time(secs: float) -> str:
     return secs_str
 
 
-def windows(staging_dir: str) -> None:
-    FFMPEG_DLL_DIR = ".\\ffmpeg\\bin"
-    sh.ensure_path_exists(
-        FFMPEG_DLL_DIR,
-        help_msg="The directory where FFmpeg DLLs were expected was not found.",
-    )
+def copy_files_dir_to_dir(
+    src_dir: str, dest_dir: str, file_ext_filter: Optional[str] = None
+) -> int:
+    """
+    Copy regular files from `src_dir` (non-recursive) to `dest_dir`. If
+    `file_ext_filter` isn't `None`, only files with a matching file extension
+    will be copied. The number of files copied is returned.
+    """
 
-    log.info(f"Copying DLLs from `{FFMPEG_DLL_DIR}` to staging directory.")
+    sh.ensure_path_exists(src_dir, kind="dir")
+
+    if file_ext_filter is not None and not file_ext_filter.startswith("."):
+        file_ext_filter = f".{file_ext_filter}"
+
+    file_kind = "all" if file_ext_filter is None else f"`{file_ext_filter}`"
+    log.info(f"Copying {file_kind} files from `{src_dir}` to `{dest_dir}`.")
+
+    copied = 0
     try:
-        for subfile in os.listdir(FFMPEG_DLL_DIR):
-            if not subfile.endswith(".dll"):
+        for file_name in os.listdir(src_dir):
+            file_path = f"{src_dir}/{file_name}"
+
+            if not os.path.isfile(file_path) or (
+                file_ext_filter is not None
+                and not file_name.endswith(file_ext_filter)
+            ):
                 continue
-            shutil.copy(
-                f"{FFMPEG_DLL_DIR}\\{subfile}",
-                f"{staging_dir}\\{subfile}",
-            )
+
+            shutil.copy(file_path, f"{dest_dir}/{file_name}")
+            copied += 1
     except:
-        log.fatal("Failed top copy DLLs to staging directory.")
+        log.fatal("Failed top copy files from one directory to another.")
+    return copied
+
+
+def windows(staging_dir: str) -> None:
+    """
+    Handles Windows-specific packaging steps.
+    """
+
+    FFMPEG_DLL_DIR = ".\\ffmpeg\\bin"
+    dlls = copy_files_dir_to_dir(
+        FFMPEG_DLL_DIR, staging_dir, file_ext_filter=".dll"
+    )
+    log.info(f"Copied {dlls} DLLs into staging directory.")
 
 
 def main() -> None:
