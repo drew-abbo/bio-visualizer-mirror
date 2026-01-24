@@ -1,5 +1,4 @@
 /// REMOVE THIS CRATE ONCE THE UI IS IN A GOOD STATE
-
 use engine::node_graph::{InputValue, NodeGraph};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -9,7 +8,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
 use engine::graph_executor::GraphExecutor;
-use engine::graph_executor::enums::OutputValue;
+use engine::graph_executor::OutputValue;
 use engine::node::NodeLibrary;
 
 fn main() {

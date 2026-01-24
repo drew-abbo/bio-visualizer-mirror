@@ -1,33 +1,43 @@
-//! Node render pipeline
+//! This module contains [NodeRenderPipeline], a small runtime pipeline builder
+//! that creates a GPU render pipeline from a node's WGSL shader and its
+//! [NodeDefinition]. The pipeline binds a sampler, one or more input textures
+//! (for [NodeInputKind::Frame] inputs), and a uniform buffer containing non-texture
+//! parameters (bool/int/float/pixel/etc.).
 //!
-//! This module contains `NodeRenderPipeline`, a small runtime pipeline builder that
-//! creates a GPU render pipeline from a node's WGSL shader and its `NodeDefinition`.
-//! The pipeline binds a sampler, one or more input textures (for `Frame` inputs),
-//! and a uniform buffer containing non-texture parameters (bool/int/float/pixel/etc.).
+//! The pipeline is intentionally lightweight: it validates input counts,
+//! writes parameters into a uniform buffer using simple std140-style
+//! alignment rules, and issues a fullscreen triangle draw to produce the
+//! node's output texture.
 //!
-//! The pipeline is intentionally lightweight: it validates input counts, writes
-//! parameters into a uniform buffer using simple std140-style alignment rules,
-//! and issues a fullscreen triangle draw to produce the node's output texture.
+//! Public API:
+//! - [NodeRenderPipeline::from_shader] builds a pipeline for a node definition
+//!   from WGSL source.
+//! - The pipeline implements [PipelineBase] and can be invoked by the
+//!   [crate::graph_executor::GraphExecutor] to render node outputs.
 //!
-//! See `PipelineBase` for the runtime-facing trait used by the executor.
+//! See [PipelineBase] for the runtime-facing trait used by the executor.
 
 use std::any::Any;
 use std::collections::HashMap;
 
 use crate::engine_errors::EngineError;
-use crate::graph_executor::enums::ResolvedInput;
+use crate::graph_executor::ResolvedInput;
 use crate::node::NodeDefinition;
 use crate::node::node::NodeInputKind;
 use crate::node_render_pipeline::helpers::create_linear_sampler;
 use crate::node_render_pipeline::pipeline_base::PipelineBase;
 
 /// Pipeline created dynamically from node definition and WGSL shader.
-///
+
 /// Responsibilities:
-/// - Build a `wgpu::RenderPipeline` from WGSL source and the node's name.
+/// - Build a [wgpu::RenderPipeline] from WGSL source and the node's name.
 /// - Create a bind group layout and bind group for sampler, input textures and params.
-/// - Marshal non-texture inputs (`ResolvedInput`) into a contiguous uniform buffer.
+/// - Marshal non-texture inputs [ResolvedInput] into a contiguous uniform buffer.
 /// - Validate input counts and run a fullscreen draw to produce the output texture.
+/// Runtime GPU render pipeline constructed from WGSL and a [NodeDefinition].
+///
+/// Responsible for creating the [wgpu::RenderPipeline], bind group layout,
+/// uniform buffer for parameters and providing a `PipelineBase::apply` implementation.
 pub struct NodeRenderPipeline {
     // GPU resources
     pipeline: wgpu::RenderPipeline,
@@ -41,11 +51,11 @@ pub struct NodeRenderPipeline {
     param_layout: Vec<ShaderParam>,
 }
 
-#[derive(Debug, Clone)]
 /// Internal representation of a shader parameter.
 ///
-/// `name` matches the node input name, `kind` is used to determine size/encoding,
-/// and `offset` indicates the byte offset inside the uniform buffer.
+/// [name] matches the node input name, [kind] is used to determine size/encoding,
+/// and [offset] indicates the byte offset inside the uniform buffer.
+#[derive(Debug, Clone)]
 struct ShaderParam {
     name: String,
     kind: NodeInputKind,
@@ -65,11 +75,11 @@ impl PipelineBase for NodeRenderPipeline {
     ) -> Result<(), EngineError> {
         // Execute the pipeline.
         //
-        // - Validates that the number of `additional_inputs` matches the node's
-        //   declared `Frame` inputs (primary input + additional inputs).
-        // - Writes the `params` (expected to be `HashMap<String, ResolvedInput>`) into
-        //   the uniform buffer using `param_layout` rules.
-        // - Builds a bind group and issues the render pass that draws into `output`.
+        // - Validates that the number of [additional_inputs] matches the node's
+        //   declared [NodeInputKind::Frame] inputs (primary input + additional inputs).
+        // - Writes the [params] (expected to be [HashMap<String, ResolvedInput>]) into
+        //   the uniform buffer using [param_layout] rules.
+        // - Builds a bind group and issues the render pass that draws into [output].
         // Validate input count
         let expected = self.texture_input_count.saturating_sub(1);
         if additional_inputs.len() != expected {
@@ -159,8 +169,8 @@ impl NodeRenderPipeline {
         definition: &NodeDefinition,
         target_format: wgpu::TextureFormat,
     ) -> Result<Self, String> {
-        // Construct a `NodeRenderPipeline` from raw WGSL shader code and a
-        // `NodeDefinition` describing inputs/outputs.
+        // Construct a [NodeRenderPipeline] from raw WGSL shader code and a
+        // [NodeDefinition] describing inputs/outputs.
         //
         // This will create the pipeline, a matching bind-group-layout and a
         // uniform buffer sized to hold the node's non-texture parameters.
@@ -239,8 +249,8 @@ impl NodeRenderPipeline {
 
     /// Write parameter to buffer at correct offset with proper alignment
     fn write_param_to_buffer(buffer: &mut [u8], param: &ShaderParam, value: &ResolvedInput) {
-        // Encode a single `ResolvedInput` value into the provided `buffer` at
-        // `param.offset` using the expected encoding for WGSL uniforms.
+        // Encode a single [ResolvedInput] value into the provided [buffer] at
+        // [param.offset] using the expected encoding for WGSL uniforms.
         //
         // Only simple scalar/vector types are supported here (bool/int/float/pixel/dimensions/enum).
         let offset = param.offset;
@@ -283,9 +293,9 @@ impl NodeRenderPipeline {
         name: &str,
         texture_count: usize,
     ) -> wgpu::BindGroupLayout {
-        // Dynamically create a `BindGroupLayout` for:
+        // Dynamically create a [wgpu::BindGroupLayout] for:
         // - binding 0: sampler
-        // - bindings 1..N: textures for each `Frame` input
+        // - bindings 1..N: textures for each [Frame] input
         // - binding (N+1): uniform buffer for parameters
         let mut entries = Vec::new();
 
@@ -331,7 +341,7 @@ impl NodeRenderPipeline {
 
     /// Extract non-texture parameters and calculate their buffer offsets
     fn build_param_layout(inputs: &[crate::node::node::NodeInput]) -> Vec<ShaderParam> {
-        // Convert node `inputs` into a list of `ShaderParam` describing the
+        // Convert node [inputs] into a list of [ShaderParam] describing the
         // order and byte offsets of parameters placed in the uniform buffer.
         // Frame and Midi inputs are skipped (they are bound as textures or handled elsewhere).
         let mut params = Vec::new();
@@ -371,7 +381,7 @@ impl NodeRenderPipeline {
 
     /// Calculate uniform buffer size with std140 alignment
     fn calculate_params_size(layout: &[ShaderParam]) -> usize {
-        // Compute the uniform buffer size required for `layout` using a simple
+        // Compute the uniform buffer size required for [layout] using a simple
         // std140-like alignment strategy: results are aligned to 16 bytes.
         if layout.is_empty() {
             return 16; // Minimum size

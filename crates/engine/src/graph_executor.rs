@@ -1,5 +1,7 @@
-pub mod enums;
-pub mod errors;
+//! Executes a [NodeGraph] and returns node outputs. Public types re-exported
+//! at [crate::graph_executor]: [ResolvedInput], [OutputValue], [ExecutionError].
+mod enums;
+mod errors;
 use crate::gpu_frame::GpuFrame;
 use crate::node::NodeDefinition;
 use crate::node::NodeLibrary;
@@ -12,12 +14,16 @@ use crate::node_graph::{InputValue, NodeGraph, NodeInstance};
 use crate::node_render_pipeline::NodeRenderPipeline;
 use crate::node_render_pipeline::PipelineBase;
 use crate::upload_stager::UploadStager;
-use enums::*;
-use errors::*;
+pub use enums::*;
+pub use errors::*;
 use std::any::Any;
 use std::collections::HashMap;
 
-/// The executor that runs a node graph and produces results
+/// The executor that runs a node graph and produces results.
+///
+/// [GraphExecutor] holds transient caches used during execution (compiled
+/// pipelines, output values, and temporary GPU upload staging resources).
+/// Construct it with [GraphExecutor::new] or prefer [GraphExecutor::default]
 pub struct GraphExecutor {
     /// For uploading CPU textures to GPU
     upload_stager: UploadStager,
@@ -43,10 +49,22 @@ pub struct GraphExecutor {
     cached_execution_order: Option<Vec<NodeId>>,
 }
 
-/// The result of executing a node graph
+/// The result of executing a node graph.
+///
+/// Contains the id of the chosen output node and a reference to the map of
+/// outputs produced by that node. The `outputs` reference borrows from the
+/// executor's internal cache and therefore has the same lifetime as the
+/// executor borrow used during [crate::graph_executor::GraphExecutor::execute].
 #[derive(Debug)]
 pub struct ExecutionResult<'a> {
+    /// The node id chosen as the graph's output
     pub output_node_id: NodeId,
+
+    /// Map of output name -> [OutputValue] produced by the output node.
+    ///
+    /// Note: the [&'a] lifetime ties this reference to the executor borrow
+    /// used for the execution call; the consumer must not expect the
+    /// outputs to outlive the executor or subsequent executions.
     pub outputs: &'a HashMap<String, OutputValue>,
 }
 
@@ -61,6 +79,12 @@ impl GraphExecutor {
             target_format: format,
             cached_execution_order: None,
         }
+    }
+
+    /// Create a default GraphExecutor with RGBA8Unorm target format.
+    /// For UI use it will be a different format more than likely.
+    pub fn default() -> Self {
+        Self::new(wgpu::TextureFormat::Rgba8Unorm)
     }
 
     /// Clear producer cache to release video files
@@ -168,7 +192,7 @@ impl GraphExecutor {
                     let source_outputs = self
                         .output_cache
                         .get(from_node)
-                        .ok_or_else(|| ExecutionError::NodeNotExecuted(*from_node))?;
+                        .ok_or(ExecutionError::NodeNotExecuted(*from_node))?;
 
                     let output = source_outputs.get(output_name).ok_or_else(|| {
                         ExecutionError::OutputNotFound(*from_node, output_name.clone())
@@ -298,7 +322,7 @@ impl GraphExecutor {
                 &mut encoder,
                 primary_frame.view(),
                 &additional_frames,
-                &*output_view_arc,
+                &output_view_arc,
                 params.as_ref(),
             )
             .map_err(ExecutionError::RenderError)?;
@@ -355,7 +379,7 @@ impl GraphExecutor {
     ) -> Result<Box<dyn PipelineBase>, ExecutionError> {
         NodeRenderPipeline::from_shader(device, shader_code, definition, self.target_format)
             .map(|pipeline| Box::new(pipeline) as Box<dyn PipelineBase>)
-            .map_err(|e| ExecutionError::PipelineCreationError(e))
+            .map_err(ExecutionError::PipelineCreationError)
     }
 
     /// Convert resolved inputs into shader parameters

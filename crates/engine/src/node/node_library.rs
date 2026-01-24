@@ -12,7 +12,7 @@ pub struct NodeLibrary {
     definitions: HashMap<String, NodeDefinition>,
 
     /// Root path where nodes are stored
-    nodes_folder: PathBuf,
+    _nodes_folder: PathBuf,
 }
 
 impl NodeLibrary {
@@ -41,13 +41,13 @@ impl NodeLibrary {
 
         Ok(Self {
             definitions,
-            nodes_folder,
+            _nodes_folder: nodes_folder,
         })
     }
 
     /// Recursively scan a directory for node folders
     fn scan_directory(
-        base_path: &Path,
+        _base_path: &Path,
         current_path: &Path,
         definitions: &mut HashMap<String, NodeDefinition>,
     ) -> Result<(), LibraryError> {
@@ -82,7 +82,7 @@ impl NodeLibrary {
                     }
                 } else {
                     // Not a node folder, recurse into it
-                    Self::scan_directory(base_path, &path, definitions)?;
+                    Self::scan_directory(_base_path, &path, definitions)?;
                 }
             }
         }

@@ -1,3 +1,8 @@
+//! Node graph types and helpers.
+//!
+//! Provides [NodeInstance], [Connection], and [NodeGraph] for building and
+//! mutating node graphs, plus utilities such as topological sorting to compute
+//! execution order.
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -6,7 +11,7 @@ use thiserror::Error;
 /// Unique identifier for a node instance in the graph
 pub type NodeId = usize;
 
-/// A single instance of a node in the graph
+/// A node instance referencing a definition and its input values.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeInstance {
     /// Unique ID for this instance
@@ -21,7 +26,7 @@ pub struct NodeInstance {
     pub input_values: HashMap<String, InputValue>,
 }
 
-/// A connection between two nodes in the graph
+/// Directed connection between two node instances.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Connection {
     /// Source node ID
@@ -37,17 +42,18 @@ pub struct Connection {
     pub to_input: String,
 }
 
-/// The node graph - a collection of node instances and their connections
+/// In-memory graph used by the executor; supports mutations and topological sort.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeGraph {
-    /// All node instances in the graph
     instances: HashMap<NodeId, NodeInstance>,
-
-    /// All connections between node instances
     connections: Vec<Connection>,
-
-    /// Counter for generating unique node IDs
     next_id: NodeId,
+}
+
+impl Default for NodeGraph {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl NodeGraph {
@@ -59,7 +65,8 @@ impl NodeGraph {
         }
     }
 
-    /// Add a new node instance to the graph
+    /// Add a new node instance and return its [NodeId].
+    /// definition_name should match a loaded [crate::node::NodeDefinition] at execution time.
     pub fn add_instance(&mut self, definition_name: String) -> NodeId {
         let id = self.next_id;
         self.next_id += 1;
@@ -76,16 +83,18 @@ impl NodeGraph {
         id
     }
 
-    /// Remove a node instance from the graph
+    /// Remove a node instance and any connections to/from it.
     pub fn remove_instance(&mut self, id: NodeId) -> Option<NodeInstance> {
-        // Remove all connections to/from this node
         self.connections
             .retain(|conn| conn.from_node != id && conn.to_node != id);
 
         self.instances.remove(&id)
     }
 
-    /// Connect an output from one node to an input of another node
+    /// Connect an output from one node to an input of another node.
+    /// Adds a [Connection] to the graph and updates the destination
+    /// instance's `input_values` to an [crate::node_graph::InputValue::Connection] referencing
+    /// the source node/output.
     pub fn connect(
         &mut self,
         from_node: NodeId,
@@ -93,7 +102,6 @@ impl NodeGraph {
         to_node: NodeId,
         input_name: String,
     ) -> Result<(), GraphError> {
-        // Validate nodes exist
         if !self.instances.contains_key(&from_node) {
             return Err(GraphError::NodeNotFound(from_node));
         }
@@ -101,12 +109,10 @@ impl NodeGraph {
             return Err(GraphError::NodeNotFound(to_node));
         }
 
-        // Check for cycles
         if from_node == to_node {
             return Err(GraphError::SelfConnection);
         }
 
-        // Check if this input is already connected
         if self
             .connections
             .iter()
@@ -115,7 +121,6 @@ impl NodeGraph {
             return Err(GraphError::InputAlreadyConnected);
         }
 
-        // Create the connection
         self.connections.push(Connection {
             from_node,
             from_output: output_name.clone(),
@@ -123,7 +128,6 @@ impl NodeGraph {
             to_input: input_name.clone(),
         });
 
-        // Update the instance's input values to reference this connection
         if let Some(instance) = self.instances.get_mut(&to_node) {
             instance.input_values.insert(
                 input_name,
@@ -137,7 +141,6 @@ impl NodeGraph {
         Ok(())
     }
 
-    /// Disconnect an input from a node
     pub fn disconnect(&mut self, to_node: NodeId, input_name: &str) -> bool {
         let removed = self
             .connections
@@ -147,7 +150,6 @@ impl NodeGraph {
             .is_some();
 
         if removed {
-            // Remove the connection reference from the instance
             if let Some(instance) = self.instances.get_mut(&to_node) {
                 instance.input_values.remove(input_name);
             }
@@ -156,7 +158,6 @@ impl NodeGraph {
         removed
     }
 
-    /// Set a direct value for a node's input
     pub fn set_input_value(
         &mut self,
         node_id: NodeId,
@@ -168,7 +169,6 @@ impl NodeGraph {
             .get_mut(&node_id)
             .ok_or(GraphError::NodeNotFound(node_id))?;
 
-        // Don't allow setting a value if there's a connection
         if matches!(value, InputValue::Connection { .. }) {
             return Err(GraphError::UseConnectMethod);
         }
@@ -177,27 +177,23 @@ impl NodeGraph {
         Ok(())
     }
 
-    /// Get a node instance
     pub fn get_instance(&self, id: NodeId) -> Option<&NodeInstance> {
         self.instances.get(&id)
     }
 
-    /// Get a mutable node instance
     pub fn get_instance_mut(&mut self, id: NodeId) -> Option<&mut NodeInstance> {
         self.instances.get_mut(&id)
     }
 
-    /// Get all node instances
     pub fn instances(&self) -> &HashMap<NodeId, NodeInstance> {
         &self.instances
     }
 
-    /// Get all connections
     pub fn connections(&self) -> &[Connection] {
         &self.connections
     }
 
-    /// Find all connections where this node is the source
+    /// Find all connections where `node_id` is the source.
     pub fn outgoing_connections(&self, node_id: NodeId) -> Vec<&Connection> {
         self.connections
             .iter()
@@ -205,7 +201,7 @@ impl NodeGraph {
             .collect()
     }
 
-    /// Find all connections where this node is the destination
+    /// Find all connections where `node_id` is the destination.
     pub fn incoming_connections(&self, node_id: NodeId) -> Vec<&Connection> {
         self.connections
             .iter()
@@ -213,16 +209,15 @@ impl NodeGraph {
             .collect()
     }
 
-    /// Get the connection feeding into a specific input
+    /// Get the connection feeding into a specific input, if any.
     pub fn get_input_connection(&self, node_id: NodeId, input_name: &str) -> Option<&Connection> {
         self.connections
             .iter()
             .find(|c| c.to_node == node_id && c.to_input == input_name)
     }
 
-    /// Check if the graph contains cycles
+    /// Detect whether the graph contains cycles.
     pub fn has_cycles(&self) -> bool {
-        // Use depth-first search to detect cycles
         let mut visited = HashMap::new();
         let mut rec_stack = HashMap::new();
 
@@ -242,17 +237,16 @@ impl NodeGraph {
         rec_stack: &mut HashMap<NodeId, bool>,
     ) -> bool {
         if *rec_stack.get(&node_id).unwrap_or(&false) {
-            return true; // Found a cycle
+            return true;
         }
 
         if *visited.get(&node_id).unwrap_or(&false) {
-            return false; // Already visited this node
+            return false;
         }
 
         visited.insert(node_id, true);
         rec_stack.insert(node_id, true);
 
-        // Check all outgoing connections
         for conn in self.outgoing_connections(node_id) {
             if self.has_cycle_util(conn.to_node, visited, rec_stack) {
                 return true;
@@ -263,8 +257,11 @@ impl NodeGraph {
         false
     }
 
-    /// Get execution order using topological sort
-    /// Returns nodes in the order they should be executed
+    /// Get execution order using topological sort.
+    ///
+    /// Returns a vector of [NodeId] values ordered so that dependencies appear
+    /// before their consumers. If the graph contains a cycle this method
+    /// returns [Err(GraphError::CyclicGraph)].
     pub fn execution_order(&self) -> Result<Vec<NodeId>, GraphError> {
         if self.has_cycles() {
             return Err(GraphError::CyclicGraph);
@@ -273,39 +270,29 @@ impl NodeGraph {
         let mut in_degree: HashMap<NodeId, usize> = HashMap::new();
         let mut order = Vec::new();
 
-        // Initialize in degrees
         for &node_id in self.instances.keys() {
             in_degree.insert(node_id, 0);
         }
 
-        // Count incoming edges for each node
         for conn in &self.connections {
             *in_degree.get_mut(&conn.to_node).unwrap() += 1;
         }
 
-        // Find all nodes with no incoming edges
         let mut queue: Vec<NodeId> = in_degree
             .iter()
             .filter(|entry| *entry.1 == 0)
             .map(|(id, _)| *id)
             .collect();
-
-        // Process nodes in topological order
         while let Some(node_id) = queue.pop() {
             order.push(node_id);
-
-            // Reduce in degree for all neighbors
             for conn in self.outgoing_connections(node_id) {
                 let degree = in_degree.get_mut(&conn.to_node).unwrap();
                 *degree -= 1;
-
                 if *degree == 0 {
                     queue.push(conn.to_node);
                 }
             }
         }
-
-        // If we processed all nodes, we have a valid order
         if order.len() == self.instances.len() {
             Ok(order)
         } else {
@@ -313,8 +300,7 @@ impl NodeGraph {
         }
     }
 
-    /// Find the output node if any
-    /// Output nodes are typically nodes with no outgoing connections
+    /// Find output nodes (nodes with no outgoing connections).
     pub fn find_output_nodes(&self) -> Vec<NodeId> {
         self.instances
             .keys()
@@ -329,73 +315,59 @@ impl NodeGraph {
         self.connections.clear();
         self.next_id = 0;
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.instances.is_empty() && self.connections.is_empty()
+    }
 }
 
 /// The value of a node input - either a direct value or a connection
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum InputValue {
-    /// Connected to another node's output
     Connection {
         from_node: NodeId,
         output_name: String,
     },
-
-    /// Direct value: Frame (stored as reference, not serialized as actual texture)
     Frame,
-
-    /// Direct value: Boolean
     Bool(bool),
-
-    /// Direct value: Integer
     Int(i32),
-
-    /// Direct value: Float
     Float(f32),
-
-    /// Direct value: Dimensions
-    Dimensions { width: u32, height: u32 },
-
-    /// Direct value: Pixel/Color
-    Pixel { r: f32, g: f32, b: f32, a: f32 },
-
-    /// Direct value: Text
+    Dimensions {
+        width: u32,
+        height: u32,
+    },
+    Pixel {
+        r: f32,
+        g: f32,
+        b: f32,
+        a: f32,
+    },
     Text(String),
-
-    /// Direct value: Enum choice (index into choices array)
     Enum(usize),
-
-    /// Direct value: File path
     File(PathBuf),
 }
 
 /// Errors that can occur when working with the node graph
 #[derive(Error, Debug, Clone)]
 pub enum GraphError {
-    /// Node with given ID not found
     #[error("Node {0} not found")]
     NodeNotFound(NodeId),
 
-    /// Attempted to connect a node to itself
     #[error("Cannot connect node to itself")]
     SelfConnection,
 
-    /// The input is already connected to another node
     #[error("Input already connected")]
     InputAlreadyConnected,
 
-    /// The graph contains a cycle
     #[error("Graph contains cycles")]
     CyclicGraph,
 
-    /// Input doesn't exist on the node
     #[error("Invalid input: {0}")]
     InvalidInput(String),
 
-    /// Output doesn't exist on the node
     #[error("Invalid output: {0}")]
     InvalidOutput(String),
 
-    /// Tried to set InputValue::Connection directly (use connect() instead)
     #[error("Use connect() method for connections")]
     UseConnectMethod,
 }

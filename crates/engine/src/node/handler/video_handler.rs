@@ -1,6 +1,6 @@
 use crate::gpu_frame::GpuFrame;
-use crate::graph_executor::enums::{OutputValue, ResolvedInput};
-use crate::graph_executor::errors::ExecutionError;
+use crate::graph_executor::ExecutionError;
+use crate::graph_executor::{OutputValue, ResolvedInput};
 use crate::node::handler::node_handler::NodeHandler;
 use crate::upload_stager::UploadStager;
 use media::frame::{Frame, Producer, streams::OnStreamEnd, streams::Video};
@@ -12,11 +12,21 @@ pub struct VideoSourceHandler {
     producer_cache: HashMap<PathBuf, Producer>,
 }
 
+impl Default for VideoSourceHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VideoSourceHandler {
     pub fn new() -> Self {
         Self {
             producer_cache: HashMap::new(),
         }
+    }
+
+    pub fn clear_cache(&mut self) {
+        self.producer_cache.clear();
     }
 
     fn get_or_create_producer(&mut self, path: &PathBuf) -> Result<&mut Producer, ExecutionError> {
@@ -41,10 +51,6 @@ impl VideoSourceHandler {
         Ok(self.producer_cache.get_mut(path).unwrap())
     }
 
-    pub fn clear_cache(&mut self) {
-        self.producer_cache.clear();
-    }
-
     pub fn fetch_frame(&mut self, path: &PathBuf) -> Result<Frame, ExecutionError> {
         let producer = self.get_or_create_producer(path)?;
         producer.fetch_frame().map_err(|e| {
@@ -58,7 +64,7 @@ impl VideoSourceHandler {
         let duration_secs = producer
             .stats()
             .stream_duration()
-            .map(|d| d.as_secs_f64())
+            .map(|d: std::time::Duration| d.as_secs_f64())
             .unwrap_or(0.0);
         Ok((fps, duration_secs))
     }
@@ -105,7 +111,7 @@ impl NodeHandler for VideoSourceHandler {
         // Prepare outputs
         let mut outputs = HashMap::new();
         outputs.insert("output".to_string(), OutputValue::Frame(gpu_frame));
-        outputs.insert("fps".to_string(), OutputValue::Float(fps as f32));
+        outputs.insert("fps".to_string(), OutputValue::Float(fps));
         outputs.insert(
             "duration".to_string(),
             OutputValue::Float(duration_secs as f32),

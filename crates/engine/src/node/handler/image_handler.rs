@@ -1,6 +1,6 @@
 use crate::gpu_frame::GpuFrame;
-use crate::graph_executor::enums::{OutputValue, ResolvedInput};
-use crate::graph_executor::errors::ExecutionError;
+use crate::graph_executor::ExecutionError;
+use crate::graph_executor::{OutputValue, ResolvedInput};
 use crate::node::handler::node_handler::NodeHandler;
 use crate::upload_stager::UploadStager;
 use std::collections::HashMap;
@@ -20,6 +20,12 @@ impl ImageSourceHandler {
 
     pub fn clear_cache(&mut self) {
         self.frame_cache.clear();
+    }
+}
+
+impl Default for ImageSourceHandler {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
