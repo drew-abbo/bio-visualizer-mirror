@@ -106,41 +106,13 @@ def windows() -> None:
     Handles build setup for Windows builds.
     """
 
+    from build_util.platforms import win
+
     if sh.get_supported_arch() != "x86_64":
         log.fatal("Windows builds currently only support x86_64.")
 
-    program_files_x86 = os.environ.get("ProgramFiles(x86)")
-    program_files = os.environ.get("ProgramFiles")
-    if program_files_x86 is None or program_files is None:
-        log.fatal("Coldn't find program files.")
-
-    vs_installer_dir = (
-        f"{program_files_x86}\\Microsoft Visual Studio\\Installer"
-    )
-
-    sh.ensure_path_exists(
-        vs_installer_dir,
-        kind="dir",
-        help_msg="You likely don't have `Visual Studio Installer`"
-        + " on your system. Please install it from here:\n"
-        + "https://visualstudio.microsoft.com/",
-    )
-
-    # `vswhere` lets us find where a specific version is installed.
-    sh.ensure_path_exists(f"{vs_installer_dir}\\vswhere.exe", kind="file")
-    try:
-        vs_installation_path = sh.run_cmd(
-            f"{vs_installer_dir}\\vswhere.exe",
-            "-property",
-            "installationPath",
-            "-version",
-            "[17.0, 19.0)",  # Only Visual Studio 2022 or 2026.
-            "-latest",
-            non_fatal=True,
-        )
-    except sh.CmdException:
-        log.fatal("Couldn't find Visual Studio (2022 or 2026).")
-    log.info("MSVC found.")
+    vs_installer_dir = win.vs_installer_dir()
+    vs_installation_dir = win.vs_installation_dir()
 
     # Collect a list of all Visual Studio components that are installed.
     def get_installed_vs_components() -> list[str]:
@@ -162,7 +134,7 @@ def windows() -> None:
             sh.run_cmd(
                 f"{vs_installer_dir}\\vs_installer.exe",
                 "--installPath",
-                vs_installation_path,
+                vs_installation_dir,
                 "export",
                 "--config",
                 temp_vs_installer_config_path,
@@ -227,7 +199,7 @@ def windows() -> None:
     def get_libclang_path() -> str:
         # `libclang` needs to be installed for FFmpeg-next to be able to create
         # rust bindings.
-        libclang_path = f"{vs_installation_path}\\VC\\Tools\\LLVM\\x64\\bin"
+        libclang_path = f"{vs_installation_dir}\\VC\\Tools\\LLVM\\x64\\bin"
         sh.ensure_path_exists(f"{libclang_path}\\libclang.dll", kind="file")
         log.info("Found `libclang`.")
 
@@ -238,7 +210,7 @@ def windows() -> None:
     def try_to_get_clang_include_dir() -> Optional[str]:
         try:
             clang_dir = (
-                f"{vs_installation_path}\\VC\\Tools\\LLVM\\x64\\lib\\clang"
+                f"{vs_installation_dir}\\VC\\Tools\\LLVM\\x64\\lib\\clang"
             )
 
             newest_clang_version = sorted(
@@ -306,8 +278,8 @@ def windows() -> None:
             for cmd in (
                 "7z",
                 "7z.exe",
-                f"{program_files}\\7-Zip\\7z.exe",
-                f"{program_files_x86}\\7-Zip\\7z.exe",
+                f"{win.program_files()}\\7-Zip\\7z.exe",
+                f"{win.program_files(x86=True)}\\7-Zip\\7z.exe",
             ):
                 try:
                     sh.ensure_cmd_exists(cmd, non_fatal=True)

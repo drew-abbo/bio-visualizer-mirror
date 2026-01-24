@@ -390,16 +390,52 @@ def fmt_time(secs: float) -> str:
     return secs_str
 
 
-def windows(staging_dir: str) -> None:
+def windows(staging_dir: str, bin_crates: list[str]) -> None:
     """
     Handles Windows-specific packaging steps.
     """
 
+    from build_util.platforms import win
+
+    if sh.get_supported_arch() != "x86_64":
+        log.fatal("Windows builds currently only support x86_64.")
+
     FFMPEG_DLL_DIR = ".\\ffmpeg\\bin"
-    dlls = sh.copy_files_dir_to_dir(
-        FFMPEG_DLL_DIR, staging_dir, file_ext_filter=".dll"
+    ffmpeg_dlls = set(
+        map(
+            file_name,
+            sh.copy_files_dir_to_dir(
+                FFMPEG_DLL_DIR, staging_dir, file_ext_filter=".dll"
+            ),
+        )
     )
-    log.info(f"Copied {dlls} DLLs into staging directory.")
+    log.info("Copied FFmpeg DLLs into staging directory.")
+
+    dumpbin = f"{win.vs_msvc_tools_dir()}\\dumpbin.exe"
+    sh.ensure_cmd_exists(dumpbin)
+
+    def get_required_ffmpeg_dlls(bin_crate: str) -> list[str]:
+        dumpbin_lines = [
+            line.strip()
+            for line in sh.run_cmd(
+                dumpbin, "/DEPENDENTS", f"{staging_dir}/{bin_crate}.exe"
+            ).splitlines()
+        ]
+        return [line for line in dumpbin_lines if line in ffmpeg_dlls]
+
+    required_ffmpeg_dlls: set[str] = set()
+    for bin_crate in bin_crates:
+        required_ffmpeg_dlls.update(get_required_ffmpeg_dlls(bin_crate))
+    ffmpeg_dlls_to_remove = ffmpeg_dlls - required_ffmpeg_dlls
+    try:
+        for dll in ffmpeg_dlls_to_remove:
+            os.remove(f"{staging_dir}\\{dll}")
+    except:
+        log.fatal("Failed to remove unneeded FFmpeg DLLs.")
+    log.info(
+        f"Removed {len(ffmpeg_dlls_to_remove)} unneeded FFmpeg DLLs "
+        + f"from staging directory ({len(required_ffmpeg_dlls)} remain)."
+    )
 
 
 def mac_os(staging_dir: str, bin_crates: list[str]) -> None:
@@ -503,7 +539,7 @@ def main() -> None:
 
     system = platform.system().lower()
     if system == "windows":
-        windows(staging_dir)
+        windows(staging_dir, bin_crates)
     elif system == "darwin":  # MacOS
         mac_os(staging_dir, bin_crates)
     elif system == "linux":

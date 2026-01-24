@@ -101,11 +101,11 @@ def ensure_path_exists(
 
 def copy_files_dir_to_dir(
     src_dir: str, dest_dir: str, file_ext_filter: Optional[str] = None
-) -> int:
+) -> list[str]:
     """
     Copy regular files from `src_dir` (non-recursive) to `dest_dir`. If
     `file_ext_filter` isn't `None`, only files with a matching file extension
-    will be copied. The number of files copied is returned.
+    will be copied. A list of copied destination file paths is returned.
     """
 
     ensure_path_exists(src_dir, kind="dir")
@@ -116,7 +116,7 @@ def copy_files_dir_to_dir(
     file_kind = "all" if file_ext_filter is None else f"`{file_ext_filter}`"
     log.info(f"Copying {file_kind} files from `{src_dir}` to `{dest_dir}`.")
 
-    copied = 0
+    copied: list[str] = []
     try:
         for file_name in os.listdir(src_dir):
             file_path = f"{src_dir}/{file_name}"
@@ -127,8 +127,9 @@ def copy_files_dir_to_dir(
             ):
                 continue
 
-            shutil.copy(file_path, f"{dest_dir}/{file_name}")
-            copied += 1
+            dest_path = f"{dest_dir}/{file_name}"
+            shutil.copy(file_path, dest_path)
+            copied.append(os.path.abspath(dest_path))
     except:
         log.fatal("Failed top copy files from one directory to another.")
     return copied
