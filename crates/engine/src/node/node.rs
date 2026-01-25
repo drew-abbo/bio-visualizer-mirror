@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+// The structure of the node is still evolving and might change in the future.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Node {
     /// The name of this node
@@ -16,11 +17,11 @@ pub struct Node {
     /// What this node does
     pub executor: NodeExecutionPlan,
 
-    /// A short description of the node (shown on hover)
+    /// A short description of the node
     #[serde(default)]
     pub short_description: String,
 
-    /// A long description of the node (shown when info button is clicked)
+    /// A long description of the node
     #[serde(default)]
     pub long_description: String,
 

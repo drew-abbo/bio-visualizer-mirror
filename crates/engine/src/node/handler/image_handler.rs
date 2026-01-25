@@ -46,7 +46,7 @@ impl NodeHandler for ImageSourceHandler {
             .ok_or(ExecutionError::InvalidInputType)?;
 
         if !self.frame_cache.contains_key(path) {
-            // Load image from disk (CPU)
+            // Load image from disk
             let frame = media::frame::Frame::from_img_file(path).map_err(|e| {
                 ExecutionError::TextureUploadError(format!("Failed to load image: {:?}", e))
             })?;
@@ -54,7 +54,7 @@ impl NodeHandler for ImageSourceHandler {
             let width = frame.dimensions().width();
             let height = frame.dimensions().height();
 
-            // Upload to GPU on this thread
+            // Upload to GPU
             let texture_view = upload_stager
                 .cpu_to_gpu_rgba(device, queue, width, height, frame.raw_data())
                 .map_err(|e| {

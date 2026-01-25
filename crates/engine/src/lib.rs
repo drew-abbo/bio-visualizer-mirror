@@ -15,5 +15,4 @@ mod upload_stager;
 pub use engine_errors::EngineError;
 pub use upload_stager::UploadStager;
 
-// Re-export [wgpu] to avoid forcing consumers to depend on it directly.
 pub use wgpu;

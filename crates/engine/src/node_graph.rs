@@ -260,7 +260,6 @@ impl NodeGraph {
     ///
     /// Returns a vector of [NodeId] values ordered so that dependencies appear
     /// before their consumers. If the graph contains a cycle this method
-    /// returns [Err(GraphError::CyclicGraph)].
     pub fn execution_order(&self) -> Result<Vec<NodeId>, GraphError> {
         if self.has_cycles() {
             return Err(GraphError::CyclicGraph);
