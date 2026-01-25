@@ -210,7 +210,10 @@ mod signal_sleeper_impl {
                     break;
                 }
 
-                assert_eq!(get_errno(), libc::EINTR, "Pipe read failed unexpectedly.");
+                assert!(
+                    matches!(get_errno(), libc::EINTR | libc::EAGAIN),
+                    "Pipe read failed unexpectedly."
+                );
             }
         }
 
