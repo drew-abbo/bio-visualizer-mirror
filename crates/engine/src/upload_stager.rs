@@ -1,5 +1,17 @@
-use crate::errors::EngineError;
+//! Small helper for reusing an upload texture when copying CPU RGBA data
+//! to the GPU. [UploadStager] owns a temporary [wgpu::Texture] sized to the
+//! largest upload seen and exposes [cpu_to_gpu_rgba] to write CPU memory into
+//! that texture and return a [wgpu::TextureView] suitable for sampling in shaders.
+//!
+//! This abstraction avoids allocating a new GPU texture every frame when
+//! feeding CPU-decoded frames into the pipeline.
+use crate::engine_errors::EngineError;
 
+/// Stages CPU RGBA data into a GPU texture and returns a [wgpu::TextureView].
+///
+/// The stager lazily allocates a backing texture sized to the requested
+/// dimensions; subsequent calls with equal-or-smaller sizes reuse the same
+/// texture. If a larger size is requested the backing texture is recreated.
 pub struct UploadStager {
     tex: Option<wgpu::Texture>,
     extent: wgpu::Extent3d,
@@ -12,6 +24,7 @@ impl Default for UploadStager {
 }
 
 impl UploadStager {
+    /// Create a new UploadStager.
     pub fn new() -> Self {
         Self {
             tex: None,
@@ -23,8 +36,7 @@ impl UploadStager {
         }
     }
 
-    /// Make sure we have a texture of the right size
-    /// If not, create a new one
+    /// Ensure the internal texture matches the requested size.
     fn ensure_texture(&mut self, device: &wgpu::Device, width: u32, height: u32) {
         if self.extent.width == width && self.extent.height == height && self.tex.is_some() {
             return;
@@ -50,9 +62,8 @@ impl UploadStager {
         self.tex = Some(tex);
     }
 
-    /// Blit RGBA data into the texture and return a texture view
-    /// This saves us from having to create a new texture every frame
-    /// Here we go from RAM to VRAM
+    /// Blit RGBA pixel data from CPU memory into the staging texture and
+    /// return a [wgpu::TextureView] that can be used for sampling.
     pub fn cpu_to_gpu_rgba(
         &mut self,
         device: &wgpu::Device,
@@ -72,10 +83,7 @@ impl UploadStager {
 
         self.ensure_texture(device, width, height);
 
-        // Creates a staging buffer
-        // Copies CPU data into the staging buffer
-        // Schedules a GPU command, copy from the staging buffer to the texture
-        // executes on the GPU once the queue is submitted
+        // Copy CPU data into the GPU texture using a staged write.
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: self
@@ -95,8 +103,8 @@ impl UploadStager {
             self.extent,
         );
 
-        // Create and return the texture view we can render with
-        // unwrap is safe here because we checked tex is Some above
+        // Create and return the texture view; unwrap is safe here because we
+        // checked [tex] above when writing.
         Ok(self
             .tex
             .as_ref()

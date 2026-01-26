@@ -5,9 +5,16 @@ edition = "2024"
 
 [dependencies]
 winit = "0.30"
-wgpu = "27.0.0"
+wgpu = { version = "28", default-features = false, features = ["vulkan", "metal", "wgsl"] }
 pollster = "0.4"
 util = { version = "0.1.0", path = "../util" }
 media = { version = "0.1.0", path = "../media" }
 thiserror = "2"
 bytemuck = "1.24.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.149"
+
+[dev-dependencies]
+image = "0.25.9"
+gif = "0.14.1"
+futures-intrusive = "0.5.0"
