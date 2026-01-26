@@ -1,6 +1,3 @@
-//! Engine crate
-//! ==============
-//!
 //! Brief
 //! -----
 //! The `engine` crate is the core execution engine for node graphs. It resolves node inputs, runs
