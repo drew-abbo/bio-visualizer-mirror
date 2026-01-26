@@ -1,3 +1,5 @@
+#![cfg_attr(all(windows, feature = "no-console"), windows_subsystem = "windows")]
+
 mod args;
 mod other_instances;
 mod receiver;

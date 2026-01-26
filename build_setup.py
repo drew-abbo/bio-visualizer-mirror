@@ -1,284 +1,122 @@
 #!/usr/bin/env python3
 
-# This is nasty but it's the nicest solution I could come up with. Run this
-# before you try and run `cargo build`. Follow the instructions (possibly
-# re-running it a few times) until it says you're done.
-#
-# This script:
-# - Ensures you have the proper C compiler dependencies to build ffmpeg-next's
-#   rust bindings.
-# - Ensures you have FFmpeg shared libraries/headers (with an option to
-#   download them automatically).
-# - Generates a `.cargo/config.toml` that sets all the needed environment
-#   variables to build ffmpeg-next.
-#
-# Usage:
-#     build_setup.py [-y]
-#
-# On Windows, the compiled executable may depend on shared library files (DLLs).
-# These should be placed in the same directory as the executable.
+HELP = """
+This is nasty but it's the nicest solution I could come up with. Run this before
+you try and run `cargo build`. Follow the instructions (possibly re-running it a
+few times) until it says you're done.
+
+The `-y` or `-n` flags can be provided to auto-accept or auto-deny any prompts
+for user confirmation.
+
+On Windows, this script:
+- Ensures you have the proper C compiler dependencies to build ffmpeg-next's
+  rust bindings.
+- Ensures you have FFmpeg shared libraries/headers (with an option to download
+  them automatically).
+- Generates a `.cargo/config.toml` that sets all the needed environment
+  variables to build ffmpeg-next.
+
+On MacOS, this script:
+- Ensures you have Homebrew installed (with an option to install it
+  automatically).
+- Uses Homebrew to ensure you have the required ffmpeg and pkg-config packages
+  installed.
+
+The compiled executable will depend on shared library files (e.g. dll/dylib
+files).
+""".rstrip()
 
 import json
 import os
 import platform
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
 import urllib.request
+import typing
+from typing import Any, Union, Optional
+
+import build_util.log as log
+import build_util.sh as sh
+import build_util.user as user
 
 
-output_is_terminal = sys.stdout.isatty()
-
-
-class Color:
-    ERROR = "\033[31m" if output_is_terminal else ""
-    WARNING = "\033[33m" if output_is_terminal else ""
-    INFO = "\033[36m" if output_is_terminal else ""
-    SUCCESS = "\033[32m" if output_is_terminal else ""
-    CONFIRM = "\033[35m" if output_is_terminal else ""
-    ACTION_NEEDED = "\033[35m\033[1m" if output_is_terminal else ""
-    COMMAND = "\033[34m" if output_is_terminal else ""
-    RESET = "\033[0m" if output_is_terminal else ""
-
-
-# Print an error and exit.
-def fatal(*args, include_run_again_msg: bool = True, **kwargs) -> None:
-    print(f"{Color.ERROR}FATAL{Color.RESET}: ", end="", file=sys.stderr)
-    print(*args, **kwargs, file=sys.stderr)
-    if include_run_again_msg:
-        print(
-            "\nPlease run this script again once the issue is resolved.",
-            file=sys.stderr,
-        )
-    sys.exit(1)
-
-
-# Print a warning.
-def warning(*args, **kwargs) -> None:
-    print(f"{Color.WARNING}WARNING{Color.RESET}: ", end="", file=sys.stderr)
-    print(*args, **kwargs, file=sys.stderr)
-
-
-# Print some info.
-def info(*args, **kwargs) -> None:
-    print(f"{Color.INFO}INFO{Color.RESET}: ", end="")
-    print(*args, **kwargs)
-
-
-# Print that the process is done (success).
-def success(*args, **kwargs) -> None:
-    print(f"{Color.SUCCESS}SUCCESS{Color.RESET}: ", end="")
-    print(*args, **kwargs)
-
-
-# When set, all `confirm` confirmations with be responded to with this instead
-# of prompting the user.
-confirm_auto_answer = None
-
-
-# Print a message and await a "yes"/"no" from the user.
-def confirm(*args, **kwargs) -> bool:
-    print(f"{Color.CONFIRM}CONFIRM{Color.RESET}: ", end="")
-    print(*args, **kwargs, end="")
-    print(f" ({Color.CONFIRM}y{Color.RESET}/n): {Color.CONFIRM}", end="")
-
-    if confirm_auto_answer is None:
-        response = input().strip().lower()
-        print(f"{Color.RESET}", end="", flush=True)
-    else:
-        response = confirm_auto_answer
-        print(f"{confirm_auto_answer}{Color.RESET} (auto)")
-
-    return response in ("y", "yes")
-
-
-# Print a message and wait for the user to hit enter.
-def action_needed(*args, **kwargs) -> bool:
-    print(f"{Color.ACTION_NEEDED}MANUAL ACTION NEEDED{Color.RESET}: ", end="")
-    print(*args, **kwargs, end="")
-    print(
-        f" (press [{Color.ACTION_NEEDED}ENTER{Color.RESET}] if you have "
-        + "completed the action manually or enter a shell command to run): "
-        + f"{Color.ACTION_NEEDED}",
-        end="",
-    )
-
-    response = input()
-    if not output_is_terminal:
-        print(f"{response}{Color.RESET} (auto)")
-    print(f"{Color.RESET}", end="", flush=True)
-
-    if len(response) != 0 and not response.isspace():
-        run_cmd(response, shell=True)
-
-
-# Parses command line arguments.
 def parse_args() -> None:
-    arg0 = sys.argv[0]
+    """
+    Parses command line arguments.
+    """
+
+    ARG_0 = sys.argv[0]
+    USAGE = f"""
+Usage:
+    {ARG_0} [-y|-n]
+    {ARG_0} --help
+""".rstrip()
+
+    auto_confirm = None
+
     for arg in sys.argv[1:]:
-        if arg == "-y":
-            global confirm_auto_answer
-            confirm_auto_answer = "y"
+        if arg in ("-h", "--help", "help", "/h", "/?", "h", "?"):
+            print(f"{USAGE}{HELP}")
+            sys.exit(int(len(sys.argv) != 2))
+
+        if arg in ("-y", "-n"):
+            if auto_confirm:
+                if arg[1] == auto_confirm:
+                    log.fatal(f"Repeat argument `{arg}`." + USAGE)
+                else:
+                    log.fatal(
+                        f"Arguments `{arg}` and `-{auto_confirm}`"
+                        + " are incompatible."
+                        + USAGE
+                    )
+            auto_confirm = arg[1]
+            user.set_confirm_auto_answer(auto_confirm)
+
         else:
-            fatal(f"Unknown argument `{arg}`.\n" + f"Usage: {arg0} [-y]")
+            log.fatal(f"Unknown argument `{arg}`." + USAGE)
 
 
-# Does a check to see if a path exists.
-def ensure_path_exists(
-    path: str, help_msg: str | None = None, non_fatal: bool = False
-):
-    if not os.path.exists(path):
-        err_msg = f"Couldn't find `{path}`." + (
-            f"\n{help_msg}" if help_msg is not None else ""
-        )
-        if non_fatal:
-            raise DoesntExistException(err_msg)
-        fatal(err_msg)
-
-
-# Does a check to see if a command exists on the `PATH`.
-def ensure_cmd_exists(
-    cmd: str, help_msg: str | None = None, non_fatal: bool = False
-):
-    if shutil.which(cmd) is None:
-        err_msg = f"Couldn't find `{cmd}` on the path." + (
-            f"\n{help_msg}" if help_msg is not None else ""
-        )
-        if non_fatal:
-            raise DoesntExistException(err_msg)
-        fatal(err_msg)
-
-
-# Raised if something goes wrong running a command.
-class CmdException(Exception):
-    pass
-
-
-class DoesntExistException(Exception):
-    pass
-
-
-# Joins the command arguments into a single string, naively wrapping arguments
-# that contain spaces in double quotes.
-def format_cmd(cmd: list[str]) -> str:
-    return " ".join(arg if " " not in arg else f'"{arg}"' for arg in cmd)
-
-
-def print_running_cmd(cmd: list[str]) -> None:
-    # Highlight the file name in the first argument.
-    last_slash_idx = max(cmd[0].rfind("/"), cmd[0].rfind("\\"))
-    highlight_start_idx = 0 if last_slash_idx == -1 else last_slash_idx + 1
-
-    cmd = [
-        f"{cmd[0][:highlight_start_idx]}"
-        + f"{Color.COMMAND}{cmd[0][highlight_start_idx:]}{Color.RESET}",
-        *cmd[1:],
-    ]
-
-    print(f"{Color.COMMAND}RUNNING COMMAND{Color.RESET}: `{format_cmd(cmd)}`")
-
-
-# Runs a shell command and returns its output (minus a trailing newline if it
-# has one).
-def run_cmd(*cmd: str, shell: bool = False, non_fatal: bool = False) -> str:
-    print_running_cmd(cmd)
-    print(f"{Color.COMMAND}{' OUTPUT ':~^80}{Color.RESET}", flush=True)
-
-    try:
-        process = subprocess.Popen(
-            cmd if not shell else " ".join(cmd),
-            shell=shell,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,  # Combine stderr and stdout to stdout.
-            text=True,
-            bufsize=1,  # Line buffering.
-        )
-
-        # Capture and print lines as they come in.
-        output = ""
-        for line in process.stdout:
-            output += line
-            print(line, end="", flush=True)
-        process.wait()
-
-    except KeyboardInterrupt:
-        raise
-    finally:
-        print(f"\n{Color.COMMAND}{'~' * 80}{Color.RESET}")
-
-    if (exit_code := process.returncode) != 0:
-        err_msg = f"`{format_cmd(cmd)}` failed with exit code {exit_code}."
-        if non_fatal:
-            raise CmdException(err_msg)
-        fatal(err_msg)
-
-    return output[:-1] if output.endswith("\n") else output
-
-
-# Like `run_cmd` except it doesn't wait for the command to finish.
-def start_cmd(*cmd: str, shell: bool = False) -> None:
-    print_running_cmd(cmd)
-    subprocess.Popen(cmd if not shell else " ".join(cmd), shell=shell)
-
-
-# Create a `.cargo/config.toml` file.
 def create_cargo_config(contents: str) -> None:
+    """
+    Create a `.cargo/config.toml` file.
+    """
+
     path = (
         ".cargo\\config.toml"
         if platform.system() == "Windows"
         else ".cargo/config.toml"
     )
 
-    if os.path.exists(path) and not confirm(
+    if os.path.exists(path) and not user.confirm(
         f"A `{path}` file already exists. Overwrite?"
     ):
-        fatal(f"Failed to create `{path}`.")
+        log.fatal(f"Failed to create `{path}`.")
     else:
         os.makedirs(".cargo", exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write("# Generated by `build_setup.py`.\n" + contents)
 
-    info("Cargo config generated.")
+    log.info(f"Cargo config generated (`{path}`).")
 
 
-# Handles build setup for Windows builds.
 def windows() -> None:
-    if platform.machine().lower() not in ("amd64", "x86_64"):
-        fatal("Windows builds currently only support x86_64.")
+    """
+    Handles build setup for Windows builds.
+    """
 
-    vs_installer_dir = (
-        os.environ.get("ProgramFiles(x86)")
-        + "\\Microsoft Visual Studio\\Installer"
-    )
+    from build_util.platforms import win
 
-    ensure_path_exists(
-        vs_installer_dir,
-        help_msg="You likely don't have `Visual Studio Installer`"
-        + " on your system. Please install it from here:\n"
-        + "https://visualstudio.microsoft.com/",
-    )
+    if sh.get_supported_arch() != "x86_64":
+        log.fatal("Windows builds currently only support x86_64.")
 
-    # `vswhere` lets us find where a specific version is installed.
-    ensure_path_exists(f"{vs_installer_dir}\\vswhere.exe")
-    try:
-        vs_installation_path = run_cmd(
-            f"{vs_installer_dir}\\vswhere.exe",
-            "-property",
-            "installationPath",
-            "-version",
-            "[17.0, 18.0)",  # Only Visual Studio 2022.
-            "-latest",
-            non_fatal=True,
-        )
-    except CmdException:
-        fatal("Couldn't find Visual Studio 2022.")
-    info("MSVC found.")
+    vs_installer_dir = win.vs_installer_dir()
+    vs_installation_dir = win.vs_installation_dir()
 
     # Collect a list of all Visual Studio components that are installed.
     def get_installed_vs_components() -> list[str]:
-        info("Exporting installed Visual Studio components...")
+        log.info("Exporting installed Visual Studio components...")
 
         # We'll use `vs_installer` to query installed components. The result
         # will be written to a JSON config file we can read.
@@ -293,10 +131,10 @@ def windows() -> None:
         )
 
         try:
-            run_cmd(
+            sh.run_cmd(
                 f"{vs_installer_dir}\\vs_installer.exe",
                 "--installPath",
-                vs_installation_path,
+                vs_installation_dir,
                 "export",
                 "--config",
                 temp_vs_installer_config_path,
@@ -304,17 +142,17 @@ def windows() -> None:
                 "--noUpdateInstaller",
                 non_fatal=True,
             )
-        except CmdException as e:
-            fatal(f"{e}\n{vs_installer_err_msg}")
+        except sh.CmdException as e:
+            log.fatal(f"{e}\n{vs_installer_err_msg}")
 
         try:
             with open(temp_vs_installer_config_path) as f:
                 installed_components = json.load(f)["components"]
             os.remove(temp_vs_installer_config_path)
         except FileNotFoundError:
-            fatal(vs_installer_err_msg)
+            log.fatal(vs_installer_err_msg)
 
-        info("Installed Visual Studio components exported.")
+        log.info("Installed Visual Studio components exported.")
         return installed_components
 
     installed_vs_components = get_installed_vs_components()
@@ -329,14 +167,16 @@ def windows() -> None:
         )
 
         if not component_is_installed:
-            start_cmd(f"{vs_installer_dir}\\vs_installer.exe")
-            fatal(
+            sh.start_cmd(f"{vs_installer_dir}\\vs_installer.exe")
+            log.fatal(
                 f"Missing the `{component_name}` component."
                 + " Please use the Visual Studio Installer to install it.\n"
                 + "Trying to opening the Visual Studio Installer..."
             )
 
-        info(f"The `{component_name}` Visual Studio component is installed.")
+        log.info(
+            f"The `{component_name}` Visual Studio component is installed."
+        )
 
     # At a minimum, rust needs C++ build tools and a Windows 11 SDK.
     ensure_vs_component_is_installed(
@@ -359,18 +199,18 @@ def windows() -> None:
     def get_libclang_path() -> str:
         # `libclang` needs to be installed for FFmpeg-next to be able to create
         # rust bindings.
-        libclang_path = f"{vs_installation_path}\\VC\\Tools\\LLVM\\x64\\bin"
-        ensure_path_exists(f"{libclang_path}\\libclang.dll")
-        info("Found `libclang`.")
+        libclang_path = f"{vs_installation_dir}\\VC\\Tools\\LLVM\\x64\\bin"
+        sh.ensure_path_exists(f"{libclang_path}\\libclang.dll", kind="file")
+        log.info("Found `libclang`.")
 
         return libclang_path
 
     # Try and ensure we're using the right header files for generating rust
     # bindings for FFmpeg.
-    def try_to_get_clang_include_dir() -> str | None:
+    def try_to_get_clang_include_dir() -> Optional[str]:
         try:
             clang_dir = (
-                f"{vs_installation_path}\\VC\\Tools\\LLVM\\x64\\lib\\clang"
+                f"{vs_installation_dir}\\VC\\Tools\\LLVM\\x64\\lib\\clang"
             )
 
             newest_clang_version = sorted(
@@ -380,11 +220,11 @@ def windows() -> None:
             )[-1]
 
             clang_include_dir = f"{clang_dir}\\{newest_clang_version}\\include"
-            ensure_path_exists(clang_include_dir, non_fatal=True)
+            sh.ensure_path_exists(clang_include_dir, kind="dir", non_fatal=True)
 
-            info("Found Clang include directory.")
-        except (FileNotFoundError, IndexError, DoesntExistException):
-            warning(
+            log.info("Found Clang include directory.")
+        except (FileNotFoundError, IndexError, sh.DoesntExistException):
+            log.warning(
                 "Failed to find Clang include directory. Compilation may fail."
             )
             clang_include_dir = None
@@ -394,118 +234,157 @@ def windows() -> None:
     # Make sure we have FFmpeg installed in the project directory.
     def get_ffmpeg_dir() -> str:
         FFMPEG_ZIP_PATH = ".\\ffmpeg.7z"
-        FFMPEG_DIR_LOCAL = ".\\ffmpeg"
-        ffmpeg_dir = os.path.abspath(FFMPEG_DIR_LOCAL)
+        FFMPEG_DIR = ".\\ffmpeg"
 
-        ffmpeg_dir_exists = os.path.exists(ffmpeg_dir)
+        def download_ffmpeg_zip() -> None:
+            FFMPEG_DOWNLOAD_URL = "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-8.0.1-full_build-shared.7z"
 
-        # If they've already got a downloaded zip file for it then we can just
-        # tell them to extract it. We can't extract it for them because the
-        # download is a 7z file for some reason and there's no way to extract a
-        # 7z file on windows without using the file explorer UI or downloading
-        # an external utility. The external utility we could download (7za)
-        # comes as a zipped .7z file so we can't even do that automatically.
-        if os.path.exists(FFMPEG_ZIP_PATH) and not ffmpeg_dir_exists:
-            info("Attempting to open file explorer on FFmpeg zip file.")
-            start_cmd(
-                "explorer",
-                "/select,",
-                f"{os.path.abspath(FFMPEG_ZIP_PATH)}",
-            )
-            action_needed(
-                f"Please extract `{FFMPEG_ZIP_PATH}`"
-                + f" to `{FFMPEG_DIR_LOCAL}`.",
+            MANUAL_INSTALL_MSG = (
+                "You can still manually install.\n"
+                + "Please rerun this script after downloading and extracting"
+                + f" FFmpeg to `{FFMPEG_DIR}`"
+                + f" from the link below (or anywhere):\n{FFMPEG_DOWNLOAD_URL}"
             )
 
-            ffmpeg_dir_exists = os.path.exists(ffmpeg_dir)
-            if not ffmpeg_dir_exists:
-                fatal("The FFmpeg directory wasn't extracted.")
-
-        if ffmpeg_dir_exists:
-            # If there's only 1 item in the FFmpeg directory, it's probably
-            # because when it was extracted the useful stuff was left inside a
-            # nested directory. If we detect this we can pull all of that out
-            # into the root `ffmpeg` directory (but we still ask first).
-            if len(ffmpeg_dir_list := os.listdir(ffmpeg_dir)) == 1 and confirm(
-                "FFmpeg directory contains only 1 subfolder"
-                + f" `{ffmpeg_dir_list[0]}`."
-                + " Attempt auto-fix?"
+            if not user.confirm(
+                "You don't have FFmpeg installed locally yet."
+                + " Do you want to download FFmpeg from the internet now?"
             ):
-                try:
-                    nested_dir = f"{ffmpeg_dir}\\{ffmpeg_dir_list[0]}"
-                    for nested_child in os.listdir(nested_dir):
-                        shutil.move(
-                            f"{nested_dir}\\{nested_child}",
-                            f"{ffmpeg_dir}\\{nested_child}",
-                        )
-                    os.rmdir(nested_dir)
-                except:
-                    warning("FFmpeg directory structure fix failed.")
-                    if not confirm("Auto-fix failed. Continue anyway?"):
-                        fatal("Not continuing.")
-                else:
-                    info("FFmpeg directory structure fix attempted.")
+                log.fatal(f"Skipping auto-download. {MANUAL_INSTALL_MSG}")
 
-            ensure_path_exists(f"{ffmpeg_dir}\\include")
-            ensure_path_exists(f"{ffmpeg_dir}\\lib")
-            ensure_path_exists(f"{ffmpeg_dir}\\bin")
-            info("FFmpeg found locally.")
+            log.info(
+                "Installing FFmpeg. This may take a while... ",
+                end="",
+                flush=True,
+            )
 
-            if os.path.exists(FFMPEG_ZIP_PATH) and confirm(
-                "Auto-downloaded FFmpeg zip file no longer needed."
-                + f" Would you like to remove it (`{FFMPEG_ZIP_PATH}`)?",
-            ):
-                os.remove(FFMPEG_ZIP_PATH)
-
-            return ffmpeg_dir
-
-        # We can at least ask to download the FFmpeg zip file automatically if
-        # they don't have it.
-
-        FFMPEG_DOWNLOAD_URL = (
-            "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full-shared.7z"
-        )
-
-        MANUAL_INSTALL_MSG = (
-            "You can still manually install.\n"
-            + "Please rerun this script after downloading and extracting"
-            + f" FFmpeg to `{FFMPEG_DIR_LOCAL}`"
-            + f" from the link below (or anywhere):\n{FFMPEG_DOWNLOAD_URL}"
-        )
-
-        if not confirm(
-            "You don't have FFmpeg installed locally yet."
-            + " Do you want to download FFmpeg from the internet now?"
-        ):
-            fatal(f"Skipping auto-download. {MANUAL_INSTALL_MSG}")
-
-        info(
-            "Installing FFmpeg. This may take a while... ",
-            end="",
-            flush=True,
-        )
-
-        try:
-            urllib.request.urlretrieve(FFMPEG_DOWNLOAD_URL, FFMPEG_ZIP_PATH)
-        except Exception as e:
-            if isinstance(e, KeyboardInterrupt):
+            try:
+                urllib.request.urlretrieve(FFMPEG_DOWNLOAD_URL, FFMPEG_ZIP_PATH)
+            except KeyboardInterrupt:
                 try:
                     os.remove(FFMPEG_ZIP_PATH)
                 except:
                     pass
-                print("")
-                warning(f"Download cancelled. {MANUAL_INSTALL_MSG}")
+                log.warning(f"\nDownload cancelled. {MANUAL_INSTALL_MSG}")
                 raise
-            fatal(f"\nDownload failed. {MANUAL_INSTALL_MSG}")
-        print("Done.")
-        info("FFmpeg zip file downloaded.")
+            except Exception:
+                log.fatal(f"\nDownload failed. {MANUAL_INSTALL_MSG}")
+            print("Done.")
+            log.info("FFmpeg zip file downloaded.")
 
-        # Start from the top.
-        return get_ffmpeg_dir()
+        def get_7z_cmd() -> Optional[str]:
+            log.info("Checking for 7z utility.")
+            sevenzip_cmd: Optional[str] = None
+            for cmd in (
+                "7z",
+                "7z.exe",
+                f"{win.program_files()}\\7-Zip\\7z.exe",
+                f"{win.program_files(x86=True)}\\7-Zip\\7z.exe",
+            ):
+                try:
+                    sh.ensure_cmd_exists(cmd, non_fatal=True)
+                except sh.DoesntExistException:
+                    continue
+                else:
+                    sevenzip_cmd = cmd
+                    break
+
+            if sevenzip_cmd is not None:
+                log.info("7z utility found.")
+            else:
+                log.info("7z utility not found.")
+
+            return sevenzip_cmd
+
+        def extract_ffmpeg() -> None:
+            if (sevenzip_cmd := get_7z_cmd()) is not None:
+                log.info("Auto-extracting FFmpeg zip file with 7z utility.")
+                try:
+                    sh.run_cmd(
+                        sevenzip_cmd,
+                        "x",
+                        FFMPEG_ZIP_PATH,
+                        f"-o{FFMPEG_DIR}",
+                    )
+                except:
+                    log.warning("Failed to extract with 7z utility.")
+                else:
+                    return
+
+            # Without the 7z command utility we can't extract it for the
+            # user since the download is a 7z file for some reason and
+            # there's no default way to extract a 7z file on windows without
+            # using the file explorer UI.
+
+            log.info("Attempting to open file explorer on FFmpeg zip file.")
+            sh.start_cmd(
+                "explorer",
+                "/select,",
+                f"{os.path.abspath(FFMPEG_ZIP_PATH)}",
+            )
+            user.action_needed(
+                f"Please extract `{FFMPEG_ZIP_PATH}`" + f" to `{FFMPEG_DIR}`.",
+            )
+
+            ffmpeg_dir_exists = os.path.exists(FFMPEG_DIR)
+            if not ffmpeg_dir_exists:
+                log.fatal("The FFmpeg directory wasn't extracted.")
+
+        def un_nest_ffmpeg_dir() -> None:
+            try:
+                ffmpeg_dir_list = os.listdir(FFMPEG_DIR)
+            except:
+                log.fatal("Failed to check FFmpeg directory contents.")
+
+            if len(ffmpeg_dir_list) != 1 or not user.confirm(
+                "FFmpeg directory contains only 1 subfolder"
+                + f" `{ffmpeg_dir_list[0]}`."
+                + " Attempt auto-fix?"
+            ):
+                return
+
+            try:
+                tmp_location = tempfile.gettempdir()
+                shutil.move(FFMPEG_DIR, tmp_location)
+                shutil.move(f"{tmp_location}\\{ffmpeg_dir_list[0]}", FFMPEG_DIR)
+                os.rmdir(tmp_location)
+            except:
+                log.warning("FFmpeg directory structure fix failed.")
+                if not user.confirm("Auto-fix failed. Continue anyway?"):
+                    log.fatal("Not continuing.")
+            else:
+                log.info("FFmpeg directory structure fix attempted.")
+
+        if not os.path.exists(FFMPEG_DIR):
+            if not os.path.exists(FFMPEG_ZIP_PATH):
+                download_ffmpeg_zip()
+            extract_ffmpeg()
+
+        # If there's only 1 item in the FFmpeg directory, it's probably because
+        # when it was extracted the useful stuff was left inside a nested
+        # directory. If we detect this we can pull all of that out into the root
+        # `ffmpeg` directory (but we still ask first).
+        un_nest_ffmpeg_dir()
+
+        sh.ensure_path_exists(f"{FFMPEG_DIR}\\include", kind="dir")
+        sh.ensure_path_exists(f"{FFMPEG_DIR}\\lib", kind="dir")
+        sh.ensure_path_exists(f"{FFMPEG_DIR}\\bin", kind="dir")
+        log.info("FFmpeg found locally.")
+
+        if os.path.exists(FFMPEG_ZIP_PATH) and user.confirm(
+            "Auto-downloaded FFmpeg zip file no longer needed."
+            + f" Would you like to remove it (`{FFMPEG_ZIP_PATH}`)?",
+        ):
+            os.remove(FFMPEG_ZIP_PATH)
+
+        return os.path.abspath(FFMPEG_DIR)
 
     libclang_path = get_libclang_path()
     clang_include_dir = try_to_get_clang_include_dir()
     ffmpeg_dir = get_ffmpeg_dir()
+
+    def to_unix_path(path: str) -> str:
+        return path.replace("\\", "/")
 
     # We need to set `LIBCLANG_PATH` so that `ffmpeg-next` can build its
     # bindings.
@@ -515,8 +394,8 @@ def windows() -> None:
     # See https://github.com/zmwangx/rust-ffmpeg/wiki/Notes-on-building
     cargo_config = (
         "[env]\n"
-        + f'LIBCLANG_PATH = "{libclang_path.replace("\\", "/")}"\n'
-        + f'FFMPEG_DIR = "{ffmpeg_dir.replace("\\", "/")}"\n'
+        + f'LIBCLANG_PATH = "{to_unix_path(libclang_path)}"\n'
+        + f'FFMPEG_DIR = "{to_unix_path(ffmpeg_dir)}"\n'
     )
     if clang_include_dir is not None:
         # If we found Clang's include directory we'll explicitly pass it to
@@ -525,37 +404,127 @@ def windows() -> None:
         # or something else weird.
         cargo_config += (
             "BINDGEN_EXTRA_CLANG_ARGS = "
-            + f'"-I{clang_include_dir.replace("\\", "/")}"\n'
+            + f'"-I{to_unix_path(clang_include_dir)}"\n'
         )
 
     create_cargo_config(cargo_config)
 
-    ensure_cmd_exists("cargo")
-    run_cmd("cargo", "clean")
-    info("Build directory cleaned.")
+    sh.run_cmd("cargo", "clean")
+    log.info("Build directory cleaned.")
 
-    success("Build setup complete. Try running `cargo build`.")
+
+def mac_os() -> None:
+    """
+    Handles build setup for MacOS builds.
+    """
+
+    arch = sh.get_supported_arch()
+    if arch is None:
+        log.fatal("MacOS builds only support x86_64 and arm64")
+
+    def ensure_brew_is_installed() -> None:
+        try:
+            sh.ensure_cmd_exists("brew", non_fatal=True)
+        except sh.DoesntExistException:
+            if not user.confirm(
+                "You do not have the Homebrew package manager installed."
+                + " Start Homebrew install? (you'll need to be a system admin)"
+            ):
+                log.fatal("Homebrew is required.")
+
+            # This comes from the download instructions here: https://brew.sh/
+            sh.run_cmd(
+                '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
+                shell=True,
+            )
+            sh.ensure_cmd_exists("brew")
+
+        log.info("Found Homebrew package manager.")
+
+    last_installed_pkgs: Optional[list[dict[str, Any]]] = None
+
+    def is_installed_with_brew(
+        pkg_name: str, ask_to_install: bool = False
+    ) -> bool:
+        nonlocal last_installed_pkgs
+        if last_installed_pkgs is None:
+            last_installed_pkgs = typing.cast(
+                list[dict[str, Any]],
+                json.loads(
+                    sh.run_cmd(
+                        "brew",
+                        "info",
+                        "--installed",
+                        "--json",
+                        show_output=False,
+                    )
+                ),
+            )
+        installed_pkgs = last_installed_pkgs
+
+        def names_from_pkg_dict(pkg_dict: dict[str, Any]) -> list[str]:
+            ret: list[str] = []
+            for key in ("name", "full_name", "oldnames", "aliases"):
+                val = pkg_dict.get(key)
+                if isinstance(val, str):
+                    ret.append(val)
+                elif isinstance(val, list):
+                    ret.extend(
+                        sub_val
+                        for sub_val in typing.cast(list[Union[str, Any]], val)
+                        if isinstance(sub_val, str)
+                    )
+            return ret
+
+        is_already_installed = any(
+            pkg_name in names_from_pkg_dict(pkg_dict)
+            for pkg_dict in installed_pkgs
+        )
+
+        if is_already_installed or not ask_to_install:
+            return is_already_installed
+
+        if not user.confirm(
+            f"It doesn't look like you have `{pkg_name}` installed."
+            + " Install with Homebrew?"
+        ):
+            return False
+
+        log.info(
+            f"Installing `{pkg_name}` with Homebrew."
+            + " This can take a very long time."
+        )
+        last_installed_pkgs = None
+        sh.run_cmd("brew", "install", pkg_name)
+        return True
+
+    ensure_brew_is_installed()
+    if not is_installed_with_brew("ffmpeg@8", ask_to_install=True):
+        log.warning("Continuing without installing FFmpeg (8).")
+    if not is_installed_with_brew("pkg-config", ask_to_install=True):
+        log.warning("Continuing without installing `pkg-config`.")
+
+    sh.run_cmd("cargo", "clean")
+    log.info("Build directory cleaned.")
 
 
 def main() -> None:
-    try:
-        parse_args()
+    parse_args()
 
-        system = platform.system()
-        if system == "Windows":
-            windows()
-        elif system == "Darwin":  # MacOS
-            fatal("unimplemented")
-        elif system == "Linux":
-            fatal("unimplemented")
-        else:
-            fatal(f"Unsupported system: `{system}`")
+    sh.ensure_cmd_exists("cargo")
 
-    except KeyboardInterrupt:
-        print(Color.RESET, end="")
-        print(Color.RESET, file=sys.stderr)
-        fatal(f"Stop signal received.", include_run_again_msg=False)
+    system = platform.system().lower()
+    if system == "windows":
+        windows()
+    elif system == "darwin":  # MacOS
+        mac_os()
+    elif system == "linux":
+        log.fatal("unimplemented")
+    else:
+        log.fatal(f"Unsupported system: `{system}`")
+
+    log.success("Build setup complete.")
 
 
 if __name__ == "__main__":
-    main()
+    sh.catch_stop_signal(main)

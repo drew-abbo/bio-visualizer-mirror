@@ -16,8 +16,7 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 #[macro_export]
 macro_rules! debug_log_info {
     ($($arg:tt)*) => {{
-        #[cfg(debug_assertions)]
-        if $crate::debug_log::enabled() {
+        if ::std::cfg!(debug_assertions) && $crate::debug_log::enabled() {
             let is_terminal = ::std::io::IsTerminal::is_terminal(&::std::io::stdout());
             let (blue, magenta, reset_color) = if is_terminal {
                 ("\x1b[34m", "\x1b[35m", "\x1b[0m")
@@ -40,8 +39,7 @@ macro_rules! debug_log_info {
 #[macro_export]
 macro_rules! debug_log_warning {
     ($($arg:tt)*) => {{
-        #[cfg(debug_assertions)]
-        if $crate::debug_log::enabled() {
+        if ::std::cfg!(debug_assertions) && $crate::debug_log::enabled() {
             let is_terminal = ::std::io::IsTerminal::is_terminal(&::std::io::stderr());
             let (blue, yellow, reset_color) = if is_terminal {
                 ("\x1b[34m", "\x1b[33m", "\x1b[0m")
@@ -64,8 +62,7 @@ macro_rules! debug_log_warning {
 #[macro_export]
 macro_rules! debug_log_error {
     ($($arg:tt)*) => {{
-        #[cfg(debug_assertions)]
-        if $crate::debug_log::enabled() {
+        if ::std::cfg!(debug_assertions) && $crate::debug_log::enabled() {
             let is_terminal = ::std::io::IsTerminal::is_terminal(&::std::io::stderr());
             let (blue, red, reset_color) = if is_terminal {
                 ("\x1b[34m", "\x1b[31m", "\x1b[0m")
@@ -100,7 +97,6 @@ pub fn enabled() -> bool {
     }
 
     #[cfg(debug_assertions)]
-    #[inline(always)]
     fn enabled_impl() -> bool {
         ENABLED.load(Ordering::Relaxed)
     }
