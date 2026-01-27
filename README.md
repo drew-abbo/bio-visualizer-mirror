@@ -1,45 +1,104 @@
-**Edit a file, create a new file, and clone from Bitbucket in under 2 minutes**
+# Bio Visualizer
 
-When you're done, you can delete the content in this README and update the file with details for others getting started with your repository.
-
-*We recommend that you open this README in another tab as you perform the tasks below. You can [watch our video](https://youtu.be/0ocf7u76WSo) for a full demo of all the steps in this tutorial. Open the video in a new tab to avoid leaving Bitbucket.*
+We really need a better name...
 
 ---
 
-## Edit a file
+- [Build Instructions](#build-instructions)
+  - [Build Setup](#build-setup)
+  - [Packaging a Build for Release](#packaging-a-build-for-release)
+- [Development](#development)
 
-You’ll start by editing this README file to learn how to edit a file in Bitbucket.
+## Build Instructions
 
-1. Click **Source** on the left side.
-2. Click the README.md link from the list of files.
-3. Click the **Edit** button.
-4. Delete the following text: *Delete this line to make a change to the README from Bitbucket.*
-5. After making your change, click **Commit** and then **Commit** again in the dialog. The commit page will open and you’ll see the change you just made.
-6. Go back to the **Source** page.
+### Build Setup
 
----
+1. Ensure you have an up to date version of the Rust toolchain installed (run
+   `rustup update`). The project may build on older Rust tooling, but only the
+   latest stable versions are guaranteed.
+2. Ensure you have Python 3.9 or newer.
+3. Ensure you have the necessary additional dependencies for your platform (see
+   table below).
+4. Run [build_setup.py](./build_setup.py). This will walk you through any steps
+   you need to take before you can build. Run this script until it says you're
+   all set (you may need to run it multiple times if you're missing
+   dependencies).
 
-## Create a file
+```sh
+python3 ./build_setup.py --help
+```
 
-Next, you’ll add a new file to this repository.
+<table>
+<tr><th>Platform</th><th>Details</th></tr>
+</tr><td>Windows</td><td>
 
-1. Click the **New file** button at the top of the **Source** page.
-2. Give the file a filename of **contributors.txt**.
-3. Enter your name in the empty file space.
-4. Click **Commit** and then **Commit** again in the dialog.
-5. Go back to the **Source** page.
+Only Windows 11 (x86_64) is supported. The project may be able to build on
+Windows 10, but it is not being intentionally supported.
 
-Before you move on, go ahead and explore the repository. You've already seen the **Source** page, but check out the **Commits**, **Branches**, and **Settings** pages.
+- Ensure you're using the `x86_64-pc-windows-msvc` toolchain for Rust (the
+  default).
+- Ensure you have the
+  [Visual Studio Installer](https://visualstudio.microsoft.com/downloads/) (2022
+  or 2026, *Community* is fine).
+- The [7z command-line utility](https://www.7-zip.org/download.html) is
+  optional, but it may make the build setup process easier if you already have
+  it.
 
----
+</td></tr>
+<tr><td>MacOS</td><td>
 
-## Clone a repository
+Only MacOS Monterey and newer is supported. The project may be able to build on
+older versions, but it is not being intentionally supported. Both x86_64 and
+Arm64 (Apple silicon) platforms are natively supported.
 
-Use these steps to clone from SourceTree, our client for using the repository command-line free. Cloning allows you to work on your files locally. If you don't yet have SourceTree, [download and install first](https://www.sourcetreeapp.com/). If you prefer to clone from the command line, see [Clone a repository](https://confluence.atlassian.com/x/4whODQ).
+</td></tr>
 
-1. You’ll see the clone button under the **Source** heading. Click that button.
-2. Now click **Check out in SourceTree**. You may need to create a SourceTree account or log in.
-3. When you see the **Clone New** dialog in SourceTree, update the destination path and name if you’d like to and then click **Clone**.
-4. Open the directory you just created to see your repository’s files.
+</td></tr>
+<tr><td>Linux</td><td>
 
-Now that you're more familiar with your Bitbucket repository, go ahead and add a new file locally. You can [push your change back to Bitbucket with SourceTree](https://confluence.atlassian.com/x/iqyBMg), or you can [add, commit,](https://confluence.atlassian.com/x/8QhODQ) and [push from the command line](https://confluence.atlassian.com/x/NQ0zDQ).
+Linux is not supported just yet.
+
+</td></tr>
+</table>
+
+Once the above is satisfied, you're set to build with `cargo`.
+
+### Packaging a Build for Release
+
+To package the app into a self-contained directory/archive, run
+[build_package.py](./build_package.py). This script will build all binaries with
+the `no-console` feature and by default the `release-plus` profile, moving them
+to an output directory/archive (`./package/` by default). It then ensures that
+all non-standard dynamic library dependencies the executables need are available
+inside the directory/archive.
+
+```sh
+python3 ./build_package.py --help
+```
+
+## Development
+
+There are 2 binary crates. `launcher` acts mainly as a project selector for
+starting up editor instances. `app` is an actual project editor.
+
+Run a binary like this:
+
+```sh
+cargo run --bin <BINARY_NAME> -- [ARGUMENTS_FOR_BINARY*]
+```
+
+Since both binaries have a UI, both binaries have a `no-console` feature which
+ensures a separate console window doesn't start on Windows (this feature just
+acts as a no-op on other platforms).
+
+```sh
+cargo build --bin <BINARY_NAME> --features no-console
+```
+
+There is also an additional build profile `release-plus` that maximizes
+optimizations beyond the normal `release` profile (at the cost of debuggability
+and compile times).
+
+```sh
+cargo build -p <CRATE_NAME> --profile release-plus
+```

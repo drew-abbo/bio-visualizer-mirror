@@ -1,0 +1,21 @@
+{
+  "name": "Image",
+  "inputs": [
+    {
+      "name": "path",
+      "kind": {
+        "File": {}
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "name": "output",
+      "kind": "Frame"
+    }
+  ],
+  "executor": {
+    "BuiltIn": "ImageSource"
+  },
+  "short_description": "Loads an image from disk and outputs a frame"
+}

@@ -1,0 +1,22 @@
+{
+  "name": "Invert",
+  "inputs": [
+    {
+      "name": "input",
+      "kind": "Frame"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "output",
+      "kind": "Frame"
+    }
+  ],
+  "executor": {
+    "Shader": {
+      "source": "shader.wgsl"
+    }
+  },
+  "short_description": "Inverts the colors of the input frame",
+  "search_keywords": ["invert", "negative", "color"]
+}

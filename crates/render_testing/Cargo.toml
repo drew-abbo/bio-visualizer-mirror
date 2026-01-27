@@ -1,0 +1,11 @@
+[package]
+name = "render_testing"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+engine = { version = "0.1.0", path = "../engine" }
+media = { version = "0.1.0", path = "../media" }
+pollster = "0.4.0"
+wgpu = { version = "28", default-features = false, features = ["vulkan", "metal", "wgsl"] }
+winit = "0.30.12"

@@ -1,6 +1,18 @@
-[package]
-name = "bio-visualizer"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = [
+  "crates/app",
+  "crates/util",
+  "crates/media",
+  "crates/engine",
+  "crates/launcher"
+, "crates/render_testing"]
+resolver = "2"
 
-[dependencies]
+# Debugging essentially becomes impossible with this profile, but it will
+# generate the best performing code (also at the cost of compile times).
+[profile.release-plus]
+inherits = "release"
+lto = "fat"          # Max link-time optimizations
+codegen-units = 1    # One codegen unit per crate (easier optimization)
+panic = "abort"      # Remove most panic handling code
+strip = "symbols"    # Strip symbols
