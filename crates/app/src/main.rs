@@ -1,8 +1,8 @@
 mod app;
-mod video;
-mod components;
-mod view;
 mod areas;
+mod components;
+mod video;
+mod view;
 use app::App;
 
 fn main() -> Result<(), eframe::Error> {

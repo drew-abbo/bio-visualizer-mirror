@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 ///
 /// [super::enabled] must be true for this to have any effect. This is enabled
 /// by default.
-#[cfg(debug_assertions)]
+#[inline(always)]
 pub fn enabled() -> bool {
     #[cfg(not(debug_assertions))]
     #[inline(always)]
@@ -17,7 +17,6 @@ pub fn enabled() -> bool {
     }
 
     #[cfg(debug_assertions)]
-    #[inline(always)]
     fn enabled_impl() -> bool {
         ENABLED.load(Ordering::Relaxed)
     }

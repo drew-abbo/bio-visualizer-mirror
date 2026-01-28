@@ -5,6 +5,9 @@ edition = "2024"
 
 [dependencies]
 ctor = "0.6.0"
-ffmpeg-next = "8.0.0"
+ffmpeg-next = "8.0"
 thiserror = "2"
+image = { version = "0.25", default-features = false, features = [
+    "default-formats",
+] }
 util = { path = "../util" }

@@ -1,0 +1,31 @@
+{
+  "name": "Video",
+  "inputs": [
+    {
+      "name": "path",
+      "kind": {
+        "File": {}
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "name": "output",
+      "kind": "Frame"
+    },
+    {
+      "name": "fps",
+      "kind": "Float"
+    },
+    {
+      "name": "duration",
+      "kind": "Float"
+    }
+  ],
+  "executor": {
+    "BuiltIn": "VideoSource"
+  },
+  "short_description": "Loads frames from a video file at specified time",
+  "long_description": "Opens a video file and seeks to the specified time (in seconds). Outputs the frame at that time along with video metadata like FPS and duration. The producer is cached so multiple nodes can reference the same video efficiently.",
+  "search_keywords": ["video", "load", "file", "source", "timeline", "playback"]
+}

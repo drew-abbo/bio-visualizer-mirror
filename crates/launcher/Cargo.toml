@@ -12,3 +12,8 @@ util = { path = "../util" }
 eframe = { version = "0.33" }
 egui = { version = "0.33", features = ["serde"] }
 egui_extras = { version = "0.33.3", features = ["image"] }
+
+[features]
+# Disables the console that automatically opens when you run an executable on
+# Windows.
+no-console = []

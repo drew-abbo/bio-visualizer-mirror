@@ -29,4 +29,22 @@ pub enum EngineError {
 
     #[error("Failed to request GPU device")]
     RequestDevice(#[from] wgpu::RequestDeviceError),
+
+    #[error("Invalid input count for pipeline: expected {expected}, got {actual}")]
+    InvalidInputCount { expected: usize, actual: usize },
+
+    #[error("Unsupported operation: {0}")]
+    UnsupportedOperation(String),
+
+    #[error("No output node defined in the graph")]
+    NoOutputNode,
+
+    #[error(
+        "Bind group layout mismatch in pipeline '{pipeline}', expected {expected}, got {actual}'"
+    )]
+    BindGroupMismatch {
+        pipeline: String,
+        expected: usize,
+        actual: usize,
+    },
 }
