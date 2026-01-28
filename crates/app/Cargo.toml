@@ -14,4 +14,14 @@ media = { version = "0.1.0", path = "../media" }
 env_logger = "0.11"
 egui-wgpu = "0.33.3"
 thiserror = "2"
+<<<<<<< HEAD
 rfd = "0.17.2"
+=======
+rfd = "0.17.2"
+egui-phosphor = "0.11"
+
+[features]
+# Disables the console that automatically opens when you run an executable on
+# Windows.
+no-console = []
+>>>>>>> 6d842de (ui in good state)

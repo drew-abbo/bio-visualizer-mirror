@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 mod editor;
 mod title_bar;
 
@@ -45,28 +46,31 @@ impl eframe::App for AppArea {
         self.editor_area.show(ctx, frame);
     }
 =======
+=======
+mod menu_bar;
+>>>>>>> 6d842de (ui in good state)
 mod node_blueprint;
-use crate::components::menu_bar::MenuAction;
-use crate::components::menu_bar::MenuBar;
 use node_blueprint::NodeBlueprint;
 // use crate::video::VideoContext;
 use crate::view::View;
 
 pub struct App {
-    menu_bar: MenuBar,
+    title_bar: menu_bar::title_bar::TitleBar,
     node_blueprint: NodeBlueprint,
     // video_context: VideoContext,
 }
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        configure_styles(&cc.egui_ctx);
+        let mut fonts = egui::FontDefinitions::default();
+        egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+        cc.egui_ctx.set_fonts(fonts);
 
-        let wgpu_render_state = cc.wgpu_render_state.as_ref().unwrap();
+        let target_format = cc.wgpu_render_state.as_ref().unwrap().target_format;
         // let video_context = VideoContext::new(wgpu_render_state.target_format).unwrap();
 
         Self {
-            menu_bar: MenuBar::new(),
+            title_bar: menu_bar::title_bar::TitleBar::new(),
             node_blueprint: NodeBlueprint::new(),
             // video_context,
         }
@@ -78,34 +82,12 @@ impl eframe::App for App {
         egui::TopBottomPanel::top("menu")
             .frame(
                 egui::Frame::none()
-                    .fill(egui::Color32::from_rgb(32, 32, 32))
-                    .inner_margin(egui::Margin::symmetric(12, 8)),
+                    .fill(egui::Color32::from_rgb(24, 29, 31))
+                    .inner_margin(egui::Margin::symmetric(12, 6)),
             )
             .show(ctx, |ui| {
-                // Make the entire top bar area draggable for window movement
-                let top_bar_response = ui.interact(
-                    ui.max_rect(),
-                    egui::Id::new("top_bar_drag"),
-                    egui::Sense::drag(),
-                );
-
-                // Request window drag when mouse is over the top bar
-                if top_bar_response.hovered() {
-                    ctx.output_mut(|o| o.cursor_icon = egui::CursorIcon::Move);
-                }
-
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    self.menu_bar.ui(ui);
-                });
+                self.title_bar.ui(ui);
             });
-
-        // Add a left side panel
-        // egui::SidePanel::left("left_panel")
-        //     .default_width(400.0)
-        //     .resizable(false)
-        //     .show(ctx, |ui| {
-        //         ui.heading("Node Library");
-        //     });
 
         // Blueprint takes the remaining space
         egui::CentralPanel::default()
@@ -114,18 +96,18 @@ impl eframe::App for App {
                 self.node_blueprint.ui(ui);
             });
 
-        for action in self.menu_bar.drain_actions() {
-            match action {
-                MenuAction::ImportVideo(path) => {
-                    // if let Err(e) = self.video_context.load_video(path) {
-                    //     eprintln!("Failed to load video: {e}");
-                    // }
-                    // else {
-                    //     self.video_context.toggle_playback();
-                    // }
-                }
-            }
-        }
+        // for action in self.menu_bar.drain_actions() {
+        //     match action {
+        //         MenuAction::ImportVideo(path) => {
+        //             // if let Err(e) = self.video_context.load_video(path) {
+        //             //     eprintln!("Failed to load video: {e}");
+        //             // }
+        //             // else {
+        //             //     self.video_context.toggle_playback();
+        //             // }
+        //         }
+        //     }
+        // }
 
         // if self.video_context.video_loaded() {
         //     // Delta time for this frame
@@ -147,6 +129,7 @@ impl eframe::App for App {
         //     ctx.request_repaint();
         // }
     }
+<<<<<<< HEAD
 }
 
 fn configure_styles(ctx: &egui::Context) {
@@ -178,3 +161,6 @@ fn configure_styles(ctx: &egui::Context) {
     ctx.set_style(style);
 >>>>>>> 2069524 (trying to get the UI looking right)
 }
+=======
+}
+>>>>>>> 6d842de (ui in good state)
