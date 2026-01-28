@@ -1,6 +1,15 @@
 use crate::view::View;
 use egui::{Color32, Pos2, Rect, Stroke, Vec2};
 
+#[derive(Clone, Copy, Debug)]
+struct NodeBlueprintStyle {
+    background: Color32,
+    grid: Color32,
+    info_text: Color32,
+    hint_text: Color32,
+    grid_thickness: f32,
+}
+
 pub struct NodeBlueprint {
     /// Current zoom level (1.0 = 100%)
     zoom: f32,
@@ -13,6 +22,16 @@ pub struct NodeBlueprint {
 }
 
 impl NodeBlueprint {
+    fn style() -> NodeBlueprintStyle {
+        NodeBlueprintStyle {
+            background: Color32::from_rgb(10, 25, 5),
+            grid: Color32::from_rgb(20, 51, 10),
+            info_text: Color32::from_rgba_premultiplied(200, 220, 235, 200),
+            hint_text: Color32::from_rgba_premultiplied(160, 190, 210, 160),
+            grid_thickness: 1.0,
+        }
+    }
+
     pub fn new() -> Self {
         Self {
             zoom: 1.0,
@@ -40,6 +59,7 @@ impl NodeBlueprint {
     /// Draw the blueprint grid
     fn draw_grid(&self, ui: &mut egui::Ui, canvas_rect: Rect) {
         let painter = ui.painter_at(canvas_rect);
+        let style = Self::style();
 
         // Calculate visible grid bounds
         let top_left = self.screen_to_canvas(canvas_rect.min, canvas_rect);
@@ -47,25 +67,17 @@ impl NodeBlueprint {
 
         let grid_spacing = self.grid_size;
 
-        // Grid line colors
-        let major_color = Color32::from_rgba_premultiplied(200, 200, 200, 255);
-        let minor_color = Color32::from_rgba_premultiplied(100, 100, 100, 255); 
-
         // Draw vertical lines
         let start_x = (top_left.x / grid_spacing).floor() * grid_spacing;
         let mut x = start_x;
         while x <= bottom_right.x {
-            let is_major = (x / grid_spacing).round() as i32 % 5 == 0;
-            let color = if is_major { major_color } else { minor_color };
-            let thickness = if is_major { 1.5 } else { 1.0 };
+            let color = style.grid;
+            let thickness = style.grid_thickness;
 
             let screen_start = self.canvas_to_screen(Pos2::new(x, top_left.y), canvas_rect);
             let screen_end = self.canvas_to_screen(Pos2::new(x, bottom_right.y), canvas_rect);
 
-            painter.line_segment(
-                [screen_start, screen_end],
-                Stroke::new(thickness, color),
-            );
+            painter.line_segment([screen_start, screen_end], Stroke::new(thickness, color));
 
             x += grid_spacing;
         }
@@ -74,63 +86,58 @@ impl NodeBlueprint {
         let start_y = (top_left.y / grid_spacing).floor() * grid_spacing;
         let mut y = start_y;
         while y <= bottom_right.y {
-            let is_major = (y / grid_spacing).round() as i32 % 5 == 0;
-            let color = if is_major { major_color } else { minor_color };
-            let thickness = if is_major { 1.5 } else { 1.0 };
+            let color = style.grid;
+            let thickness = style.grid_thickness;
 
             let screen_start = self.canvas_to_screen(Pos2::new(top_left.x, y), canvas_rect);
             let screen_end = self.canvas_to_screen(Pos2::new(bottom_right.x, y), canvas_rect);
 
-            painter.line_segment(
-                [screen_start, screen_end],
-                Stroke::new(thickness, color),
-            );
+            painter.line_segment([screen_start, screen_end], Stroke::new(thickness, color));
 
             y += grid_spacing;
         }
-
-        // Draw origin axes (highlighted)
-        let origin_color = Color32::from_rgba_premultiplied(220, 220, 220, 255);
-        
-        // X-axis
-        let x_start = self.canvas_to_screen(Pos2::new(top_left.x, 0.0), canvas_rect);
-        let x_end = self.canvas_to_screen(Pos2::new(bottom_right.x, 0.0), canvas_rect);
-        painter.line_segment([x_start, x_end], Stroke::new(2.0, origin_color));
-
-        // Y-axis
-        let y_start = self.canvas_to_screen(Pos2::new(0.0, top_left.y), canvas_rect);
-        let y_end = self.canvas_to_screen(Pos2::new(0.0, bottom_right.y), canvas_rect);
-        painter.line_segment([y_start, y_end], Stroke::new(2.0, origin_color));
     }
 
     /// Handle input (zoom and pan)
     fn handle_input(&mut self, ui: &mut egui::Ui, canvas_rect: Rect) {
         let response = ui.interact(canvas_rect, ui.id(), egui::Sense::click_and_drag());
 
-        // Handle zoom with scroll wheel
-        let scroll_delta = ui.input(|i| i.smooth_scroll_delta.y);
-        if scroll_delta != 0.0 {
-            let zoom_delta = scroll_delta * 0.001;
+        let zoom_delta = ui.input(|i| i.zoom_delta());
+        let scroll_delta = ui.input(|i| i.smooth_scroll_delta);
+        let scroll_is_zoom = ui.input(|i| i.modifiers.ctrl || i.modifiers.command);
+
+        // Trackpad pinch zoom (and Ctrl/Cmd + scroll wheel zoom)
+        if zoom_delta != 1.0 || (scroll_is_zoom && scroll_delta.y != 0.0) {
+            let delta = if zoom_delta != 1.0 {
+                zoom_delta
+            } else {
+                1.0 + scroll_delta.y * 0.001
+            };
+
             let old_zoom = self.zoom;
-            self.zoom = (self.zoom * (1.0 + zoom_delta)).clamp(0.1, 10.0);
+            self.zoom = (self.zoom * delta).clamp(0.1, 10.0);
 
             // Zoom towards mouse position
             if let Some(mouse_pos) = ui.input(|i| i.pointer.hover_pos()) {
                 if canvas_rect.contains(mouse_pos) {
                     let zoom_ratio = self.zoom / old_zoom;
-                    
+
                     // Adjust pan to keep the point under the mouse stationary
                     let canvas_center = canvas_rect.size() / 2.0;
                     let relative_pos = mouse_pos - canvas_rect.min - canvas_center;
-                    self.pan_offset = (self.pan_offset * zoom_ratio) 
+                    self.pan_offset = (self.pan_offset * zoom_ratio)
                         + (relative_pos / old_zoom - relative_pos / self.zoom);
                 }
             }
+        } else if scroll_delta != Vec2::ZERO {
+            // Trackpad two-finger pan
+            self.pan_offset += scroll_delta / self.zoom;
         }
 
         // Handle panning with middle mouse or right mouse button
-        if response.dragged_by(egui::PointerButton::Middle) 
-            || response.dragged_by(egui::PointerButton::Secondary) {
+        if response.dragged_by(egui::PointerButton::Middle)
+            || response.dragged_by(egui::PointerButton::Secondary)
+        {
             self.is_panning = true;
             self.pan_offset += response.drag_delta() / self.zoom;
         } else {
@@ -147,16 +154,12 @@ impl NodeBlueprint {
 
 impl View for NodeBlueprint {
     fn ui(&mut self, ui: &mut egui::Ui) {
-        // Get the available space for the canvas
-        let available_size = ui.available_size();
-        let canvas_rect = Rect::from_min_size(ui.cursor().min, available_size);
+        let style = Self::style();
+        // Use the full panel rect to avoid borders/padding
+        let canvas_rect = ui.max_rect();
 
         // Fill background with black
-        ui.painter().rect_filled(
-            canvas_rect,
-            0.0,
-            Color32::from_rgb(20, 22, 25),
-        );
+        ui.painter().rect_filled(canvas_rect, 0.0, style.background);
 
         // Draw the grid
         self.draw_grid(ui, canvas_rect);
@@ -178,15 +181,17 @@ impl View for NodeBlueprint {
                             "Zoom: {:.1}%",
                             self.zoom * 100.0
                         ))
-                        .color(Color32::from_rgb(200, 200, 200))
+                        .color(style.info_text)
                         .size(12.0),
                     );
                 });
                 ui.horizontal(|ui| {
                     ui.add_space(8.0);
                     ui.label(
-                        egui::RichText::new("Middle/Right Mouse: Pan | Scroll: Zoom | R: Reset")
-                            .color(Color32::from_rgb(150, 150, 150))
+                        egui::RichText::new(
+                            "Two-finger: Pan | Pinch/Ctrl+Scroll: Zoom | Middle/Right: Pan | R: Reset",
+                        )
+                            .color(style.hint_text)
                             .size(11.0),
                     );
                 });
