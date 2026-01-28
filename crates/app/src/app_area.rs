@@ -1,25 +1,26 @@
+mod menu_bar;
 mod node_blueprint;
-use crate::components::menu_bar::MenuAction;
-use crate::components::menu_bar::MenuBar;
 use node_blueprint::NodeBlueprint;
 // use crate::video::VideoContext;
 use crate::view::View;
 
 pub struct App {
-    menu_bar: MenuBar,
+    title_bar: menu_bar::title_bar::TitleBar,
     node_blueprint: NodeBlueprint,
     // video_context: VideoContext,
 }
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        configure_styles(&cc.egui_ctx);
+        let mut fonts = egui::FontDefinitions::default();
+        egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+        cc.egui_ctx.set_fonts(fonts);
 
-        let wgpu_render_state = cc.wgpu_render_state.as_ref().unwrap();
+        let target_format = cc.wgpu_render_state.as_ref().unwrap().target_format;
         // let video_context = VideoContext::new(wgpu_render_state.target_format).unwrap();
 
         Self {
-            menu_bar: MenuBar::new(),
+            title_bar: menu_bar::title_bar::TitleBar::new(),
             node_blueprint: NodeBlueprint::new(),
             // video_context,
         }
@@ -31,34 +32,12 @@ impl eframe::App for App {
         egui::TopBottomPanel::top("menu")
             .frame(
                 egui::Frame::none()
-                    .fill(egui::Color32::from_rgb(32, 32, 32))
-                    .inner_margin(egui::Margin::symmetric(12, 8)),
+                    .fill(egui::Color32::from_rgb(24, 29, 31))
+                    .inner_margin(egui::Margin::symmetric(12, 6)),
             )
             .show(ctx, |ui| {
-                // Make the entire top bar area draggable for window movement
-                let top_bar_response = ui.interact(
-                    ui.max_rect(),
-                    egui::Id::new("top_bar_drag"),
-                    egui::Sense::drag(),
-                );
-
-                // Request window drag when mouse is over the top bar
-                if top_bar_response.hovered() {
-                    ctx.output_mut(|o| o.cursor_icon = egui::CursorIcon::Move);
-                }
-
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    self.menu_bar.ui(ui);
-                });
+                self.title_bar.ui(ui);
             });
-
-        // Add a left side panel
-        // egui::SidePanel::left("left_panel")
-        //     .default_width(400.0)
-        //     .resizable(false)
-        //     .show(ctx, |ui| {
-        //         ui.heading("Node Library");
-        //     });
 
         // Blueprint takes the remaining space
         egui::CentralPanel::default()
@@ -67,18 +46,18 @@ impl eframe::App for App {
                 self.node_blueprint.ui(ui);
             });
 
-        for action in self.menu_bar.drain_actions() {
-            match action {
-                MenuAction::ImportVideo(path) => {
-                    // if let Err(e) = self.video_context.load_video(path) {
-                    //     eprintln!("Failed to load video: {e}");
-                    // }
-                    // else {
-                    //     self.video_context.toggle_playback();
-                    // }
-                }
-            }
-        }
+        // for action in self.menu_bar.drain_actions() {
+        //     match action {
+        //         MenuAction::ImportVideo(path) => {
+        //             // if let Err(e) = self.video_context.load_video(path) {
+        //             //     eprintln!("Failed to load video: {e}");
+        //             // }
+        //             // else {
+        //             //     self.video_context.toggle_playback();
+        //             // }
+        //         }
+        //     }
+        // }
 
         // if self.video_context.video_loaded() {
         //     // Delta time for this frame
@@ -100,33 +79,4 @@ impl eframe::App for App {
         //     ctx.request_repaint();
         // }
     }
-}
-
-fn configure_styles(ctx: &egui::Context) {
-    use egui::{Color32, Visuals};
-
-    let mut visuals = Visuals::dark();
-
-    // Main background
-    visuals.panel_fill = Color32::from_rgb(24, 29, 31);
-
-    // Menu bar background (darker)
-    visuals.window_fill = Color32::from_rgb(20, 24, 27);
-
-    // Text edits, scroll bars
-    visuals.extreme_bg_color = Color32::from_rgb(33, 54, 33);
-
-    // Menu button styling
-    visuals.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
-    visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(40, 44, 47);
-    visuals.widgets.active.weak_bg_fill = Color32::from_rgb(50, 54, 57);
-    visuals.override_text_color = Some(Color32::from_rgb(102, 255, 51));
-
-    // Reduce spacing globally
-    let mut style = egui::Style::default();
-    style.spacing.item_spacing = egui::vec2(4.0, 4.0);
-    style.spacing.button_padding = egui::vec2(8.0, 4.0);
-    style.visuals = visuals;
-
-    ctx.set_style(style);
 }
