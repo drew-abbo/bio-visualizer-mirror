@@ -1,4 +1,4 @@
-use crate::components::menu_bar::{MenuAction, MenuBarButton};
+use crate::app_area::menu_bar::{MenuAction, MenuBarButton};
 
 pub struct LoadVideoFile;
 

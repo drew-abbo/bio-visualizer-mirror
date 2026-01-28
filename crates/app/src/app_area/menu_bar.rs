@@ -1,14 +1,8 @@
 use crate::view::View;
 mod import_button;
-
-pub trait MenuBarButton {
-    fn label(&self) -> &str;
-    fn on_click(&mut self, ctx: &egui::Context) -> Option<MenuAction>;
-}
-
-pub enum MenuAction {
-    ImportVideo(std::path::PathBuf),
-}
+mod menu_bar_button;
+pub mod title_bar;
+pub use menu_bar_button::{MenuAction, MenuBarButton};
 
 pub struct MenuBar {
     file_buttons: Vec<Box<dyn MenuBarButton>>,
@@ -30,8 +24,7 @@ impl MenuBar {
 
 impl View for MenuBar {
     fn ui(&mut self, ui: &mut egui::Ui) {
-        let old = ui.visuals().override_text_color;
-
+        let old = ui.visuals().override_text_color; 
         egui::MenuBar::new().ui(ui, |ui| {
             ui.visuals_mut().override_text_color = Some(egui::Color32::WHITE);
 
