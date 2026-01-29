@@ -220,7 +220,7 @@ impl NodeRenderPipeline {
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             cache: None,
-            multiview_mask: None,
+            multiview: None,
         });
 
         // Build parameter layout from node definition

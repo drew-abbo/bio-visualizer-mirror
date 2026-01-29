@@ -1,6 +1,7 @@
 use crate::view::View;
 use egui::load::SizedTexture;
 use media::frame::Uid;
+use eframe::wgpu;
 
 /// Configuration for how a frame should be displayed
 #[derive(Clone, Debug)]
@@ -56,7 +57,7 @@ impl FrameDisplay {
     pub fn set_wgpu_texture_if_changed(
         &mut self,
         render_state: &egui_wgpu::RenderState,
-        texture_view: &eframe::wgpu::TextureView,
+        texture_view: &wgpu::TextureView,
         size: [usize; 2],
         frame_id: Uid,
     ) {
@@ -70,10 +71,11 @@ impl FrameDisplay {
         }
 
         // Register new texture
+        // Both engine and app now use the same wgpu version (27), so no transmute needed
         let texture_id = render_state.renderer.write().register_native_texture(
             &render_state.device,
             texture_view,
-            eframe::wgpu::FilterMode::Linear,
+            wgpu::FilterMode::Linear,
         );
 
         self.texture_id = Some(texture_id);
