@@ -3,9 +3,13 @@ mod app;
 =======
 mod app_area;
 mod components;
+<<<<<<< HEAD
 >>>>>>> 2069524 (trying to get the UI looking right)
 mod video;
 mod components;
+=======
+mod engine_controller;
+>>>>>>> 59a6b68 (started adding some basic node and video stuff)
 mod view;
 <<<<<<< HEAD
 mod areas;

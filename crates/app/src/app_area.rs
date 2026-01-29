@@ -1,5 +1,6 @@
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 mod editor;
 mod title_bar;
 
@@ -49,15 +50,19 @@ impl eframe::App for AppArea {
 =======
 mod menu_bar;
 >>>>>>> 6d842de (ui in good state)
+=======
+mod title_bar;
+pub use title_bar::TitleBar;
+>>>>>>> 59a6b68 (started adding some basic node and video stuff)
 mod node_blueprint;
-use node_blueprint::NodeBlueprint;
-// use crate::video::VideoContext;
+use crate::engine_controller::EngineController;
 use crate::view::View;
+use node_blueprint::NodeBlueprint;
 
 pub struct App {
-    title_bar: menu_bar::title_bar::TitleBar,
+    title_bar: TitleBar,
     node_blueprint: NodeBlueprint,
-    // video_context: VideoContext,
+    engine_controller: EngineController,
 }
 
 impl App {
@@ -66,13 +71,13 @@ impl App {
         egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
         cc.egui_ctx.set_fonts(fonts);
 
-        let target_format = cc.wgpu_render_state.as_ref().unwrap().target_format;
-        // let video_context = VideoContext::new(wgpu_render_state.target_format).unwrap();
+        // TODO: Handle error properly
+        let engine_controller = EngineController::new().unwrap();
 
         Self {
-            title_bar: menu_bar::title_bar::TitleBar::new(),
+            title_bar: TitleBar::new(),
             node_blueprint: NodeBlueprint::new(),
-            // video_context,
+            engine_controller: engine_controller,
         }
     }
 }
@@ -81,7 +86,7 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         egui::TopBottomPanel::top("menu")
             .frame(
-                egui::Frame::none()
+                egui::Frame::NONE
                     .fill(egui::Color32::from_rgb(24, 29, 31))
                     .inner_margin(egui::Margin::symmetric(12, 6)),
             )
@@ -91,7 +96,7 @@ impl eframe::App for App {
 
         // Blueprint takes the remaining space
         egui::CentralPanel::default()
-            .frame(egui::Frame::none())
+            .frame(egui::Frame::NONE)
             .show(ctx, |ui| {
                 self.node_blueprint.ui(ui);
             });
@@ -130,6 +135,7 @@ impl eframe::App for App {
         // }
     }
 <<<<<<< HEAD
+<<<<<<< HEAD
 }
 
 fn configure_styles(ctx: &egui::Context) {
@@ -164,3 +170,6 @@ fn configure_styles(ctx: &egui::Context) {
 =======
 }
 >>>>>>> 6d842de (ui in good state)
+=======
+}
+>>>>>>> 59a6b68 (started adding some basic node and video stuff)

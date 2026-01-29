@@ -73,7 +73,6 @@ pub mod graph_executor;
 pub mod node;
 pub mod node_graph;
 pub mod node_render_pipeline;
-pub mod engine_errors;
 
 mod gpu_frame;
 mod upload_stager;
