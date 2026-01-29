@@ -11,16 +11,51 @@ use thiserror::Error;
 use util::uid::Uid;
 
 /// Unique identifier for a node instance in the graph
+<<<<<<< HEAD
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord, Default,
 )]
 pub struct EngineNodeId(pub Uid);
 
 impl std::fmt::Display for EngineNodeId {
+=======
+/// This is intentionally compatible with egui_node_editor::NodeId (u32)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+pub struct NodeId(pub u32);
+
+impl NodeId {
+    pub fn new(id: u32) -> Self {
+        NodeId(id)
+    }
+}
+
+impl From<u32> for NodeId {
+    fn from(id: u32) -> Self {
+        NodeId(id)
+    }
+}
+
+impl From<NodeId> for u32 {
+    fn from(id: NodeId) -> Self {
+        id.0
+    }
+}
+
+impl std::fmt::Display for NodeId {
+>>>>>>> 9bce97e (just messing around a bit with a lib for nodes, this is getting really complicated)
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
+<<<<<<< HEAD
+=======
+
+impl std::ops::AddAssign<u32> for NodeId {
+    fn add_assign(&mut self, rhs: u32) {
+        self.0 += rhs;
+    }
+}
+>>>>>>> 9bce97e (just messing around a bit with a lib for nodes, this is getting really complicated)
 
 /// A node instance referencing a definition and its input values.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,6 +106,10 @@ impl NodeGraph {
         Self {
             instances: HashMap::new(),
             connections: Vec::new(),
+<<<<<<< HEAD
+=======
+            next_id: NodeId(0),
+>>>>>>> 9bce97e (just messing around a bit with a lib for nodes, this is getting really complicated)
         }
     }
 
@@ -89,6 +128,23 @@ impl NodeGraph {
         );
 
         id
+    }
+
+    /// Add a node instance with a specific ID (used when syncing from UI graph).
+    /// definition_name should match a loaded [crate::node::NodeDefinition] at execution time.
+    pub fn add_instance_with_id(&mut self, id: NodeId, definition_name: String) {
+        self.instances.insert(
+            id,
+            NodeInstance {
+                id,
+                definition_name,
+                input_values: HashMap::new(),
+            },
+        );
+
+        if id.0 >= self.next_id.0 {
+            self.next_id = NodeId(id.0 + 1);
+        }
     }
 
     /// Remove a node instance and any connections to/from it.
@@ -322,6 +378,10 @@ impl NodeGraph {
     pub fn clear(&mut self) {
         self.instances.clear();
         self.connections.clear();
+<<<<<<< HEAD
+=======
+        self.next_id = NodeId(0);
+>>>>>>> 9bce97e (just messing around a bit with a lib for nodes, this is getting really complicated)
     }
 
     pub fn is_empty(&self) -> bool {
