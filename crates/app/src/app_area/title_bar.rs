@@ -84,7 +84,7 @@ impl View for TitleBar {
                     .on_hover_text("Close");
                 if close_response.hovered() {
                     ui.painter().rect_filled(
-                        close_response.rect.expand(-1.0),
+                        close_response.rect,
                         4.0,
                         egui::Color32::from_rgba_unmultiplied(255, 255, 255, 15),
                     );
@@ -109,7 +109,7 @@ impl View for TitleBar {
                         .on_hover_text("Restore");
                     if maximize_response.hovered() {
                         ui.painter().rect_filled(
-                            maximize_response.rect.expand(-1.0),
+                            maximize_response.rect,
                             4.0,
                             egui::Color32::from_rgba_unmultiplied(255, 255, 255, 15),
                         );
@@ -132,7 +132,7 @@ impl View for TitleBar {
                         .on_hover_text("Maximize");
                     if maximize_response.hovered() {
                         ui.painter().rect_filled(
-                            maximize_response.rect.expand(-1.0),
+                            maximize_response.rect,
                             4.0,
                             egui::Color32::from_rgba_unmultiplied(255, 255, 255, 15),
                         );
@@ -156,7 +156,7 @@ impl View for TitleBar {
                     .on_hover_text("Minimize");
                 if minimize_response.hovered() {
                     ui.painter().rect_filled(
-                        minimize_response.rect.expand(-1.0),
+                        minimize_response.rect,
                         4.0,
                         egui::Color32::from_rgba_unmultiplied(255, 255, 255, 15),
                     );
