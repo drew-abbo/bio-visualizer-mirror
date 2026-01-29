@@ -49,6 +49,9 @@ pub struct GraphExecutor {
 
     /// Cached execution order to avoid recomputing topology every frame
     cached_execution_order: Option<Vec<NodeId>>,
+
+    /// The ID of the current output node (last execution)
+    output_node_id: NodeId,
 }
 
 /// The result of executing a node graph.
@@ -80,6 +83,7 @@ impl GraphExecutor {
             image_handler: ImageSourceHandler::new(),
             target_format: format,
             cached_execution_order: None,
+            output_node_id: NodeId(0),
         }
     }
 
@@ -105,6 +109,17 @@ impl GraphExecutor {
         self.cached_execution_order = None;
     }
 
+    /// Get the cached outputs for a specific node, if available
+    /// Returns None if the node hasn't been executed yet
+    pub fn get_node_outputs(&self, node_id: NodeId) -> Option<&HashMap<String, OutputValue>> {
+        self.output_cache.get(&node_id)
+    }
+
+    /// Get the ID of the current output node (from the last execution)
+    pub fn get_output_node_id(&self) -> NodeId {
+        self.output_node_id
+    }
+
     /// Execute the entire node graph
     pub fn execute<'a>(
         &'a mut self,
@@ -116,16 +131,11 @@ impl GraphExecutor {
         // Clear cache from previous execution
         self.output_cache.clear();
 
-        // Get execution order (topologically sorted) - use cache if available
-        let order = if let Some(ref cached) = self.cached_execution_order {
-            cached.clone()
-        } else {
-            let computed_order = graph
-                .execution_order()
-                .map_err(ExecutionError::GraphError)?;
-            self.cached_execution_order = Some(computed_order.clone());
-            computed_order
-        };
+        // Get execution order (topologically sorted)
+        // Always recompute to handle graph structure changes (nodes added/removed)
+        let order = graph
+            .execution_order()
+            .map_err(ExecutionError::GraphError)?;
 
         // Execute each node in order
         for &node_id in &order {
@@ -166,6 +176,7 @@ impl GraphExecutor {
 
         // For now, return the first output node's result
         let output_node_id = output_nodes[0];
+        self.output_node_id = output_node_id;
         let outputs = self
             .output_cache
             .get(&output_node_id)
