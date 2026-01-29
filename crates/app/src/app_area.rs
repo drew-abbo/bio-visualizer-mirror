@@ -1,13 +1,13 @@
 mod title_bar;
 pub use title_bar::TitleBar;
-mod node_blueprint;
+mod node_graph_view;
 use crate::engine_controller::EngineController;
 use crate::view::View;
-use node_blueprint::NodeBlueprint;
+use node_graph_view::NodeGraphView;
 
 pub struct App {
     title_bar: TitleBar,
-    node_blueprint: NodeBlueprint,
+    node_blueprint: NodeGraphView,
     engine_controller: EngineController,
 }
 
@@ -22,7 +22,7 @@ impl App {
 
         Self {
             title_bar: TitleBar::new(),
-            node_blueprint: NodeBlueprint::new(),
+            node_blueprint: NodeGraphView::new(),
             engine_controller: engine_controller,
         }
     }
