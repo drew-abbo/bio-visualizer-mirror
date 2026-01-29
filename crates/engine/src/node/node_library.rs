@@ -18,6 +18,15 @@ pub struct NodeLibrary {
     _nodes_folder: PathBuf,
 }
 
+impl Default for NodeLibrary {
+    fn default() -> Self {
+        Self {
+            definitions: HashMap::new(),
+            _nodes_folder: PathBuf::new(),
+        }
+    }
+}
+
 impl NodeLibrary {
     pub fn get_definition(&self, name: &str) -> Option<&NodeDefinition> {
         self.definitions.get(name)
@@ -38,6 +47,26 @@ impl NodeLibrary {
 
         println!(
             "Loaded {} node definitions from {:?}",
+            definitions.len(),
+            nodes_folder
+        );
+
+        Ok(Self {
+            definitions,
+            _nodes_folder: nodes_folder,
+        })
+    }
+
+    pub fn load_from_users_folder() -> Result<Self, LibraryError> {
+        use util::local_data;
+
+        let nodes_folder = PathBuf::from(local_data::nodes_path());
+
+        let mut definitions = HashMap::new();
+        Self::scan_directory(&nodes_folder, &nodes_folder, &mut definitions)?;
+
+        println!(
+            "Loaded {} node definitions from user data: {:?}",
             definitions.len(),
             nodes_folder
         );

@@ -14,7 +14,7 @@ pub struct VideoPlayer {
     fps: f64,
     frame_duration: Duration,
     time_accumulator: Duration,
-    
+
     // Debug counters
     debug_frame_count: u64,
     debug_time_elapsed: Duration,
@@ -111,7 +111,8 @@ impl VideoPlayer {
         {
             self.debug_time_elapsed += delta;
             if self.debug_time_elapsed.as_secs() >= 5 {
-                let actual_fps = self.debug_frame_count as f64 / self.debug_time_elapsed.as_secs_f64();
+                let actual_fps =
+                    self.debug_frame_count as f64 / self.debug_time_elapsed.as_secs_f64();
                 println!(
                     "Video: {:.1} FPS (target: {:.1}) | Accumulator: {:.1}ms",
                     actual_fps,
@@ -128,18 +129,18 @@ impl VideoPlayer {
             self.time_accumulator -= self.frame_duration;
             self.current_time += self.frame_duration;
             self.fetch_next_frame();
-            
+
             #[cfg(debug_assertions)]
             {
                 self.debug_frame_count += 1;
             }
-            
+
             // If accumulator gets too large (> 3 frames), we're falling behind
             // Reset to prevent spiral of death
             if self.time_accumulator > self.frame_duration * 3 {
                 self.time_accumulator = Duration::ZERO;
             }
-            
+
             true
         } else {
             false

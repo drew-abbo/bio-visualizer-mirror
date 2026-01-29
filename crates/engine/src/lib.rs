@@ -61,11 +61,11 @@
 //! --------
 //! See the `nodes/` folder at the repository root for example `shader.wgsl` files demonstrating
 //! bindings and entry points.
+pub mod engine_errors;
 pub mod graph_executor;
 pub mod node;
 pub mod node_graph;
 pub mod node_render_pipeline;
-pub mod engine_errors;
 
 mod gpu_frame;
 mod upload_stager;

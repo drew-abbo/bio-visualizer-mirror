@@ -1,6 +1,6 @@
 mod app_area;
 mod components;
-mod video;
+mod engine_controller;
 mod view;
 use app_area::App;
 
