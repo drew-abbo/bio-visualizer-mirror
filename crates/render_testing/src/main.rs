@@ -10,6 +10,7 @@ use winit::window::{Window, WindowId};
 use engine::graph_executor::GraphExecutor;
 use engine::graph_executor::OutputValue;
 use engine::node::NodeLibrary;
+use engine::wgpu;
 
 fn main() {
     let event_loop = EventLoop::new().unwrap();

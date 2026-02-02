@@ -199,7 +199,7 @@ impl WidgetValueTrait for ValueType {
                     ui.text_edit_singleline(path);
                     if ui.button("📁").clicked() {
                         if let Some(file) = rfd::FileDialog::new()
-                            .add_filter("Video", &["mp4", "mov", "mkv"])
+                            .add_filter("Video", &["mp4", "mov", "mkv", "jpg", "png"])
                             .pick_file()
                         {
                             *path = file.to_string_lossy().to_string();
