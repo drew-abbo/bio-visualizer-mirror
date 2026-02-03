@@ -1,7 +1,9 @@
 use crate::view::View;
+use eframe::wgpu;
 use egui::load::SizedTexture;
 use media::frame::Uid;
-use eframe::wgpu;
+use util::eframe;
+use util::egui;
 
 /// Configuration for how a frame should be displayed
 #[derive(Clone, Debug)]
@@ -118,8 +120,7 @@ impl FrameDisplay {
             return egui::Vec2::ZERO;
         }
 
-        let original_size =
-            egui::vec2(self.texture_size[0] as f32, self.texture_size[1] as f32);
+        let original_size = egui::vec2(self.texture_size[0] as f32, self.texture_size[1] as f32);
 
         let scale = (self.config.max_size.x / original_size.x)
             .min(self.config.max_size.y / original_size.y)

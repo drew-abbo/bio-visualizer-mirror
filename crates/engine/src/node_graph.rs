@@ -12,6 +12,7 @@ use util::uid::Uid;
 
 /// Unique identifier for a node instance in the graph
 <<<<<<< HEAD
+<<<<<<< HEAD
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord, Default,
 )]
@@ -20,29 +21,36 @@ pub struct EngineNodeId(pub Uid);
 impl std::fmt::Display for EngineNodeId {
 =======
 /// This is intentionally compatible with egui_node_editor::NodeId (u32)
+=======
+/// This is intentionally compatible with egui_node_editor::EngineNodeId (u32)
+>>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
-pub struct NodeId(pub u32);
+pub struct EngineNodeId(pub u32);
 
-impl NodeId {
+impl EngineNodeId {
     pub fn new(id: u32) -> Self {
-        NodeId(id)
+        EngineNodeId(id)
     }
 }
 
-impl From<u32> for NodeId {
+impl From<u32> for EngineNodeId {
     fn from(id: u32) -> Self {
-        NodeId(id)
+        EngineNodeId(id)
     }
 }
 
-impl From<NodeId> for u32 {
-    fn from(id: NodeId) -> Self {
+impl From<EngineNodeId> for u32 {
+    fn from(id: EngineNodeId) -> Self {
         id.0
     }
 }
 
+<<<<<<< HEAD
 impl std::fmt::Display for NodeId {
 >>>>>>> 9bce97e (just messing around a bit with a lib for nodes, this is getting really complicated)
+=======
+impl std::fmt::Display for EngineNodeId {
+>>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
@@ -50,7 +58,7 @@ impl std::fmt::Display for NodeId {
 <<<<<<< HEAD
 =======
 
-impl std::ops::AddAssign<u32> for NodeId {
+impl std::ops::AddAssign<u32> for EngineNodeId {
     fn add_assign(&mut self, rhs: u32) {
         self.0 += rhs;
     }
@@ -93,6 +101,10 @@ pub struct Connection {
 pub struct NodeGraph {
     instances: HashMap<EngineNodeId, NodeInstance>,
     connections: Vec<Connection>,
+<<<<<<< HEAD
+=======
+    next_id: EngineNodeId,
+>>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
 }
 
 impl Default for NodeGraph {
@@ -107,16 +119,25 @@ impl NodeGraph {
             instances: HashMap::new(),
             connections: Vec::new(),
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
             next_id: NodeId(0),
 >>>>>>> 9bce97e (just messing around a bit with a lib for nodes, this is getting really complicated)
+=======
+            next_id: EngineNodeId(0),
+>>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
         }
     }
 
     /// Add a new node instance and return its [EngineNodeId].
     /// definition_name should match a loaded [crate::node::NodeDefinition] at execution time.
     pub fn add_instance(&mut self, definition_name: String) -> EngineNodeId {
+<<<<<<< HEAD
         let id = EngineNodeId::default();
+=======
+        let id = self.next_id;
+        self.next_id += 1;
+>>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
 
         self.instances.insert(
             id,
@@ -132,7 +153,7 @@ impl NodeGraph {
 
     /// Add a node instance with a specific ID (used when syncing from UI graph).
     /// definition_name should match a loaded [crate::node::NodeDefinition] at execution time.
-    pub fn add_instance_with_id(&mut self, id: NodeId, definition_name: String) {
+    pub fn add_instance_with_id(&mut self, id: EngineNodeId, definition_name: String) {
         self.instances.insert(
             id,
             NodeInstance {
@@ -143,7 +164,7 @@ impl NodeGraph {
         );
 
         if id.0 >= self.next_id.0 {
-            self.next_id = NodeId(id.0 + 1);
+            self.next_id = EngineNodeId(id.0 + 1);
         }
     }
 
@@ -272,11 +293,15 @@ impl NodeGraph {
     }
 
     /// Get the connection feeding into a specific input, if any.
+<<<<<<< HEAD
     pub fn get_input_connection(
         &self,
         node_id: EngineNodeId,
         input_name: &str,
     ) -> Option<&Connection> {
+=======
+    pub fn get_input_connection(&self, node_id: EngineNodeId, input_name: &str) -> Option<&Connection> {
+>>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
         self.connections
             .iter()
             .find(|c| c.to_node == node_id && c.to_input == input_name)
@@ -379,9 +404,13 @@ impl NodeGraph {
         self.instances.clear();
         self.connections.clear();
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
         self.next_id = NodeId(0);
 >>>>>>> 9bce97e (just messing around a bit with a lib for nodes, this is getting really complicated)
+=======
+        self.next_id = EngineNodeId(0);
+>>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
     }
 
     pub fn is_empty(&self) -> bool {

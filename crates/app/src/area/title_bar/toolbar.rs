@@ -1,8 +1,9 @@
-use crate::{app_area::title_bar::toolbar::tool_bar_button::ToolBarButton, view::View};
+use crate::{area::title_bar::toolbar::tool_bar_button::ToolBarButton, view::View};
 pub mod command;
 mod import_button;
 mod tool_bar_button;
-pub use crate::app_area::title_bar::toolbar::command::Command;
+pub use crate::area::title_bar::toolbar::command::Command;
+use util::egui;
 
 pub struct ToolBar {
     file_buttons: Vec<Box<dyn ToolBarButton>>,

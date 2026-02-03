@@ -2,7 +2,11 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
+<<<<<<< HEAD
 use crate::node::engine_node::NodeOutputKind;
+=======
+use crate::node::node::NodeOutputKind;
+>>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
 use crate::node_graph::EngineNodeId;
 
 /// Errors that can occur during graph execution
@@ -13,12 +17,15 @@ pub enum ExecutionError {
 
     #[error("Node {0} not found")]
     NodeNotFound(EngineNodeId),
+<<<<<<< HEAD
 
     #[error("Target node {0} not found in graph")]
     TargetNodeNotFound(EngineNodeId),
 
     #[error("Target node {0} is not in execution order")]
     TargetNodeNotInExecutionOrder(EngineNodeId),
+=======
+>>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
 
     #[error("Node definition '{0}' not found")]
     DefinitionNotFound(String),

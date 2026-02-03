@@ -12,6 +12,10 @@ use crate::node::engine_node::{BuiltInHandler, NodeExecutionPlan, NodeOutputKind
 use crate::node::handler::ImageSourceHandler;
 use crate::node::handler::NodeHandler;
 use crate::node::handler::VideoSourceHandler;
+<<<<<<< HEAD
+=======
+use crate::node::node::{BuiltInHandler, NodeExecutionPlan, NodeOutputKind};
+>>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
 use crate::node_graph::EngineNodeId;
 use crate::node_graph::{InputValue, NodeGraph, NodeInstance};
 use crate::node_render_pipeline::NodeRenderPipeline;
@@ -31,8 +35,13 @@ pub struct GraphExecutor {
     upload_stager: UploadStager,
 
     /// Cache of node outputs from the current execution
+<<<<<<< HEAD
     /// Maps: EngineNodeId -> { "output_name" -> NodeValue }
     output_cache: HashMap<EngineNodeId, HashMap<String, NodeValue>>,
+=======
+    /// Maps: EngineNodeId -> { "output_name" -> OutputValue }
+    output_cache: HashMap<EngineNodeId, HashMap<String, OutputValue>>,
+>>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
 
     /// Cache of compiled pipelines
     /// Maps: definition_name -> compiled pipeline
@@ -48,10 +57,10 @@ pub struct GraphExecutor {
     image_handler: ImageSourceHandler,
 
     /// Cached execution order to avoid recomputing topology every frame
-    cached_execution_order: Option<Vec<NodeId>>,
+    cached_execution_order: Option<Vec<EngineNodeId>>,
 
     /// The ID of the current output node (last execution)
-    output_node_id: NodeId,
+    output_node_id: EngineNodeId,
 }
 
 /// The result of executing a node graph.
@@ -109,7 +118,7 @@ impl GraphExecutor {
             image_handler: ImageSourceHandler::new(),
             target_format: format,
             cached_execution_order: None,
-            output_node_id: NodeId(0),
+            output_node_id: EngineNodeId(0),
         }
     }
 
@@ -137,12 +146,12 @@ impl GraphExecutor {
 
     /// Get the cached outputs for a specific node, if available
     /// Returns None if the node hasn't been executed yet
-    pub fn get_node_outputs(&self, node_id: NodeId) -> Option<&HashMap<String, OutputValue>> {
+    pub fn get_node_outputs(&self, node_id: EngineNodeId) -> Option<&HashMap<String, OutputValue>> {
         self.output_cache.get(&node_id)
     }
 
     /// Get the ID of the current output node (from the last execution)
-    pub fn get_output_node_id(&self) -> NodeId {
+    pub fn get_output_node_id(&self) -> EngineNodeId {
         self.output_node_id
     }
 
@@ -252,6 +261,10 @@ impl GraphExecutor {
                         ExecutionError::OutputNotFound(*from_node, output_name.clone())
                     })?;
 
+<<<<<<< HEAD
+=======
+                    // Use the output value directly (same type as ResolvedInput)
+>>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
                     output.clone()
                 }
                 InputValue::Bool(b) => NodeValue::Bool(*b),

@@ -1,7 +1,12 @@
 //! Conversion utilities between node input/output kinds and resolved values
 
+<<<<<<< HEAD
 use crate::graph_executor::NodeValue;
 use crate::node::engine_node::{NodeInputKind, NodeOutputKind};
+=======
+use crate::graph_executor::Value;
+use crate::node::node::{NodeInputKind, NodeOutputKind};
+>>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
 
 /// Convert a NodeInputKind to its corresponding NodeOutputKind for connection typing
 pub fn input_kind_to_output_kind(input_kind: &NodeInputKind) -> NodeOutputKind {
@@ -20,6 +25,7 @@ pub fn input_kind_to_output_kind(input_kind: &NodeInputKind) -> NodeOutputKind {
 }
 
 /// Create a default Value from a NodeInputKind
+<<<<<<< HEAD
 pub fn default_value_for_input_kind(input_kind: &NodeInputKind) -> NodeValue {
     match input_kind {
         NodeInputKind::Frame => panic!("Frame inputs cannot have default values"),
@@ -32,5 +38,25 @@ pub fn default_value_for_input_kind(input_kind: &NodeInputKind) -> NodeValue {
         NodeInputKind::Text { default, .. } => NodeValue::Text(default.clone()),
         NodeInputKind::Enum { default_idx, .. } => NodeValue::Enum(default_idx.unwrap_or(0)),
         NodeInputKind::File { default, .. } => NodeValue::File(default.clone().unwrap_or_default()),
+=======
+pub fn default_value_for_input_kind(input_kind: &NodeInputKind) -> Value {
+    match input_kind {
+        NodeInputKind::Frame => panic!("Frame inputs cannot have default values"),
+        NodeInputKind::Midi => Value::Float(0.0), // Placeholder
+        NodeInputKind::Bool { default, .. } => Value::Bool(*default),
+        NodeInputKind::Int { default, .. } => Value::Int(*default),
+        NodeInputKind::Float { default, .. } => Value::Float(*default),
+        NodeInputKind::Dimensions { default, .. } => {
+            Value::Dimensions(default.0, default.1)
+        }
+        NodeInputKind::Pixel { default, .. } => Value::Pixel(*default),
+        NodeInputKind::Text { default, .. } => Value::Text(default.clone()),
+        NodeInputKind::Enum { default_idx, .. } => {
+            Value::Enum(default_idx.unwrap_or(0))
+        }
+        NodeInputKind::File { default, .. } => {
+            Value::File(default.clone().unwrap_or_default())
+        }
+>>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
     }
 }

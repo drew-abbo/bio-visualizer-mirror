@@ -5,9 +5,10 @@ mod title_bar_area;
 pub use title_bar_area::TitleBarArea;
 =======
 mod toolbar;
-use crate::app_area::title_bar::toolbar::ToolBar;
+use crate::area::title_bar::toolbar::ToolBar;
 use crate::view::View;
 use egui_phosphor::regular;
+use util::egui;
 
 pub struct TitleBar {
     tool_bar: ToolBar,
