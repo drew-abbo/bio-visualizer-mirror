@@ -14,3 +14,6 @@ pub mod uid;
 pub mod version;
 
 mod eprint_and_exit;
+
+pub use eframe;
+pub use egui;

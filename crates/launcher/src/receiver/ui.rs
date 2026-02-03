@@ -10,7 +10,7 @@ use std::process::ExitCode;
 use serde::{Deserialize, Serialize};
 
 use eframe::NativeOptions;
-use egui::{Vec2, ViewportBuilder};
+use util::egui::{Vec2, ViewportBuilder};
 
 use util::version;
 

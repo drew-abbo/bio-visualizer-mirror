@@ -1,4 +1,5 @@
 use std::time::Duration;
+use util::egui;
 
 /// Controls for playback of node execution
 #[derive(Clone, Debug)]
@@ -107,7 +108,11 @@ impl PlaybackControls {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             // Play/Pause button
-            let play_button_text = if self.playing { "⏸ Pause" } else { "▶ Play" };
+            let play_button_text = if self.playing {
+                "⏸ Pause"
+            } else {
+                "▶ Play"
+            };
             if ui.button(play_button_text).clicked() {
                 self.toggle();
             }
