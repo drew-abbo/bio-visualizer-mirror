@@ -15,7 +15,6 @@ struct UserState {
 
 #[derive(Clone, Debug)]
 struct NodeData {
-    #[allow(dead_code)]
     definition_name: String,
 }
 

@@ -3,8 +3,8 @@
 use core::f32;
 use std::collections::VecDeque;
 
-use egui::text::LayoutJob;
-use egui::{
+use util::egui::text::LayoutJob;
+use util::egui::{
     self, Align, CentralPanel, Color32, Context, CursorIcon, FontId, Frame, Id, Image, ImageSource,
     IntoAtoms, Key, KeyboardShortcut, LayerId, Layout, Margin, Modifiers, Order, Pos2, Rect,
     Response, RichText, ScrollArea, Sense, Stroke, StrokeKind, TextEdit, TextFormat, TextStyle,

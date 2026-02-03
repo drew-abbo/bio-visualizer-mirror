@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 use crate::node::node::NodeOutputKind;
-use crate::node_graph::NodeId;
+use crate::node_graph::EngineNodeId;
 
 /// Errors that can occur during graph execution
 #[derive(Error, Debug)]
@@ -12,16 +12,16 @@ pub enum ExecutionError {
     GraphError(#[from] crate::node_graph::GraphError),
 
     #[error("Node {0} not found")]
-    NodeNotFound(NodeId),
+    NodeNotFound(EngineNodeId),
 
     #[error("Node definition '{0}' not found")]
     DefinitionNotFound(String),
 
     #[error("Node {0} has not been executed yet")]
-    NodeNotExecuted(NodeId),
+    NodeNotExecuted(EngineNodeId),
 
     #[error("Output '{1}' not found on node {0}")]
-    OutputNotFound(NodeId, String),
+    OutputNotFound(EngineNodeId, String),
 
     #[error("No output node in graph")]
     NoOutputNode,
@@ -30,7 +30,7 @@ pub enum ExecutionError {
     NoOutputProduced,
 
     #[error("Frame input '{1}' on node {0} is not connected")]
-    UnconnectedFrameInput(NodeId, String),
+    UnconnectedFrameInput(EngineNodeId, String),
 
     #[error("Node '{0}' has no frame input")]
     NoFrameInput(String),

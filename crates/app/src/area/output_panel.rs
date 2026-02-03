@@ -1,9 +1,10 @@
+use super::playback_controls::PlaybackControls;
 use crate::components::FrameDisplay;
 use crate::view::View;
-use super::playback_controls::PlaybackControls;
-use egui_node_editor::NodeId;
-use engine::graph_executor::OutputValue;
+use egui_node_graph2::NodeId;
+use engine::graph_executor::Value;
 use media::frame::Uid;
+use util::egui;
 
 /// Manages the output panel display state and behavior
 pub struct OutputPanel {
@@ -11,11 +12,11 @@ pub struct OutputPanel {
     is_open: bool,
     is_docked: bool,
     window_size: egui::Vec2,
-    
+
     // Output tracking
     selected_node_id: Option<NodeId>,
     playback_controls: PlaybackControls,
-    current_output: Option<OutputValue>,
+    current_output: Option<Value>,
 }
 
 impl OutputPanel {
@@ -95,7 +96,7 @@ impl OutputPanel {
     }
 
     /// Set the current output value to display
-    pub fn set_output_value(&mut self, output: OutputValue) {
+    pub fn set_output_value(&mut self, output: Value) {
         self.current_output = Some(output);
     }
 
@@ -120,13 +121,16 @@ impl OutputPanel {
     pub fn set_output_frame(
         &mut self,
         render_state: &egui_wgpu::RenderState,
-        output: &OutputValue,
+        output: &Value,
     ) {
         match output {
-            OutputValue::Frame(gpu_frame) => {
+            Value::Frame(gpu_frame) => {
                 // Generate a unique ID for this frame
                 let frame_id = Uid::generate_new();
-                let size = [gpu_frame.size.width as usize, gpu_frame.size.height as usize];
+                let size = [
+                    gpu_frame.size.width as usize,
+                    gpu_frame.size.height as usize,
+                ];
                 self.frame_display.set_wgpu_texture_if_changed(
                     render_state,
                     gpu_frame.view(),
@@ -192,7 +196,7 @@ impl OutputPanel {
             if ui.button("🗖 Undock").clicked() {
                 *docked = false;
             }
-            
+
             // Show selected node info
             if let Some(node_id) = self.selected_node_id {
                 ui.separator();
@@ -209,34 +213,46 @@ impl OutputPanel {
         // Playback controls
         self.playback_controls.ui(ui);
         ui.separator();
-        
+
         // Display output value
         if let Some(ref output) = self.current_output {
             match output {
-                OutputValue::Frame(gpu_frame) => {
-                    ui.label(format!("Frame: {}x{}", gpu_frame.size.width, gpu_frame.size.height));
+                Value::Frame(gpu_frame) => {
+                    ui.label(format!(
+                        "Frame: {}x{}",
+                        gpu_frame.size.width, gpu_frame.size.height
+                    ));
                     // Frame display
                     egui::Frame::NONE.show(ui, |ui| {
                         self.frame_display.render_content(ui);
                     });
                 }
-                OutputValue::Bool(val) => {
+                Value::Bool(val) => {
                     ui.label(format!("Bool: {}", val));
                 }
-                OutputValue::Int(val) => {
+                Value::Int(val) => {
                     ui.label(format!("Int: {}", val));
                 }
-                OutputValue::Float(val) => {
+                Value::Float(val) => {
                     ui.label(format!("Float: {}", val));
                 }
-                OutputValue::Dimensions(w, h) => {
+                Value::Dimensions(w, h) => {
                     ui.label(format!("Dimensions: {}x{}", w, h));
                 }
-                OutputValue::Pixel(rgba) => {
-                    ui.label(format!("Pixel: RGBA({}, {}, {}, {})", rgba[0], rgba[1], rgba[2], rgba[3]));
+                Value::Pixel(rgba) => {
+                    ui.label(format!(
+                        "Pixel: RGBA({}, {}, {}, {})",
+                        rgba[0], rgba[1], rgba[2], rgba[3]
+                    ));
                 }
-                OutputValue::Text(text) => {
+                Value::Text(text) => {
                     ui.label(format!("Text: {}", text));
+                }
+                Value::Enum(val) => {
+                    ui.label(format!("Enum: {}", val));
+                }
+                Value::File(path) => {
+                    ui.label(format!("File: {}", path.display()));
                 }
             }
         } else {

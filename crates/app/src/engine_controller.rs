@@ -1,8 +1,8 @@
 use engine::graph_executor::GraphExecutor;
 use engine::node::NodeLibrary;
-use engine::node_graph::{NodeGraph, NodeId};
+use engine::node_graph::{EngineNodeId, NodeGraph};
 use std::path::PathBuf;
-use eframe::wgpu;
+use util::eframe::wgpu;
 
 pub struct EngineController {
     graph_executor: GraphExecutor,
@@ -49,12 +49,15 @@ impl EngineController {
     /// Get outputs for a specific node from the cache
     /// Returns None if the node hasn't been executed yet
     #[allow(dead_code)]
-    pub fn get_node_outputs(&self, node_id: NodeId) -> Option<&std::collections::HashMap<String, engine::graph_executor::OutputValue>> {
+    pub fn get_node_outputs(
+        &self,
+        node_id: EngineNodeId,
+    ) -> Option<&std::collections::HashMap<String, engine::graph_executor::OutputValue>> {
         self.graph_executor.get_node_outputs(node_id)
     }
 
     /// Get the output node ID (the final output node of the graph)
-    pub fn get_output_node_id(&self) -> NodeId {
+    pub fn get_output_node_id(&self) -> EngineNodeId {
         self.graph_executor.get_output_node_id()
     }
 
@@ -78,7 +81,8 @@ impl EngineController {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.graph_executor.execute(&self.node_graph, &self.node_library, device, queue)?;
+        self.graph_executor
+            .execute(&self.node_graph, &self.node_library, device, queue)?;
         Ok(())
     }
 }

@@ -10,35 +10,35 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Unique identifier for a node instance in the graph
-/// This is intentionally compatible with egui_node_editor::NodeId (u32)
+/// This is intentionally compatible with egui_node_editor::EngineNodeId (u32)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
-pub struct NodeId(pub u32);
+pub struct EngineNodeId(pub u32);
 
-impl NodeId {
+impl EngineNodeId {
     pub fn new(id: u32) -> Self {
-        NodeId(id)
+        EngineNodeId(id)
     }
 }
 
-impl From<u32> for NodeId {
+impl From<u32> for EngineNodeId {
     fn from(id: u32) -> Self {
-        NodeId(id)
+        EngineNodeId(id)
     }
 }
 
-impl From<NodeId> for u32 {
-    fn from(id: NodeId) -> Self {
+impl From<EngineNodeId> for u32 {
+    fn from(id: EngineNodeId) -> Self {
         id.0
     }
 }
 
-impl std::fmt::Display for NodeId {
+impl std::fmt::Display for EngineNodeId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl std::ops::AddAssign<u32> for NodeId {
+impl std::ops::AddAssign<u32> for EngineNodeId {
     fn add_assign(&mut self, rhs: u32) {
         self.0 += rhs;
     }
@@ -48,7 +48,7 @@ impl std::ops::AddAssign<u32> for NodeId {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeInstance {
     /// Unique ID for this instance
-    pub id: NodeId,
+    pub id: EngineNodeId,
 
     /// Name of the node definition this instance is based on
     /// References a Node loaded from node.json
@@ -63,13 +63,13 @@ pub struct NodeInstance {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Connection {
     /// Source node ID
-    pub from_node: NodeId,
+    pub from_node: EngineNodeId,
 
     /// Name of the output on the source node
     pub from_output: String,
 
     /// Destination node ID
-    pub to_node: NodeId,
+    pub to_node: EngineNodeId,
 
     /// Name of the input on the destination node
     pub to_input: String,
@@ -78,9 +78,9 @@ pub struct Connection {
 /// In-memory graph used by the executor; supports mutations and topological sort.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeGraph {
-    instances: HashMap<NodeId, NodeInstance>,
+    instances: HashMap<EngineNodeId, NodeInstance>,
     connections: Vec<Connection>,
-    next_id: NodeId,
+    next_id: EngineNodeId,
 }
 
 impl Default for NodeGraph {
@@ -94,13 +94,13 @@ impl NodeGraph {
         Self {
             instances: HashMap::new(),
             connections: Vec::new(),
-            next_id: NodeId(0),
+            next_id: EngineNodeId(0),
         }
     }
 
-    /// Add a new node instance and return its [NodeId].
+    /// Add a new node instance and return its [EngineNodeId].
     /// definition_name should match a loaded [crate::node::NodeDefinition] at execution time.
-    pub fn add_instance(&mut self, definition_name: String) -> NodeId {
+    pub fn add_instance(&mut self, definition_name: String) -> EngineNodeId {
         let id = self.next_id;
         self.next_id += 1;
 
@@ -118,7 +118,7 @@ impl NodeGraph {
 
     /// Add a node instance with a specific ID (used when syncing from UI graph).
     /// definition_name should match a loaded [crate::node::NodeDefinition] at execution time.
-    pub fn add_instance_with_id(&mut self, id: NodeId, definition_name: String) {
+    pub fn add_instance_with_id(&mut self, id: EngineNodeId, definition_name: String) {
         self.instances.insert(
             id,
             NodeInstance {
@@ -129,12 +129,12 @@ impl NodeGraph {
         );
 
         if id.0 >= self.next_id.0 {
-            self.next_id = NodeId(id.0 + 1);
+            self.next_id = EngineNodeId(id.0 + 1);
         }
     }
 
     /// Remove a node instance and any connections to/from it.
-    pub fn remove_instance(&mut self, id: NodeId) -> Option<NodeInstance> {
+    pub fn remove_instance(&mut self, id: EngineNodeId) -> Option<NodeInstance> {
         self.connections
             .retain(|conn| conn.from_node != id && conn.to_node != id);
 
@@ -147,9 +147,9 @@ impl NodeGraph {
     /// the source node/output.
     pub fn connect(
         &mut self,
-        from_node: NodeId,
+        from_node: EngineNodeId,
         output_name: String,
-        to_node: NodeId,
+        to_node: EngineNodeId,
         input_name: String,
     ) -> Result<(), GraphError> {
         if !self.instances.contains_key(&from_node) {
@@ -191,7 +191,7 @@ impl NodeGraph {
         Ok(())
     }
 
-    pub fn disconnect(&mut self, to_node: NodeId, input_name: &str) -> bool {
+    pub fn disconnect(&mut self, to_node: EngineNodeId, input_name: &str) -> bool {
         let removed = self
             .connections
             .iter()
@@ -208,7 +208,7 @@ impl NodeGraph {
 
     pub fn set_input_value(
         &mut self,
-        node_id: NodeId,
+        node_id: EngineNodeId,
         input_name: String,
         value: InputValue,
     ) -> Result<(), GraphError> {
@@ -225,15 +225,15 @@ impl NodeGraph {
         Ok(())
     }
 
-    pub fn get_instance(&self, id: NodeId) -> Option<&NodeInstance> {
+    pub fn get_instance(&self, id: EngineNodeId) -> Option<&NodeInstance> {
         self.instances.get(&id)
     }
 
-    pub fn get_instance_mut(&mut self, id: NodeId) -> Option<&mut NodeInstance> {
+    pub fn get_instance_mut(&mut self, id: EngineNodeId) -> Option<&mut NodeInstance> {
         self.instances.get_mut(&id)
     }
 
-    pub fn instances(&self) -> &HashMap<NodeId, NodeInstance> {
+    pub fn instances(&self) -> &HashMap<EngineNodeId, NodeInstance> {
         &self.instances
     }
 
@@ -242,7 +242,7 @@ impl NodeGraph {
     }
 
     /// Find all connections where `node_id` is the source.
-    pub fn outgoing_connections(&self, node_id: NodeId) -> Vec<&Connection> {
+    pub fn outgoing_connections(&self, node_id: EngineNodeId) -> Vec<&Connection> {
         self.connections
             .iter()
             .filter(|c| c.from_node == node_id)
@@ -250,7 +250,7 @@ impl NodeGraph {
     }
 
     /// Find all connections where `node_id` is the destination.
-    pub fn incoming_connections(&self, node_id: NodeId) -> Vec<&Connection> {
+    pub fn incoming_connections(&self, node_id: EngineNodeId) -> Vec<&Connection> {
         self.connections
             .iter()
             .filter(|c| c.to_node == node_id)
@@ -258,7 +258,7 @@ impl NodeGraph {
     }
 
     /// Get the connection feeding into a specific input, if any.
-    pub fn get_input_connection(&self, node_id: NodeId, input_name: &str) -> Option<&Connection> {
+    pub fn get_input_connection(&self, node_id: EngineNodeId, input_name: &str) -> Option<&Connection> {
         self.connections
             .iter()
             .find(|c| c.to_node == node_id && c.to_input == input_name)
@@ -280,9 +280,9 @@ impl NodeGraph {
 
     fn has_cycle_util(
         &self,
-        node_id: NodeId,
-        visited: &mut HashMap<NodeId, bool>,
-        rec_stack: &mut HashMap<NodeId, bool>,
+        node_id: EngineNodeId,
+        visited: &mut HashMap<EngineNodeId, bool>,
+        rec_stack: &mut HashMap<EngineNodeId, bool>,
     ) -> bool {
         if *rec_stack.get(&node_id).unwrap_or(&false) {
             return true;
@@ -307,14 +307,14 @@ impl NodeGraph {
 
     /// Get execution order using topological sort.
     ///
-    /// Returns a vector of [NodeId] values ordered so that dependencies appear
+    /// Returns a vector of [EngineNodeId] values ordered so that dependencies appear
     /// before their consumers. If the graph contains a cycle this method
-    pub fn execution_order(&self) -> Result<Vec<NodeId>, GraphError> {
+    pub fn execution_order(&self) -> Result<Vec<EngineNodeId>, GraphError> {
         if self.has_cycles() {
             return Err(GraphError::CyclicGraph);
         }
 
-        let mut in_degree: HashMap<NodeId, usize> = HashMap::new();
+        let mut in_degree: HashMap<EngineNodeId, usize> = HashMap::new();
         let mut order = Vec::new();
 
         for &node_id in self.instances.keys() {
@@ -325,7 +325,7 @@ impl NodeGraph {
             *in_degree.get_mut(&conn.to_node).unwrap() += 1;
         }
 
-        let mut queue: Vec<NodeId> = in_degree
+        let mut queue: Vec<EngineNodeId> = in_degree
             .iter()
             .filter(|entry| *entry.1 == 0)
             .map(|(id, _)| *id)
@@ -348,7 +348,7 @@ impl NodeGraph {
     }
 
     /// Find output nodes (nodes with no outgoing connections).
-    pub fn find_output_nodes(&self) -> Vec<NodeId> {
+    pub fn find_output_nodes(&self) -> Vec<EngineNodeId> {
         self.instances
             .keys()
             .filter(|&&id| self.outgoing_connections(id).is_empty())
@@ -360,7 +360,7 @@ impl NodeGraph {
     pub fn clear(&mut self) {
         self.instances.clear();
         self.connections.clear();
-        self.next_id = NodeId(0);
+        self.next_id = EngineNodeId(0);
     }
 
     pub fn is_empty(&self) -> bool {
@@ -372,7 +372,7 @@ impl NodeGraph {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum InputValue {
     Connection {
-        from_node: NodeId,
+        from_node: EngineNodeId,
         output_name: String,
     },
     Frame,
@@ -398,7 +398,7 @@ pub enum InputValue {
 #[derive(Error, Debug, Clone)]
 pub enum GraphError {
     #[error("Node {0} not found")]
-    NodeNotFound(NodeId),
+    NodeNotFound(EngineNodeId),
 
     #[error("Cannot connect node to itself")]
     SelfConnection,
