@@ -1,5 +1,5 @@
 //! Executes a [NodeGraph] and returns node outputs. Public types re-exported
-//! at [crate::graph_executor]: [ResolvedInput], [OutputValue], [ExecutionError].
+//! at [crate::graph_executor]: [NodeValue], [NodeValue], [ExecutionError].
 mod enums;
 mod errors;
 use std::any::Any;
@@ -31,8 +31,8 @@ pub struct GraphExecutor {
     upload_stager: UploadStager,
 
     /// Cache of node outputs from the current execution
-    /// Maps: EngineNodeId -> { "output_name" -> OutputValue }
-    output_cache: HashMap<EngineNodeId, HashMap<String, OutputValue>>,
+    /// Maps: EngineNodeId -> { "output_name" -> NodeValue }
+    output_cache: HashMap<EngineNodeId, HashMap<String, NodeValue>>,
 
     /// Cache of compiled pipelines
     /// Maps: definition_name -> compiled pipeline
@@ -65,12 +65,12 @@ pub struct ExecutionResult<'a> {
     /// The node id chosen as the graph's output
     pub output_node_id: EngineNodeId,
 
-    /// Map of output name -> [OutputValue] produced by the output node.
+    /// Map of output name -> [NodeValue] produced by the output node.
     ///
     /// Note: the [&'a] lifetime ties this reference to the executor borrow
     /// used for the execution call; the consumer must not expect the
     /// outputs to outlive the executor or subsequent executions.
-    pub outputs: &'a HashMap<String, OutputValue>,
+    pub outputs: &'a HashMap<String, NodeValue>,
 }
 
 impl GraphExecutor {
@@ -111,7 +111,7 @@ impl GraphExecutor {
 
     /// Get the cached outputs for a specific node, if available
     /// Returns None if the node hasn't been executed yet
-    pub fn get_node_outputs(&self, node_id: EngineNodeId) -> Option<&HashMap<String, OutputValue>> {
+    pub fn get_node_outputs(&self, node_id: EngineNodeId) -> Option<&HashMap<String, NodeValue>> {
         self.output_cache.get(&node_id)
     }
 
@@ -120,22 +120,35 @@ impl GraphExecutor {
         self.output_node_id
     }
 
-    /// Execute the entire node graph
+    /// Execute the node graph, optionally targeting a specific node id.
     pub fn execute<'a>(
         &'a mut self,
         graph: &NodeGraph,
         library: &NodeLibrary,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        target_node_id: Option<EngineNodeId>,
     ) -> Result<ExecutionResult<'a>, ExecutionError> {
         // Clear cache from previous execution
         self.output_cache.clear();
+
+        if let Some(target) = target_node_id {
+            if graph.get_instance(target).is_none() {
+                return Err(ExecutionError::TargetNodeNotFound(target));
+            }
+        }
 
         // Get execution order (topologically sorted)
         // Always recompute to handle graph structure changes (nodes added/removed)
         let order = graph
             .execution_order()
             .map_err(ExecutionError::GraphError)?;
+
+        if let Some(target) = target_node_id {
+            if !order.contains(&target) {
+                return Err(ExecutionError::TargetNodeNotInExecutionOrder(target));
+            }
+        }
 
         // Execute each node in order
         for &node_id in &order {
@@ -165,17 +178,25 @@ impl GraphExecutor {
 
             // Cache the outputs
             self.output_cache.insert(node_id, outputs);
+
+            if Some(node_id) == target_node_id {
+                break;
+            }
         }
 
-        // Find output nodes and return their results
-        let output_nodes = graph.find_output_nodes();
+        // Determine output node id
+        let output_node_id = if let Some(target) = target_node_id {
+            target
+        } else {
+            let output_nodes = graph.find_output_nodes();
 
-        if output_nodes.is_empty() {
-            return Err(ExecutionError::NoOutputNode);
-        }
+            if output_nodes.is_empty() {
+                return Err(ExecutionError::NoOutputNode);
+            }
 
-        // For now, return the first output node's result
-        let output_node_id = output_nodes[0];
+            // For now, return the first output node's result
+            output_nodes[0]
+        };
         self.output_node_id = output_node_id;
         let outputs = self
             .output_cache
@@ -189,11 +210,11 @@ impl GraphExecutor {
     }
 
     /// Resolve all inputs for a node instance
-    /// Converts InputValue::Connection references into actual OutputValues
+    /// Converts InputValue::Connection references into actual NodeValues
     fn resolve_inputs(
         &self,
         instance: &NodeInstance,
-    ) -> Result<HashMap<String, ResolvedInput>, ExecutionError> {
+    ) -> Result<HashMap<String, NodeValue>, ExecutionError> {
         let mut resolved = HashMap::new();
 
         for (input_name, input_value) in &instance.input_values {
@@ -212,19 +233,18 @@ impl GraphExecutor {
                         ExecutionError::OutputNotFound(*from_node, output_name.clone())
                     })?;
 
-                    // Use the output value directly (same type as ResolvedInput)
                     output.clone()
                 }
-                InputValue::Bool(b) => ResolvedInput::Bool(*b),
-                InputValue::Int(i) => ResolvedInput::Int(*i),
-                InputValue::Float(f) => ResolvedInput::Float(*f),
+                InputValue::Bool(b) => NodeValue::Bool(*b),
+                InputValue::Int(i) => NodeValue::Int(*i),
+                InputValue::Float(f) => NodeValue::Float(*f),
                 InputValue::Dimensions { width, height } => {
-                    ResolvedInput::Dimensions(*width, *height)
+                    NodeValue::Dimensions(*width, *height)
                 }
-                InputValue::Pixel { r, g, b, a } => ResolvedInput::Pixel([*r, *g, *b, *a]),
-                InputValue::Text(t) => ResolvedInput::Text(t.clone()),
-                InputValue::Enum(idx) => ResolvedInput::Enum(*idx),
-                InputValue::File(path) => ResolvedInput::File(path.clone()),
+                InputValue::Pixel { r, g, b, a } => NodeValue::Pixel([*r, *g, *b, *a]),
+                InputValue::Text(t) => NodeValue::Text(t.clone()),
+                InputValue::Enum(idx) => NodeValue::Enum(*idx),
+                InputValue::File(path) => NodeValue::File(path.clone()),
                 InputValue::Frame => {
                     // Default empty frame
                     return Err(ExecutionError::UnconnectedFrameInput(
@@ -246,8 +266,8 @@ impl GraphExecutor {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         definition: &NodeDefinition,
-        inputs: &HashMap<String, ResolvedInput>,
-    ) -> Result<HashMap<String, OutputValue>, ExecutionError> {
+        inputs: &HashMap<String, NodeValue>,
+    ) -> Result<HashMap<String, NodeValue>, ExecutionError> {
         // Get or create the pipeline for this shader
         if !self.pipeline_cache.contains_key(&definition.node.name) {
             // Load shader code
@@ -275,7 +295,7 @@ impl GraphExecutor {
             .filter_map(|input_def| {
                 if matches!(input_def.kind, crate::node::node::NodeInputKind::Frame) {
                     inputs.get(&input_def.name).and_then(|input| match input {
-                        ResolvedInput::Frame(frame) => Some(frame),
+                        NodeValue::Frame(frame) => Some(frame),
                         _ => None,
                     })
                 } else {
@@ -342,7 +362,7 @@ impl GraphExecutor {
                 NodeOutputKind::Frame => {
                     outputs.insert(
                         output_def.name.clone(),
-                        OutputValue::Frame(output_frame.clone()),
+                        NodeValue::Frame(output_frame.clone()),
                     );
                 }
                 _ => {
@@ -359,10 +379,10 @@ impl GraphExecutor {
     fn execute_builtin_node(
         &mut self,
         handler_type: &BuiltInHandler,
-        inputs: &HashMap<String, ResolvedInput>,
+        inputs: &HashMap<String, NodeValue>,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-    ) -> Result<HashMap<String, OutputValue>, ExecutionError> {
+    ) -> Result<HashMap<String, NodeValue>, ExecutionError> {
         match *handler_type {
             BuiltInHandler::ImageSource => {
                 self.image_handler
@@ -391,12 +411,12 @@ impl GraphExecutor {
     /// Convert resolved inputs into shader parameters
     fn inputs_to_shader_params(
         &self,
-        inputs: &HashMap<String, ResolvedInput>,
+        inputs: &HashMap<String, NodeValue>,
     ) -> Result<Box<dyn Any>, ExecutionError> {
         // Filter out Frame inputs (they're bound as textures, not uniform params)
-        let shader_params: HashMap<String, ResolvedInput> = inputs
+        let shader_params: HashMap<String, NodeValue> = inputs
             .iter()
-            .filter(|(.., value)| !matches!(value, ResolvedInput::Frame(_)))
+            .filter(|(.., value)| !matches!(value, NodeValue::Frame(_)))
             .map(|(name, value)| (name.clone(), value.clone()))
             .collect();
 

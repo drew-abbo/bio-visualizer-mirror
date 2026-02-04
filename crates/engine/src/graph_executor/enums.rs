@@ -7,7 +7,7 @@ use crate::gpu_frame::GpuFrame;
 /// This type is used throughout the execution pipeline, from initial input resolution
 /// to final output collection.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Value {
+pub enum NodeValue {
     /// A GPU-backed frame/texture
     Frame(GpuFrame),
     Bool(bool),
@@ -22,13 +22,8 @@ pub enum Value {
     File(PathBuf),
 }
 
-impl Default for Value {
+impl Default for NodeValue {
     fn default() -> Self {
-        Value::Float(0.0)
+        NodeValue::Float(0.0)
     }
 }
-
-// Type aliases for backward compatibility and semantic clarity
-pub type ResolvedInput = Value;
-pub type OutputValue = Value;
-

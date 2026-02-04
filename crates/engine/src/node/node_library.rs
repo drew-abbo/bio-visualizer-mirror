@@ -45,11 +45,13 @@ impl NodeLibrary {
         // Recursively scan for node.json files
         Self::scan_directory(&nodes_folder, &nodes_folder, &mut definitions)?;
 
-        println!(
-            "Loaded {} node definitions from {:?}",
-            definitions.len(),
-            nodes_folder
-        );
+        if cfg!(debug_assertions) {
+            println!(
+                "Loaded {} node definitions from {:?}",
+                definitions.len(),
+                nodes_folder
+            );
+        }
 
         Ok(Self {
             definitions,
