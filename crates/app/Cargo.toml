@@ -11,8 +11,7 @@ egui-wgpu = "0.33.3"
 thiserror = "2"
 rfd = "0.17.2"
 egui-phosphor = "0.11"
-egui_node_graph2 = "0.7"
-ecolor = "0.29"
+egui-snarl = "0.9"
 slotmap = "1.0"
 util = { version = "0.1.0", path = "../util" }
 

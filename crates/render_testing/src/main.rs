@@ -7,8 +7,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
-use engine::graph_executor::GraphExecutor;
-use engine::graph_executor::OutputValue;
+use engine::graph_executor::{GraphExecutor, NodeValue};
 use engine::node::NodeLibrary;
 use engine::wgpu;
 
@@ -364,8 +363,8 @@ impl ApplicationHandler for App {
                     self.device.as_ref(),
                     self.queue.as_ref(),
                 ) {
-                    let result = exec.execute(graph, lib, dev, q).unwrap();
-                    if let Some(OutputValue::Frame(frame)) = result.outputs.get("output") {
+                    let result = exec.execute(graph, lib, dev, q, None).unwrap();
+                    if let Some(NodeValue::Frame(frame)) = result.outputs.get("output") {
                         self.last_output = Some(frame.view().clone());
                     }
                 }

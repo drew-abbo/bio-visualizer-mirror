@@ -14,6 +14,12 @@ pub enum ExecutionError {
     #[error("Node {0} not found")]
     NodeNotFound(EngineNodeId),
 
+    #[error("Target node {0} not found in graph")]
+    TargetNodeNotFound(EngineNodeId),
+
+    #[error("Target node {0} is not in execution order")]
+    TargetNodeNotInExecutionOrder(EngineNodeId),
+
     #[error("Node definition '{0}' not found")]
     DefinitionNotFound(String),
 

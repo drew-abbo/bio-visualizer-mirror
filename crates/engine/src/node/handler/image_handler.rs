@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::gpu_frame::GpuFrame;
-use crate::graph_executor::{ExecutionError, OutputValue, ResolvedInput};
+use crate::graph_executor::{ExecutionError, NodeValue};
 use crate::node::handler::node_handler::NodeHandler;
 use crate::upload_stager::UploadStager;
 
@@ -32,15 +32,15 @@ impl Default for ImageSourceHandler {
 impl NodeHandler for ImageSourceHandler {
     fn execute(
         &mut self,
-        inputs: &HashMap<String, ResolvedInput>,
+        inputs: &HashMap<String, NodeValue>,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         upload_stager: &mut UploadStager,
-    ) -> Result<HashMap<String, OutputValue>, ExecutionError> {
+    ) -> Result<HashMap<String, NodeValue>, ExecutionError> {
         let path = inputs
             .get("path")
             .and_then(|v| match v {
-                ResolvedInput::File(p) => Some(p),
+                NodeValue::File(p) => Some(p),
                 _ => None,
             })
             .ok_or(ExecutionError::InvalidInputType)?;
@@ -75,7 +75,7 @@ impl NodeHandler for ImageSourceHandler {
 
         let gpu_frame = self.frame_cache.get(path).unwrap().clone();
         let mut outputs = HashMap::new();
-        outputs.insert("output".to_string(), OutputValue::Frame(gpu_frame));
+        outputs.insert("output".to_string(), NodeValue::Frame(gpu_frame));
         Ok(outputs)
     }
 }

@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 
-use crate::graph_executor::{ExecutionError, OutputValue, ResolvedInput};
+use crate::graph_executor::{ExecutionError, NodeValue};
 use crate::upload_stager::UploadStager;
 
 pub trait NodeHandler {
     fn execute(
         &mut self,
-        inputs: &HashMap<String, ResolvedInput>,
+        inputs: &HashMap<String, NodeValue>,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         upload_stager: &mut UploadStager,
-    ) -> Result<HashMap<String, OutputValue>, ExecutionError>;
+    ) -> Result<HashMap<String, NodeValue>, ExecutionError>;
 }
