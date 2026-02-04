@@ -73,6 +73,24 @@ pub struct ExecutionResult<'a> {
     pub outputs: &'a HashMap<String, NodeValue>,
 }
 
+/// Execution context supplied by the app (timeline/master FPS, etc.).
+#[derive(Debug, Clone, Copy)]
+pub struct ExecutionContext {
+    pub timeline_time_secs: f64,
+    pub sampling_rate_hz: f64,
+    pub advance_frame: bool,
+}
+
+impl Default for ExecutionContext {
+    fn default() -> Self {
+        Self {
+            timeline_time_secs: 0.0,
+            sampling_rate_hz: 30.0,
+            advance_frame: true,
+        }
+    }
+}
+
 impl GraphExecutor {
     pub fn new(format: wgpu::TextureFormat) -> Self {
         Self {
@@ -128,6 +146,7 @@ impl GraphExecutor {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         target_node_id: Option<EngineNodeId>,
+        context: ExecutionContext,
     ) -> Result<ExecutionResult<'a>, ExecutionError> {
         // Clear cache from previous execution
         self.output_cache.clear();
@@ -172,7 +191,14 @@ impl GraphExecutor {
                     self.execute_shader_node(device, queue, definition, &resolved_inputs)?
                 }
                 NodeExecutionPlan::BuiltIn(handler) => {
-                    self.execute_builtin_node(handler, &resolved_inputs, device, queue)?
+                    self.execute_builtin_node(
+                        handler,
+                        &resolved_inputs,
+                        device,
+                        queue,
+                        definition,
+                        &context,
+                    )?
                 }
             };
 
@@ -382,18 +408,32 @@ impl GraphExecutor {
         inputs: &HashMap<String, NodeValue>,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        definition: &NodeDefinition,
+        context: &ExecutionContext,
     ) -> Result<HashMap<String, NodeValue>, ExecutionError> {
-        match *handler_type {
+        let output_values = match *handler_type {
             BuiltInHandler::ImageSource => {
                 self.image_handler
-                    .execute(inputs, device, queue, &mut self.upload_stager)
+                    .execute(inputs, device, queue, &mut self.upload_stager, context)?
             }
             BuiltInHandler::VideoSource => {
                 self.video_handler
-                    .execute(inputs, device, queue, &mut self.upload_stager)
+                    .execute(inputs, device, queue, &mut self.upload_stager, context)?
             }
-            BuiltInHandler::MidiSource => Err(ExecutionError::InvalidInputType),
+            BuiltInHandler::MidiSource => return Err(ExecutionError::InvalidInputType),
+        };
+
+        // Map the Vec<NodeValue> to HashMap<String, NodeValue> using output names from definition
+        // I wanted this to be more generic because so in the future maybe we have more outputs
+        // Would require some changes to NodeHandlers to supply the outputs on the other hand
+        // However those kinds of nodes would likely not be user defined so I think this is acceptable
+        let mut outputs = HashMap::new();
+        for (i, value) in output_values.into_iter().enumerate() {
+            if let Some(output_def) = definition.node.outputs.get(i) {
+                outputs.insert(output_def.name.clone(), value);
+            }
         }
+        Ok(outputs)
     }
 
     /// Create a shader pipeline dynamically from shader code

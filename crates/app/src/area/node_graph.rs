@@ -1,6 +1,6 @@
 use egui_snarl::ui::{PinInfo, SnarlViewer};
 use egui_snarl::{InPin, NodeId as SnarlNodeId, OutPin, Snarl};
-use engine::node::node::NodeOutputKind;
+use engine::node::node::{NodeInput, NodeOutputKind};
 use engine::node::{NodeInputKind, NodeLibrary, input_kind_to_output_kind};
 use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
 use std::collections::{HashMap, HashSet};
@@ -92,13 +92,13 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
                                 }
                             }
                         }
-                        NodeInputKind::Bool { .. } => {
+                        NodeInputKind::Bool { default } => {
                             let mut value = if let Some(InputValue::Bool(v)) =
                                 node_data.input_values.get(&input_def.name)
                             {
                                 *v
                             } else {
-                                false
+                                *default
                             };
 
                             if ui.checkbox(&mut value, "").changed() {
@@ -107,13 +107,15 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
                                     .insert(input_def.name.clone(), InputValue::Bool(value));
                             }
                         }
-                        NodeInputKind::Int { min, max, .. } => {
+                        NodeInputKind::Int {
+                            default, min, max, ..
+                        } => {
                             let mut value = if let Some(InputValue::Int(v)) =
                                 node_data.input_values.get(&input_def.name)
                             {
                                 *v
                             } else {
-                                0
+                                *default
                             };
 
                             let changed = if let (Some(min_val), Some(max_val)) = (min, max) {
@@ -129,13 +131,15 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
                                     .insert(input_def.name.clone(), InputValue::Int(value));
                             }
                         }
-                        NodeInputKind::Float { min, max, .. } => {
+                        NodeInputKind::Float {
+                            default, min, max, ..
+                        } => {
                             let mut value = if let Some(InputValue::Float(v)) =
                                 node_data.input_values.get(&input_def.name)
                             {
                                 *v
                             } else {
-                                0.0
+                                *default
                             };
 
                             let changed = if let (Some(min_val), Some(max_val)) = (min, max) {
@@ -152,13 +156,13 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
                                     .insert(input_def.name.clone(), InputValue::Float(value));
                             }
                         }
-                        NodeInputKind::Text { .. } => {
+                        NodeInputKind::Text { default, .. } => {
                             let mut value = if let Some(InputValue::Text(v)) =
                                 node_data.input_values.get(&input_def.name)
                             {
                                 v.clone()
                             } else {
-                                String::new()
+                                default.clone()
                             };
 
                             if ui.text_edit_singleline(&mut value).changed() {
@@ -167,14 +171,14 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
                                     .insert(input_def.name.clone(), InputValue::Text(value));
                             }
                         }
-                        NodeInputKind::Dimensions { .. } => {
+                        NodeInputKind::Dimensions { default } => {
                             let (mut width, mut height) =
                                 if let Some(InputValue::Dimensions { width, height }) =
                                     node_data.input_values.get(&input_def.name)
                                 {
                                     (*width, *height)
                                 } else {
-                                    (1920, 1080)
+                                    *default
                                 };
 
                             let mut changed = ui
@@ -191,13 +195,13 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
                                 );
                             }
                         }
-                        NodeInputKind::Pixel { .. } => {
+                        NodeInputKind::Pixel { default, .. } => {
                             let (r, g, b, a) = if let Some(InputValue::Pixel { r, g, b, a }) =
                                 node_data.input_values.get(&input_def.name)
                             {
                                 (*r, *g, *b, *a)
                             } else {
-                                (0.0, 0.0, 0.0, 1.0)
+                                (default[0], default[1], default[2], default[3])
                             };
 
                             let mut color = egui::Color32::from_rgba_premultiplied(
@@ -223,13 +227,17 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
                         NodeInputKind::Frame | NodeInputKind::Midi => {
                             ui.label("(must be connected)");
                         }
-                        NodeInputKind::Enum { choices, .. } => {
+                        NodeInputKind::Enum {
+                            choices,
+                            default_idx,
+                            ..
+                        } => {
                             let mut selected_idx = if let Some(InputValue::Enum(idx)) =
                                 node_data.input_values.get(&input_def.name)
                             {
                                 *idx
                             } else {
-                                0
+                                default_idx.unwrap_or(0)
                             };
 
                             egui::ComboBox::from_id_salt(&input_def.name)
@@ -336,11 +344,7 @@ fn output_kind_color(kind: &NodeOutputKind) -> egui::Color32 {
 impl NodeGraphState {
     /// Check if a node has all its required inputs satisfied (connected or with defaults)
     /// This is RECURSIVE - it checks that source nodes are also satisfied
-    fn are_inputs_satisfied(
-        &self,
-        node_id: SnarlNodeId,
-        node_library: &NodeLibrary,
-    ) -> bool {
+    fn are_inputs_satisfied(&self, node_id: SnarlNodeId, node_library: &NodeLibrary) -> bool {
         let node = &self.snarl[node_id];
         let Some(definition) = node_library.get_definition(&node.definition_name) else {
             return false;
@@ -423,14 +427,14 @@ impl NodeGraphState {
             let Some(definition) = node_library.get_definition(definition_name) else {
                 continue;
             };
-            
+
             // Check if this node is a source (has File input) by checking the definition
             let is_source = definition
                 .node
                 .inputs
                 .iter()
                 .any(|input| matches!(input.kind, NodeInputKind::File { .. }));
-            
+
             let has_file = node
                 .input_values
                 .values()
@@ -466,10 +470,35 @@ impl NodeGraphState {
             let node = &self.snarl[*node_id];
             if let Some(engine_id) = node.engine_node_id {
                 if let Some(instance) = engine_graph.get_instance_mut(engine_id) {
+                    let Some(definition) = node_library.get_definition(&node.definition_name)
+                    else {
+                        continue;
+                    };
+
+                    let connected_inputs = self.connected_input_names(*node_id, definition);
+
                     let mut merged_inputs = instance.input_values.clone();
+
+                    // Apply defaults for non-connected inputs if missing
+                    for input_def in &definition.node.inputs {
+                        if connected_inputs.contains(&input_def.name) {
+                            continue;
+                        }
+                        if !merged_inputs.contains_key(&input_def.name) {
+                            if let Some(default_val) = Self::default_input_value(input_def) {
+                                merged_inputs.insert(input_def.name.clone(), default_val);
+                            }
+                        }
+                    }
+
+                    // Apply user-provided values for non-connected inputs
                     for (key, value) in &node.input_values {
+                        if connected_inputs.contains(key) {
+                            continue;
+                        }
                         merged_inputs.insert(key.clone(), value.clone());
                     }
+
                     instance.input_values = merged_inputs;
                 }
             }
@@ -576,9 +605,28 @@ impl NodeGraphState {
         // Add to engine
         let engine_id = engine_graph.add_instance(definition_name);
 
-        // Copy input values to engine instance
+        // Copy input values to engine instance (with defaults for non-connected inputs)
         if let Some(instance) = engine_graph.get_instance_mut(engine_id) {
-            instance.input_values = input_values;
+            let connected_inputs = self.connected_input_names(node_id, definition);
+            let mut merged_inputs = HashMap::new();
+
+            for input_def in &definition.node.inputs {
+                if connected_inputs.contains(&input_def.name) {
+                    continue;
+                }
+                if let Some(default_val) = Self::default_input_value(input_def) {
+                    merged_inputs.insert(input_def.name.clone(), default_val);
+                }
+            }
+
+            for (key, value) in input_values {
+                if connected_inputs.contains(&key) {
+                    continue;
+                }
+                merged_inputs.insert(key, value);
+            }
+
+            instance.input_values = merged_inputs;
         }
 
         // Update node with engine ID
@@ -643,12 +691,66 @@ impl NodeGraphState {
             };
 
             // Connect in engine graph
-            let _ = engine_graph.connect(
+            if let Err(err) = engine_graph.connect(
                 from_engine_id,
                 output_def.name.clone(),
                 to_engine_id,
                 input_def.name.clone(),
-            );
+            ) {
+                util::debug_log_error!(
+                    "Failed to connect {} output '{}' to {} input '{}': {}",
+                    from_engine_id,
+                    output_def.name,
+                    to_engine_id,
+                    input_def.name,
+                    err
+                );
+            }
+        }
+    }
+
+    fn connected_input_names(
+        &self,
+        node_id: SnarlNodeId,
+        definition: &engine::node::NodeDefinition,
+    ) -> HashSet<String> {
+        self.snarl
+            .wires()
+            .filter_map(|(_, wire_to)| {
+                if wire_to.node == node_id {
+                    definition
+                        .node
+                        .inputs
+                        .get(wire_to.input)
+                        .map(|inp| inp.name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    fn default_input_value(input_def: &NodeInput) -> Option<InputValue> {
+        match &input_def.kind {
+            NodeInputKind::Bool { default } => Some(InputValue::Bool(*default)),
+            NodeInputKind::Int { default, .. } => Some(InputValue::Int(*default)),
+            NodeInputKind::Float { default, .. } => Some(InputValue::Float(*default)),
+            NodeInputKind::Dimensions { default } => Some(InputValue::Dimensions {
+                width: default.0,
+                height: default.1,
+            }),
+            NodeInputKind::Pixel { default, .. } => Some(InputValue::Pixel {
+                r: default[0],
+                g: default[1],
+                b: default[2],
+                a: default[3],
+            }),
+            NodeInputKind::Enum { default_idx, .. } => {
+                Some(InputValue::Enum(default_idx.unwrap_or(0)))
+            }
+            NodeInputKind::Text { default, .. } => Some(InputValue::Text(default.clone())),
+            NodeInputKind::File { default, .. } => default.clone().map(InputValue::File),
+            NodeInputKind::Frame | NodeInputKind::Midi => None,
         }
     }
 }

@@ -2,13 +2,13 @@
   "name": "Invert",
   "inputs": [
     {
-      "name": "input",
+      "name": "Input",
       "kind": "Frame"
     }
   ],
   "outputs": [
     {
-      "name": "output",
+      "name": "Output",
       "kind": "Frame"
     }
   ],

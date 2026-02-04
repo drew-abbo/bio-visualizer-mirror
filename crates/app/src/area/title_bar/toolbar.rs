@@ -17,16 +17,11 @@ impl ToolBar {
             pending: Vec::new(),
         }
     }
-
-    pub fn drain_actions(&mut self) -> Vec<Command> {
-        self.pending.drain(..).collect()
-    }
 }
 
 impl ToolBar {
-    /// Build a default menu bar instance with standard buttons.
-    pub fn build_default() -> Self {
-        Self::new()
+    fn add_pending(&mut self, command: Command) {
+        self.pending.push(command);
     }
 }
 

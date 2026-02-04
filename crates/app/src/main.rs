@@ -1,5 +1,6 @@
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 mod app;
 =======
 mod app_area;
@@ -10,6 +11,9 @@ mod components;
 <<<<<<< HEAD
 >>>>>>> 2069524 (trying to get the UI looking right)
 mod video;
+=======
+mod area;
+>>>>>>> 4e14061 (fps control and some more fixes)
 mod components;
 mod view;
 <<<<<<< HEAD

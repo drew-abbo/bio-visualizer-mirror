@@ -13,7 +13,9 @@ pub struct OutputPanel {
     last_tick: std::time::Instant,
     playback_accumulator: std::time::Duration,
     playback_fps: f64,
+    last_sampling_rate_hz: f64,
     last_playing: bool,
+    timeline_frame_index: u64,
     // Output tracking
     selected_node_id: Option<NodeId>,
     playback_controls: PlaybackControls,
@@ -28,7 +30,9 @@ impl OutputPanel {
             last_tick: std::time::Instant::now(),
             playback_accumulator: std::time::Duration::ZERO,
             playback_fps: 30.0,
+            last_sampling_rate_hz: 30.0,
             last_playing: false,
+            timeline_frame_index: 0,
             selected_node_id: None,
             playback_controls: PlaybackControls::new(),
             current_output: None,
@@ -41,17 +45,14 @@ impl OutputPanel {
             self.selected_node_id = node_id;
             // Reset playback when switching nodes
             self.playback_controls.reset();
+            self.playback_accumulator = std::time::Duration::ZERO;
+            self.timeline_frame_index = 0;
         }
     }
 
     /// Set the current output value to display
     pub fn set_output_value(&mut self, output: NodeValue) {
         self.current_output = Some(output);
-    }
-
-    /// Clear the current output value
-    pub fn clear_output(&mut self) {
-        self.current_output = None;
     }
 
     /// Get reference to playback controls
@@ -74,11 +75,20 @@ impl OutputPanel {
         let dt = now.saturating_duration_since(self.last_tick);
         self.last_tick = now;
         self.playback_accumulator += dt;
-        let frame_duration = if self.playback_fps > 0.0 {
-            std::time::Duration::from_secs_f64(1.0 / self.playback_fps)
+
+        // Get effective FPS for clamping
+        let sampling_rate_hz = self.sampling_rate_hz();
+        if (sampling_rate_hz - self.last_sampling_rate_hz).abs() > f64::EPSILON {
+            self.last_tick = std::time::Instant::now();
+            self.playback_accumulator = std::time::Duration::ZERO;
+            self.last_sampling_rate_hz = sampling_rate_hz;
+        }
+        let frame_duration = if sampling_rate_hz > 0.0 {
+            std::time::Duration::from_secs_f64(1.0 / sampling_rate_hz)
         } else {
             std::time::Duration::from_secs_f64(1.0 / 30.0)
         };
+
         if self.playback_accumulator > frame_duration {
             self.playback_accumulator = frame_duration;
         }
@@ -86,17 +96,39 @@ impl OutputPanel {
     }
 
     pub fn should_advance_frame(&mut self) -> bool {
-        let frame_duration = if self.playback_fps > 0.0 {
-            std::time::Duration::from_secs_f64(1.0 / self.playback_fps)
+        // Get effective FPS (project FPS or output FPS)
+        let sampling_rate_hz = self.sampling_rate_hz();
+        if (sampling_rate_hz - self.last_sampling_rate_hz).abs() > f64::EPSILON {
+            self.last_sampling_rate_hz = sampling_rate_hz;
+        }
+
+        let frame_duration = if sampling_rate_hz > 0.0 {
+            std::time::Duration::from_secs_f64(1.0 / sampling_rate_hz)
         } else {
             std::time::Duration::from_secs_f64(1.0 / 30.0)
         };
 
         if self.playback_accumulator >= frame_duration {
             self.playback_accumulator -= frame_duration;
+            self.timeline_frame_index = self.timeline_frame_index.saturating_add(1);
             true
         } else {
             false
+        }
+    }
+
+    pub fn sampling_rate_hz(&self) -> f64 {
+        self.playback_controls
+            .sampling_rate()
+            .resolve(self.playback_fps)
+    }
+
+    pub fn timeline_time_secs(&self) -> f64 {
+        let fps = self.sampling_rate_hz();
+        if fps > 0.0 {
+            self.timeline_frame_index as f64 / fps
+        } else {
+            0.0
         }
     }
 
@@ -104,6 +136,11 @@ impl OutputPanel {
         if fps > 0.0 {
             self.playback_fps = fps;
         }
+    }
+
+    /// Get mutable reference to playback controls for UI updates
+    fn playback_controls_mut(&mut self) -> &mut PlaybackControls {
+        &mut self.playback_controls
     }
 
     /// Update the displayed frame from output value
@@ -128,11 +165,6 @@ impl OutputPanel {
         }
     }
 
-    /// Clear the displayed frame
-    pub fn clear_frame(&mut self, render_state: Option<&egui_wgpu::RenderState>) {
-        self.frame_display.clear(render_state);
-    }
-
     /// Show the output panel (basic docked view)
     pub fn show(&mut self, ctx: &egui::Context) {
         egui::Window::new("Output")
@@ -146,7 +178,7 @@ impl OutputPanel {
 
     /// Render the main panel content with playback controls
     fn render_panel_content(&mut self, ui: &mut egui::Ui) {
-        self.playback_controls.ui(ui);
+        self.playback_controls_mut().ui(ui);
         ui.separator();
 
         if let Some(node_id) = self.selected_node_id {

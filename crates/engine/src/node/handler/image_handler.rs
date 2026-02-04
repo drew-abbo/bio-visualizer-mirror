@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::gpu_frame::GpuFrame;
-use crate::graph_executor::{ExecutionError, NodeValue};
+use crate::graph_executor::{ExecutionContext, ExecutionError, NodeValue};
 use crate::node::handler::node_handler::NodeHandler;
 use crate::upload_stager::UploadStager;
 
@@ -36,10 +36,13 @@ impl NodeHandler for ImageSourceHandler {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         upload_stager: &mut UploadStager,
-    ) -> Result<HashMap<String, NodeValue>, ExecutionError> {
+        _context: &ExecutionContext,
+    ) -> Result<Vec<NodeValue>, ExecutionError> {
+        // Find the File input (there should only be one)
+        // I think this is fine since these are not user defined nodes
         let path = inputs
-            .get("path")
-            .and_then(|v| match v {
+            .values()
+            .find_map(|v| match v {
                 NodeValue::File(p) => Some(p),
                 _ => None,
             })
@@ -74,8 +77,7 @@ impl NodeHandler for ImageSourceHandler {
         }
 
         let gpu_frame = self.frame_cache.get(path).unwrap().clone();
-        let mut outputs = HashMap::new();
-        outputs.insert("output".to_string(), NodeValue::Frame(gpu_frame));
-        Ok(outputs)
+        // Return outputs in the order defined in node.json: Output
+        Ok(vec![NodeValue::Frame(gpu_frame)])
     }
 }

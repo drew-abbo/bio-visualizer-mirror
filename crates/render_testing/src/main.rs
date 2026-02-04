@@ -7,7 +7,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
-use engine::graph_executor::{GraphExecutor, NodeValue};
+use engine::graph_executor::{ExecutionContext, GraphExecutor, NodeValue};
 use engine::node::NodeLibrary;
 use engine::wgpu;
 
@@ -356,6 +356,8 @@ impl ApplicationHandler for App {
             WindowEvent::RedrawRequested => {
                 let state = self.state.as_mut().unwrap();
 
+                let context = ExecutionContext::default();
+
                 if let (Some(graph), Some(exec), Some(lib), Some(dev), Some(q)) = (
                     self.video_graph.as_mut(),
                     self.executor.as_mut(),
@@ -363,7 +365,7 @@ impl ApplicationHandler for App {
                     self.device.as_ref(),
                     self.queue.as_ref(),
                 ) {
-                    let result = exec.execute(graph, lib, dev, q, None).unwrap();
+                    let result = exec.execute(graph, lib, dev, q, None, context).unwrap();
                     if let Some(NodeValue::Frame(frame)) = result.outputs.get("output") {
                         self.last_output = Some(frame.view().clone());
                     }
