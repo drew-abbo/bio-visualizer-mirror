@@ -1,16 +1,4 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
-mod app;
-=======
-mod app_area;
-=======
-pub mod area;
->>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
-mod components;
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> 2069524 (trying to get the UI looking right)
-mod video;
+mod area;
 mod components;
 =======
 mod engine_controller;

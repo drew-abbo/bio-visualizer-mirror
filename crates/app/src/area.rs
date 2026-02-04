@@ -1,30 +1,27 @@
-mod title_bar;
-pub use title_bar::TitleBar;
-// mod node_graph_view;
+mod graph_executor_manager;
 mod node_graph;
+mod output_controller;
 mod output_panel;
 mod playback_controls;
+mod snarl_style;
+mod title_bar;
+
 use crate::view::View;
-// use node_graph_view::NodeGraphView;
-use engine::graph_executor::GraphExecutor;
-use engine::graph_executor::NodeValue;
 use engine::node::NodeLibrary;
-use engine::node_graph::NodeGraph;
+use graph_executor_manager::GraphExecutorManager;
 use node_graph::{NodeGraphState, NodeGraphViewer};
+use output_controller::OutputController;
 use output_panel::OutputPanel;
 use std::sync::Arc;
 use util::eframe;
 use util::egui;
 
 pub struct App {
-    title_bar: TitleBar,
-    // node_blueprint: NodeGraphView,
+    title_bar: title_bar::TitleBar,
     node_graph: NodeGraphState,
     output_panel: OutputPanel,
     node_library: Arc<NodeLibrary>,
-    engine_graph: NodeGraph,
-    graph_executor: GraphExecutor,
-    last_selected_engine_node: Option<engine::node_graph::EngineNodeId>,
+    executor_manager: GraphExecutorManager,
 }
 
 impl App {
@@ -38,9 +35,21 @@ impl App {
             let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
             let workspace_root = manifest_dir.parent().and_then(|p| p.parent()).unwrap();
             let nodes_path = workspace_root.join("Nodes");
-            NodeLibrary::load_from_disk(nodes_path).expect("Failed to load node library")
+            match NodeLibrary::load_from_disk(nodes_path.clone()) {
+                Ok(lib) => lib,
+                Err(err) => {
+                    util::debug_log_error!("Failed to load node library from disk at {:?}: {}", nodes_path, err);
+                    NodeLibrary::default()
+                }
+            }
         } else {
-            NodeLibrary::load_from_users_folder().expect("Failed to load node library")
+            match NodeLibrary::load_from_users_folder() {
+                Ok(lib) => lib,
+                Err(err) => {
+                    util::debug_log_error!("Failed to load node library from users folder: {}", err);
+                    NodeLibrary::default()
+                }
+            }
         };
 
         let node_library = Arc::new(node_library);
@@ -49,13 +58,11 @@ impl App {
         let node_graph = NodeGraphState::new();
 
         Self {
-            title_bar: TitleBar::new(),
+            title_bar: title_bar::TitleBar::new(),
             node_graph,
             output_panel: OutputPanel::new(),
             node_library,
-            engine_graph: NodeGraph::default(),
-            graph_executor: GraphExecutor::default(),
-            last_selected_engine_node: None,
+            executor_manager: GraphExecutorManager::new(),
         }
     }
 
@@ -79,40 +86,15 @@ impl App {
             .show(ctx, |ui| {
                 let mut viewer = NodeGraphViewer::new(Arc::clone(&self.node_library));
 
-                // Configure snarl style with visible background and selection
-                let style = egui_snarl::ui::SnarlStyle {
-                    bg_pattern: Some(egui_snarl::ui::BackgroundPattern::grid(
-                        egui::vec2(40.0, 40.0),
-                        0.0,
-                    )),
-                    bg_pattern_stroke: Some(egui::Stroke::new(
-                        1.0,
-                        egui::Color32::from_rgb(50, 50, 55),
-                    )),
-                    bg_frame: Some(
-                        egui::Frame::default()
-                            .fill(egui::Color32::from_rgb(30, 30, 35))
-                            .inner_margin(0.0),
-                    ),
-                    select_style: Some(egui_snarl::ui::SelectionStyle {
-                        margin: egui::Margin::same(4),
-                        rounding: egui::CornerRadius::same(6),
-                        fill: egui::Color32::from_rgba_unmultiplied(100, 150, 255, 30),
-                        stroke: egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 150, 255)),
-                    }),
-                    ..egui_snarl::ui::SnarlStyle::new()
-                };
-
-                self.node_graph
-                    .snarl
-                    .show(&mut viewer, &style, egui::Id::new("node_graph"), ui);
-
-                selected_nodes =
-                    egui_snarl::ui::get_selected_nodes(egui::Id::new("node_graph"), ui.ctx());
+                let snarl_widget = egui_snarl::ui::SnarlWidget::new()
+                    .id(egui::Id::new("node_graph"))
+                    .style(snarl_style::snarl_style());
+                snarl_widget.show(&mut self.node_graph.snarl, &mut viewer, ui);
+                selected_nodes = snarl_widget.get_selected_nodes(ui);
 
                 // Sync every frame for now (simple + reliable)
                 self.node_graph
-                    .sync_to_engine(&mut self.engine_graph, &self.node_library);
+                    .sync_to_engine(self.executor_manager.engine_graph_mut(), &self.node_library);
             });
 
         selected_nodes
@@ -141,74 +123,17 @@ impl App {
             return;
         };
 
-        let is_playing = self.output_panel.playback_controls().is_playing();
         let selected_engine_node =
             selected_snarl_node.and_then(|snarl_id| self.node_graph.snarl[snarl_id].engine_node_id);
-        let selection_changed = selected_engine_node != self.last_selected_engine_node;
-        self.last_selected_engine_node = selected_engine_node;
 
-        let mut output_value: Option<NodeValue> = None;
-
-        if is_playing {
-            ctx.request_repaint();
-        }
-
-        self.output_panel.update_playback_tick(is_playing);
-
-        if (is_playing && !self.engine_graph.is_empty() && self.output_panel.should_advance_frame())
-            || (selection_changed && !self.engine_graph.is_empty())
-        {
-            ctx.request_repaint();
-            if let Ok(result) = self.graph_executor.execute(
-                &self.engine_graph,
-                &self.node_library,
-                &render_state.device,
-                &render_state.queue,
-                selected_engine_node,
-            ) {
-                if let Some(NodeValue::Float(fps)) = result.outputs.get("fps") {
-                    self.output_panel.set_playback_fps(*fps as f64);
-                }
-                output_value = result.outputs.get("output").cloned().or_else(|| {
-                    result
-                        .outputs
-                        .values()
-                        .find(|value| matches!(value, NodeValue::Frame(_)))
-                        .cloned()
-                });
-            } else {
-                self.output_panel.clear_output();
-                self.output_panel.clear_frame(Some(render_state));
-            }
-        } else if let Some(engine_id) = selected_engine_node {
-            if let Some(outputs) = self.graph_executor.get_node_outputs(engine_id) {
-                output_value = outputs.get("output").cloned().or_else(|| {
-                    outputs
-                        .values()
-                        .find(|value| matches!(value, NodeValue::Frame(_)))
-                        .cloned()
-                });
-            }
-        } else {
-            let output_node_id = self.graph_executor.get_output_node_id();
-            if let Some(outputs) = self.graph_executor.get_node_outputs(output_node_id) {
-                output_value = outputs.get("output").cloned().or_else(|| {
-                    outputs
-                        .values()
-                        .find(|value| matches!(value, NodeValue::Frame(_)))
-                        .cloned()
-                });
-            }
-        }
-
-        if let Some(output_value) = output_value {
-            self.output_panel.set_output_value(output_value.clone());
-            self.output_panel
-                .set_output_frame(render_state, &output_value);
-        } else if selected_engine_node.is_none() {
-            self.output_panel.clear_output();
-            self.output_panel.clear_frame(Some(render_state));
-        }
+        OutputController::update(
+            ctx,
+            &mut self.output_panel,
+            &mut self.executor_manager,
+            &self.node_library,
+            render_state,
+            selected_engine_node,
+        );
     }
 }
 

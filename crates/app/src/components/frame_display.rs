@@ -1,8 +1,7 @@
 use crate::view::View;
-use eframe::wgpu;
 use egui::load::SizedTexture;
 use media::frame::Uid;
-use util::eframe;
+use util::eframe::wgpu;
 use util::egui;
 
 /// Configuration for how a frame should be displayed
@@ -113,26 +112,6 @@ impl FrameDisplay {
             ui.label("No frame data");
         }
     }
-
-    // /// Get the display size that would be used for rendering
-    // pub fn display_size(&self) -> egui::Vec2 {
-    //     if self.texture_id.is_none() {
-    //         return egui::Vec2::ZERO;
-    //     }
-
-    //     let original_size = egui::vec2(self.texture_size[0] as f32, self.texture_size[1] as f32);
-
-    //     let scale = (self.config.max_size.x / original_size.x)
-    //         .min(self.config.max_size.y / original_size.y)
-    //         .min(1.0);
-
-    //     original_size * scale
-    // }
-
-    // /// Check if a texture is currently loaded
-    // pub fn has_texture(&self) -> bool {
-    //     self.texture_id.is_some()
-    // }
 }
 
 impl View for FrameDisplay {

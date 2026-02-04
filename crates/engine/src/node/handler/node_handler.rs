@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::graph_executor::{ExecutionError, NodeValue};
+use crate::graph_executor::{ExecutionContext, ExecutionError, NodeValue};
 use crate::upload_stager::UploadStager;
 
 pub trait NodeHandler {
@@ -13,5 +13,6 @@ pub trait NodeHandler {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         upload_stager: &mut UploadStager,
-    ) -> Result<HashMap<String, NodeValue>, ExecutionError>;
+        context: &ExecutionContext,
+    ) -> Result<Vec<NodeValue>, ExecutionError>;
 }
