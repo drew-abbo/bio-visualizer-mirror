@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use media::frame::{Frame, Producer, streams::OnStreamEnd, streams::Video};
 
 use crate::gpu_frame::GpuFrame;
-use crate::graph_executor::{ExecutionContext, ExecutionError, NodeValue};
+use crate::graph_executor::{ExecutionError, NodeValue};
 use crate::node::handler::node_handler::NodeHandler;
 use crate::upload_stager::UploadStager;
 
@@ -95,15 +95,14 @@ impl NodeHandler for VideoSourceHandler {
     fn execute(
         &mut self,
         inputs: &HashMap<String, NodeValue>,
+        inputs: &HashMap<String, NodeValue>,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         upload_stager: &mut UploadStager,
-        context: &ExecutionContext,
-    ) -> Result<Vec<NodeValue>, ExecutionError> {
-        // Find the File input there should only be one
+    ) -> Result<HashMap<String, NodeValue>, ExecutionError> {
         let path = inputs
-            .values()
-            .find_map(|v| match v {
+            .get("path")
+            .and_then(|v| match v {
                 NodeValue::File(p) => Some(p),
                 _ => None,
             })
@@ -188,19 +187,15 @@ impl NodeHandler for VideoSourceHandler {
             },
         );
 
-        // Store GPU frame for reuse when playback rate is < 1.0, and
-        // store CPU frame for recycling back to the producer on next fetch
-        if let Some(playback_state) = self.playback_state.get_mut(path) {
-            playback_state.last_gpu_frame = Some(gpu_frame.clone());
-            playback_state.pending_recycle = Some(frame);
-        }
-
-        // Return outputs in the order defined in node.json: Output, Fps, Duration
-        // Again this is not user defined so this is acceptable
-        Ok(vec![
-            NodeValue::Frame(gpu_frame),
-            NodeValue::Float(effective_fps as f32),
+        // Prepare outputs
+        let mut outputs = HashMap::new();
+        outputs.insert("output".to_string(), NodeValue::Frame(gpu_frame));
+        outputs.insert("fps".to_string(), NodeValue::Float(fps));
+        outputs.insert(
+            "duration".to_string(),
             NodeValue::Float(duration_secs as f32),
-        ])
+        );
+
+        Ok(outputs)
     }
 }

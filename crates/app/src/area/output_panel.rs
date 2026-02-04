@@ -1,89 +1,38 @@
 use super::playback_controls::PlaybackControls;
 use crate::components::FrameDisplay;
 use crate::view::View;
-use egui_node_graph2::NodeId;
-use engine::graph_executor::Value;
+use egui_snarl::NodeId;
+use engine::graph_executor::NodeValue;
 use media::frame::Uid;
 use util::egui;
 
 /// Manages the output panel display state and behavior
 pub struct OutputPanel {
     frame_display: FrameDisplay,
-    is_open: bool,
-    is_docked: bool,
     window_size: egui::Vec2,
-
+    last_tick: std::time::Instant,
+    playback_accumulator: std::time::Duration,
+    playback_fps: f64,
+    last_playing: bool,
     // Output tracking
     selected_node_id: Option<NodeId>,
     playback_controls: PlaybackControls,
-    current_output: Option<Value>,
+    current_output: Option<NodeValue>,
 }
 
 impl OutputPanel {
     pub fn new() -> Self {
         Self {
             frame_display: FrameDisplay::default_config(),
-            is_open: true,
-            is_docked: false,
             window_size: egui::vec2(640.0, 480.0),
+            last_tick: std::time::Instant::now(),
+            playback_accumulator: std::time::Duration::ZERO,
+            playback_fps: 30.0,
+            last_playing: false,
             selected_node_id: None,
             playback_controls: PlaybackControls::new(),
             current_output: None,
         }
-    }
-
-    /// Set whether the panel is docked (bottom panel) or floating (window)
-    #[allow(dead_code)]
-    pub fn set_docked(&mut self, docked: bool) {
-        self.is_docked = docked;
-    }
-
-    /// Toggle between docked and floating
-    #[allow(dead_code)]
-    pub fn toggle_dock(&mut self) {
-        self.is_docked = !self.is_docked;
-    }
-
-    /// Set whether the panel is visible
-    #[allow(dead_code)]
-    pub fn set_open(&mut self, open: bool) {
-        self.is_open = open;
-    }
-
-    /// Toggle visibility
-    #[allow(dead_code)]
-    pub fn toggle_visibility(&mut self) {
-        self.is_open = !self.is_open;
-    }
-
-    /// Get reference to the underlying frame display for texture updates
-    #[allow(dead_code)]
-    pub fn frame_display(&self) -> &FrameDisplay {
-        &self.frame_display
-    }
-
-    /// Get mutable reference to the underlying frame display
-    #[allow(dead_code)]
-    pub fn frame_display_mut(&mut self) -> &mut FrameDisplay {
-        &mut self.frame_display
-    }
-
-    /// Check if the panel is currently visible
-    #[allow(dead_code)]
-    pub fn is_open(&self) -> bool {
-        self.is_open
-    }
-
-    /// Check if the panel is docked
-    #[allow(dead_code)]
-    pub fn is_docked(&self) -> bool {
-        self.is_docked
-    }
-
-    /// Set the window size when floating
-    #[allow(dead_code)]
-    pub fn set_window_size(&mut self, size: egui::Vec2) {
-        self.window_size = size;
     }
 
     /// Set the currently selected output node
@@ -96,7 +45,7 @@ impl OutputPanel {
     }
 
     /// Set the current output value to display
-    pub fn set_output_value(&mut self, output: Value) {
+    pub fn set_output_value(&mut self, output: NodeValue) {
         self.current_output = Some(output);
     }
 
@@ -105,27 +54,62 @@ impl OutputPanel {
         self.current_output = None;
     }
 
-    /// Get the currently selected node ID
-    #[allow(dead_code)]
-    pub fn selected_node(&self) -> Option<NodeId> {
-        self.selected_node_id
+    /// Get reference to playback controls
+    pub fn playback_controls(&self) -> &PlaybackControls {
+        &self.playback_controls
     }
 
-    /// Get mutable reference to playback controls
-    #[allow(dead_code)]
-    pub fn playback_controls_mut(&mut self) -> &mut PlaybackControls {
-        &mut self.playback_controls
+    pub fn update_playback_tick(&mut self, is_playing: bool) {
+        if is_playing && !self.last_playing {
+            self.last_tick = std::time::Instant::now();
+            self.playback_accumulator = std::time::Duration::ZERO;
+        }
+
+        if !is_playing {
+            self.last_playing = is_playing;
+            return;
+        }
+
+        let now = std::time::Instant::now();
+        let dt = now.saturating_duration_since(self.last_tick);
+        self.last_tick = now;
+        self.playback_accumulator += dt;
+        let frame_duration = if self.playback_fps > 0.0 {
+            std::time::Duration::from_secs_f64(1.0 / self.playback_fps)
+        } else {
+            std::time::Duration::from_secs_f64(1.0 / 30.0)
+        };
+        if self.playback_accumulator > frame_duration {
+            self.playback_accumulator = frame_duration;
+        }
+        self.last_playing = is_playing;
+    }
+
+    pub fn should_advance_frame(&mut self) -> bool {
+        let frame_duration = if self.playback_fps > 0.0 {
+            std::time::Duration::from_secs_f64(1.0 / self.playback_fps)
+        } else {
+            std::time::Duration::from_secs_f64(1.0 / 30.0)
+        };
+
+        if self.playback_accumulator >= frame_duration {
+            self.playback_accumulator -= frame_duration;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn set_playback_fps(&mut self, fps: f64) {
+        if fps > 0.0 {
+            self.playback_fps = fps;
+        }
     }
 
     /// Update the displayed frame from output value
-    pub fn set_output_frame(
-        &mut self,
-        render_state: &egui_wgpu::RenderState,
-        output: &Value,
-    ) {
+    pub fn set_output_frame(&mut self, render_state: &egui_wgpu::RenderState, output: &NodeValue) {
         match output {
-            Value::Frame(gpu_frame) => {
-                // Generate a unique ID for this frame
+            NodeValue::Frame(gpu_frame) => {
                 let frame_id = Uid::generate_new();
                 let size = [
                     gpu_frame.size.width as usize,
@@ -139,7 +123,6 @@ impl OutputPanel {
                 );
             }
             _ => {
-                // For non-frame outputs, clear the display
                 self.frame_display.clear(Some(render_state));
             }
         }
@@ -150,108 +133,65 @@ impl OutputPanel {
         self.frame_display.clear(render_state);
     }
 
-    /// Get reference to playback controls
-    #[allow(dead_code)]
-    pub fn playback_controls(&self) -> &PlaybackControls {
-        &self.playback_controls
-    }
-
-    /// Render as a docked bottom panel
-    fn show_as_dock(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::bottom("output_panel")
-            .resizable(true)
-            .default_height(300.0)
-            .show(ctx, |ui| {
-                self.render_panel_content(ui);
-            });
-    }
-
-    /// Render as a floating window
-    fn show_as_window(&mut self, ctx: &egui::Context) {
-        let mut open = self.is_open;
-        let mut docked = self.is_docked;
-
+    /// Show the output panel (basic docked view)
+    pub fn show(&mut self, ctx: &egui::Context) {
         egui::Window::new("Output")
-            .open(&mut open)
             .default_size(self.window_size)
             .resizable(true)
+            .movable(true)
             .show(ctx, |ui| {
-                self.render_window_controls(ui, &mut docked);
-                ui.separator();
                 self.render_panel_content(ui);
             });
-
-        self.is_open = open;
-        if docked {
-            self.is_docked = true;
-        }
-    }
-
-    /// Render the dock/float toggle and other controls
-    fn render_window_controls(&self, ui: &mut egui::Ui, docked: &mut bool) {
-        ui.horizontal(|ui| {
-            if ui.button("📌 Dock").clicked() {
-                *docked = true;
-            }
-            if ui.button("🗖 Undock").clicked() {
-                *docked = false;
-            }
-
-            // Show selected node info
-            if let Some(node_id) = self.selected_node_id {
-                ui.separator();
-                ui.label(format!("Node: {:?}", node_id));
-            } else {
-                ui.separator();
-                ui.label("No node selected");
-            }
-        });
     }
 
     /// Render the main panel content with playback controls
     fn render_panel_content(&mut self, ui: &mut egui::Ui) {
-        // Playback controls
         self.playback_controls.ui(ui);
         ui.separator();
 
-        // Display output value
+        if let Some(node_id) = self.selected_node_id {
+            ui.label(format!("Node: {:?}", node_id));
+        } else {
+            ui.label("Main output");
+        }
+        ui.separator();
+
         if let Some(ref output) = self.current_output {
             match output {
-                Value::Frame(gpu_frame) => {
+                NodeValue::Frame(gpu_frame) => {
                     ui.label(format!(
                         "Frame: {}x{}",
                         gpu_frame.size.width, gpu_frame.size.height
                     ));
-                    // Frame display
                     egui::Frame::NONE.show(ui, |ui| {
                         self.frame_display.render_content(ui);
                     });
                 }
-                Value::Bool(val) => {
+                NodeValue::Bool(val) => {
                     ui.label(format!("Bool: {}", val));
                 }
-                Value::Int(val) => {
+                NodeValue::Int(val) => {
                     ui.label(format!("Int: {}", val));
                 }
-                Value::Float(val) => {
+                NodeValue::Float(val) => {
                     ui.label(format!("Float: {}", val));
                 }
-                Value::Dimensions(w, h) => {
+                NodeValue::Dimensions(w, h) => {
                     ui.label(format!("Dimensions: {}x{}", w, h));
                 }
-                Value::Pixel(rgba) => {
+                NodeValue::Pixel(rgba) => {
                     ui.label(format!(
                         "Pixel: RGBA({}, {}, {}, {})",
                         rgba[0], rgba[1], rgba[2], rgba[3]
                     ));
                 }
-                Value::Text(text) => {
+                NodeValue::Text(text) => {
                     ui.label(format!("Text: {}", text));
                 }
-                Value::Enum(val) => {
+                NodeValue::Enum(val) => {
                     ui.label(format!("Enum: {}", val));
                 }
-                Value::File(path) => {
+                NodeValue::File(path) => {
                     ui.label(format!("File: {}", path.display()));
                 }
             }
@@ -264,20 +204,5 @@ impl OutputPanel {
 impl View for OutputPanel {
     fn ui(&mut self, ui: &mut egui::Ui) {
         self.frame_display.ui(ui);
-    }
-}
-
-impl OutputPanel {
-    /// Show the output panel - handles both docked and floating modes
-    pub fn show(&mut self, ctx: &egui::Context) {
-        if !self.is_open {
-            return;
-        }
-
-        if self.is_docked {
-            self.show_as_dock(ctx);
-        } else {
-            self.show_as_window(ctx);
-        }
     }
 }

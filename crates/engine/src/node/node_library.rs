@@ -71,30 +71,8 @@ impl NodeLibrary {
         Self::scan_directory(&nodes_folder, &nodes_folder, &mut definitions)?;
 
         if cfg!(debug_assertions) {
-            util::debug_log_info!(
+            println!(
                 "Loaded {} node definitions from {:?}",
-                definitions.len(),
-                nodes_folder
-            );
-        }
-
-        Ok(Self {
-            definitions,
-            _nodes_folder: nodes_folder,
-        })
-    }
-
-    fn load_from_users_folder() -> Result<Self, LibraryError> {
-        use util::local_data;
-
-        let nodes_folder = PathBuf::from(local_data::nodes_path());
-
-        let mut definitions = HashMap::new();
-        Self::scan_directory(&nodes_folder, &nodes_folder, &mut definitions)?;
-
-        if cfg!(debug_assertions) {
-            util::debug_log_info!(
-                "Loaded {} node definitions from user data: {:?}",
                 definitions.len(),
                 nodes_folder
             );

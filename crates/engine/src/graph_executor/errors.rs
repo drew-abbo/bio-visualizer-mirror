@@ -27,6 +27,12 @@ pub enum ExecutionError {
 =======
 >>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
 
+    #[error("Target node {0} not found in graph")]
+    TargetNodeNotFound(EngineNodeId),
+
+    #[error("Target node {0} is not in execution order")]
+    TargetNodeNotInExecutionOrder(EngineNodeId),
+
     #[error("Node definition '{0}' not found")]
     DefinitionNotFound(String),
 

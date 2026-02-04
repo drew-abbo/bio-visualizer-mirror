@@ -36,12 +36,17 @@ pub struct GraphExecutor {
 
     /// Cache of node outputs from the current execution
 <<<<<<< HEAD
+<<<<<<< HEAD
     /// Maps: EngineNodeId -> { "output_name" -> NodeValue }
     output_cache: HashMap<EngineNodeId, HashMap<String, NodeValue>>,
 =======
     /// Maps: EngineNodeId -> { "output_name" -> OutputValue }
     output_cache: HashMap<EngineNodeId, HashMap<String, OutputValue>>,
 >>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
+=======
+    /// Maps: EngineNodeId -> { "output_name" -> NodeValue }
+    output_cache: HashMap<EngineNodeId, HashMap<String, NodeValue>>,
+>>>>>>> dc5fe4f (I have a working UI finally)
 
     /// Cache of compiled pipelines
     /// Maps: definition_name -> compiled pipeline
@@ -80,6 +85,7 @@ pub struct ExecutionResult<'a> {
     /// used for the execution call; the consumer must not expect the
     /// outputs to outlive the executor or subsequent executions.
     pub outputs: &'a HashMap<String, NodeValue>,
+<<<<<<< HEAD
 }
 
 /// NOTE: This will change depending on the Media producer API changes in the future.
@@ -106,6 +112,8 @@ impl Default for ExecutionContext {
             advance_frame: true,
         }
     }
+=======
+>>>>>>> dc5fe4f (I have a working UI finally)
 }
 
 impl GraphExecutor {
@@ -146,7 +154,7 @@ impl GraphExecutor {
 
     /// Get the cached outputs for a specific node, if available
     /// Returns None if the node hasn't been executed yet
-    pub fn get_node_outputs(&self, node_id: EngineNodeId) -> Option<&HashMap<String, OutputValue>> {
+    pub fn get_node_outputs(&self, node_id: EngineNodeId) -> Option<&HashMap<String, NodeValue>> {
         self.output_cache.get(&node_id)
     }
 
@@ -155,7 +163,7 @@ impl GraphExecutor {
         self.output_node_id
     }
 
-    /// Execute the entire node graph
+    /// Execute the node graph, optionally targeting a specific node id.
     pub fn execute<'a>(
         &'a mut self,
         graph: &NodeGraph,
@@ -163,16 +171,31 @@ impl GraphExecutor {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         target_node_id: Option<EngineNodeId>,
+<<<<<<< HEAD
         context: ExecutionContext,
+=======
+>>>>>>> dc5fe4f (I have a working UI finally)
     ) -> Result<ExecutionResult<'a>, ExecutionError> {
         // Clear cache from previous execution
         self.output_cache.clear();
+
+        if let Some(target) = target_node_id {
+            if graph.get_instance(target).is_none() {
+                return Err(ExecutionError::TargetNodeNotFound(target));
+            }
+        }
 
         // Get execution order (topologically sorted)
         // Always recompute to handle graph structure changes (nodes added/removed)
         let order = graph
             .execution_order()
             .map_err(ExecutionError::GraphError)?;
+
+        if let Some(target) = target_node_id {
+            if !order.contains(&target) {
+                return Err(ExecutionError::TargetNodeNotInExecutionOrder(target));
+            }
+        }
 
         // Execute each node in order
         for &node_id in &order {
@@ -223,8 +246,9 @@ impl GraphExecutor {
                 return Err(ExecutionError::NoOutputNode);
             }
 
-        // For now, return the first output node's result
-        let output_node_id = output_nodes[0];
+            // For now, return the first output node's result
+            output_nodes[0]
+        };
         self.output_node_id = output_node_id;
         let outputs = self
             .output_cache
@@ -262,15 +286,24 @@ impl GraphExecutor {
                     })?;
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
                     // Use the output value directly (same type as ResolvedInput)
 >>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
+=======
+>>>>>>> dc5fe4f (I have a working UI finally)
                     output.clone()
                 }
                 InputValue::Bool(b) => NodeValue::Bool(*b),
                 InputValue::Int(i) => NodeValue::Int(*i),
                 InputValue::Float(f) => NodeValue::Float(*f),
+<<<<<<< HEAD
                 InputValue::Dimensions { width, height } => NodeValue::Dimensions(*width, *height),
+=======
+                InputValue::Dimensions { width, height } => {
+                    NodeValue::Dimensions(*width, *height)
+                }
+>>>>>>> dc5fe4f (I have a working UI finally)
                 InputValue::Pixel { r, g, b, a } => NodeValue::Pixel([*r, *g, *b, *a]),
                 InputValue::Text(t) => NodeValue::Text(t.clone()),
                 InputValue::Enum(idx) => NodeValue::Enum(*idx),
@@ -415,6 +448,7 @@ impl GraphExecutor {
         inputs: &HashMap<String, NodeValue>,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+<<<<<<< HEAD
         definition: &NodeDefinition,
         context: &ExecutionContext,
     ) -> Result<HashMap<String, NodeValue>, ExecutionError> {
@@ -444,6 +478,13 @@ impl GraphExecutor {
         for (i, value) in output_values.into_iter().enumerate() {
             if let Some(output_def) = definition.node.outputs.get(i) {
                 outputs.insert(output_def.name.clone(), value);
+=======
+    ) -> Result<HashMap<String, NodeValue>, ExecutionError> {
+        match *handler_type {
+            BuiltInHandler::ImageSource => {
+                self.image_handler
+                    .execute(inputs, device, queue, &mut self.upload_stager)
+>>>>>>> dc5fe4f (I have a working UI finally)
             }
         }
         Ok(outputs)

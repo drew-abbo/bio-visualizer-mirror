@@ -8,10 +8,14 @@ use crate::gpu_frame::GpuFrame;
 /// to final output collection.
 #[derive(Debug, Clone, PartialEq)]
 <<<<<<< HEAD
+<<<<<<< HEAD
 pub enum NodeValue {
 =======
 pub enum Value {
 >>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
+=======
+pub enum NodeValue {
+>>>>>>> dc5fe4f (I have a working UI finally)
     /// A GPU-backed frame/texture
     Frame(GpuFrame),
     Bool(bool),
@@ -27,6 +31,7 @@ pub enum Value {
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 impl Default for NodeValue {
     fn default() -> Self {
         NodeValue::Float(0.0)
@@ -35,10 +40,10 @@ impl Default for Value {
     fn default() -> Self {
         Value::Float(0.0)
 >>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
+=======
+impl Default for NodeValue {
+    fn default() -> Self {
+        NodeValue::Float(0.0)
+>>>>>>> dc5fe4f (I have a working UI finally)
     }
 }
-
-// Type aliases for backward compatibility and semantic clarity
-pub type ResolvedInput = Value;
-pub type OutputValue = Value;
-
