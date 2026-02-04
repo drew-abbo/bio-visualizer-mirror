@@ -2,11 +2,11 @@
   "name": "Brightness",
   "inputs": [
     {
-      "name": "input",
+      "name": "Input",
       "kind": "Frame"
     },
     {
-      "name": "brightness",
+      "name": "Brightness",
       "kind": {
         "Float": {
           "default": 1.0,
@@ -19,7 +19,7 @@
   ],
   "outputs": [
     {
-      "name": "output",
+      "name": "Output",
       "kind": "Frame"
     }
   ],

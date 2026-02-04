@@ -2,15 +2,15 @@
     "name": "Overlay",
     "inputs": [
         {
-            "name": "background",
+            "name": "Background",
             "kind": "Frame"
         },
         {
-            "name": "foreground", 
+            "name": "Foreground", 
             "kind": "Frame"
         },
         {
-            "name": "opacity",
+            "name": "Opacity",
             "kind": {
                 "Float": {
                     "default": 0.5,
@@ -22,7 +22,7 @@
     ],
     "outputs": [
         {
-            "name": "output",
+            "name": "Output",
             "kind": "Frame"
         }
     ],

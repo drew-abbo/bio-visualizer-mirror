@@ -1,4 +1,4 @@
-pub mod area;
+mod area;
 mod components;
 mod view;
 use area::App;

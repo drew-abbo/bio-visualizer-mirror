@@ -4,13 +4,20 @@ use std::path::PathBuf;
 use media::frame::{Frame, Producer, streams::OnStreamEnd, streams::Video};
 
 use crate::gpu_frame::GpuFrame;
-use crate::graph_executor::{ExecutionError, NodeValue};
+use crate::graph_executor::{ExecutionContext, ExecutionError, NodeValue};
 use crate::node::handler::node_handler::NodeHandler;
 use crate::upload_stager::UploadStager;
 
 /// Video source with frame caching (must be kept alive between executions)
 pub struct VideoSourceHandler {
     producer_cache: HashMap<PathBuf, Producer>,
+    playback_state: HashMap<PathBuf, PlaybackState>,
+}
+
+#[derive(Default)]
+struct PlaybackState {
+    accumulator: f64,
+    last_frame: Option<GpuFrame>,
 }
 
 impl Default for VideoSourceHandler {
@@ -23,11 +30,13 @@ impl VideoSourceHandler {
     pub fn new() -> Self {
         Self {
             producer_cache: HashMap::new(),
+            playback_state: HashMap::new(),
         }
     }
 
     pub fn clear_cache(&mut self) {
         self.producer_cache.clear();
+        self.playback_state.clear();
     }
 
     fn get_or_create_producer(&mut self, path: &PathBuf) -> Result<&mut Producer, ExecutionError> {
@@ -78,17 +87,79 @@ impl NodeHandler for VideoSourceHandler {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         upload_stager: &mut UploadStager,
-    ) -> Result<HashMap<String, NodeValue>, ExecutionError> {
+        context: &ExecutionContext,
+    ) -> Result<Vec<NodeValue>, ExecutionError> {
+        // Find the File input there should only be one
         let path = inputs
-            .get("path")
-            .and_then(|v| match v {
+            .values()
+            .find_map(|v| match v {
                 NodeValue::File(p) => Some(p),
                 _ => None,
             })
             .ok_or(ExecutionError::InvalidInputType)?;
 
-        let frame = self.fetch_frame(path)?;
-        let (fps, duration_secs) = self.get_stats(path)?;
+        // Find the playback rate (Float input, defaults to 1.0 if not provided)
+        // I think this is fine since these are not user defined nodes
+        let playback_rate = inputs
+            .values()
+            .find_map(|v| match v {
+                NodeValue::Float(rate) => Some(*rate),
+                _ => None,
+            })
+            .unwrap_or(1.0);
+
+        let (native_fps, duration_secs) = self.get_stats(path)?;
+        let sampling_rate_hz = if context.sampling_rate_hz > 0.0 {
+            context.sampling_rate_hz
+        } else {
+            30.0
+        };
+
+        let effective_fps = (native_fps as f64) * (playback_rate as f64);
+        let advance_ratio = if sampling_rate_hz > 0.0 {
+            effective_fps / sampling_rate_hz
+        } else {
+            0.0
+        };
+
+        let (mut frames_to_advance, cached_frame) = {
+            let playback_state = self
+                .playback_state
+                .entry(path.clone())
+                .or_insert_with(PlaybackState::default);
+
+            if context.advance_frame {
+                playback_state.accumulator += advance_ratio;
+            }
+
+            let frames_to_advance = playback_state.accumulator.floor() as u32;
+            playback_state.accumulator -= frames_to_advance as f64;
+
+            let cached_frame = if frames_to_advance == 0 {
+                playback_state.last_frame.clone()
+            } else {
+                None
+            };
+
+            (frames_to_advance, cached_frame)
+        };
+
+        if let Some(gpu_frame) = cached_frame {
+            return Ok(vec![
+                NodeValue::Frame(gpu_frame),
+                NodeValue::Float(effective_fps as f32),
+                NodeValue::Float(duration_secs as f32),
+            ]);
+        }
+
+        if frames_to_advance == 0 {
+            frames_to_advance = 1;
+        }
+
+        let mut frame = self.fetch_frame(path)?;
+        for _ in 1..frames_to_advance {
+            frame = self.fetch_frame(path)?;
+        }
 
         let width = frame.dimensions().width();
         let height = frame.dimensions().height();
@@ -109,15 +180,17 @@ impl NodeHandler for VideoSourceHandler {
             },
         );
 
-        // Prepare outputs
-        let mut outputs = HashMap::new();
-        outputs.insert("output".to_string(), NodeValue::Frame(gpu_frame));
-        outputs.insert("fps".to_string(), NodeValue::Float(fps));
-        outputs.insert(
-            "duration".to_string(),
-            NodeValue::Float(duration_secs as f32),
-        );
+        // Store last frame for reuse when playback rate is < 1.0
+        if let Some(playback_state) = self.playback_state.get_mut(path) {
+            playback_state.last_frame = Some(gpu_frame.clone());
+        }
 
-        Ok(outputs)
+        // Return outputs in the order defined in node.json: Output, Fps, Duration
+        // Again this is not user defined so this is acceptable
+        Ok(vec![
+            NodeValue::Frame(gpu_frame),
+            NodeValue::Float(effective_fps as f32),
+            NodeValue::Float(duration_secs as f32),
+        ])
     }
 }
