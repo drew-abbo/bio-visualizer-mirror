@@ -293,15 +293,11 @@ impl NodeGraph {
     }
 
     /// Get the connection feeding into a specific input, if any.
-<<<<<<< HEAD
     pub fn get_input_connection(
         &self,
         node_id: EngineNodeId,
         input_name: &str,
     ) -> Option<&Connection> {
-=======
-    pub fn get_input_connection(&self, node_id: EngineNodeId, input_name: &str) -> Option<&Connection> {
->>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
         self.connections
             .iter()
             .find(|c| c.to_node == node_id && c.to_input == input_name)

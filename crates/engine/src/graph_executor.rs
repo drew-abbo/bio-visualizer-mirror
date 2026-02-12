@@ -241,6 +241,9 @@ impl GraphExecutor {
                     self.execute_shader_node(device, queue, definition, &resolved_inputs)?
                 }
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 5629ee0 (format and some api usage)
                 NodeExecutionPlan::BuiltIn(handler) => self.execute_builtin_node(
                     handler,
                     &resolved_inputs,
@@ -249,6 +252,7 @@ impl GraphExecutor {
                     definition,
                     &context,
                 )?,
+<<<<<<< HEAD
 =======
                 NodeExecutionPlan::BuiltIn(handler) => {
                     self.execute_builtin_node(
@@ -261,6 +265,8 @@ impl GraphExecutor {
                     )?
                 }
 >>>>>>> 4e14061 (fps control and some more fixes)
+=======
+>>>>>>> 5629ee0 (format and some api usage)
             };
 
             // Cache the outputs
@@ -333,12 +339,16 @@ impl GraphExecutor {
                 InputValue::Int(i) => NodeValue::Int(*i),
                 InputValue::Float(f) => NodeValue::Float(*f),
 <<<<<<< HEAD
+<<<<<<< HEAD
                 InputValue::Dimensions { width, height } => NodeValue::Dimensions(*width, *height),
 =======
                 InputValue::Dimensions { width, height } => {
                     NodeValue::Dimensions(*width, *height)
                 }
 >>>>>>> dc5fe4f (I have a working UI finally)
+=======
+                InputValue::Dimensions { width, height } => NodeValue::Dimensions(*width, *height),
+>>>>>>> 5629ee0 (format and some api usage)
                 InputValue::Pixel { r, g, b, a } => NodeValue::Pixel([*r, *g, *b, *a]),
                 InputValue::Text(t) => NodeValue::Text(t.clone()),
                 InputValue::Enum(idx) => NodeValue::Enum(*idx),
@@ -503,6 +513,7 @@ impl GraphExecutor {
                 &mut self.upload_stager,
                 context,
             )?,
+<<<<<<< HEAD
             BuiltInHandler::MidiSource => return Err(ExecutionError::InvalidInputType),
         };
 
@@ -534,6 +545,8 @@ impl GraphExecutor {
                 self.video_handler
                     .execute(inputs, device, queue, &mut self.upload_stager, context)?
             }
+=======
+>>>>>>> 5629ee0 (format and some api usage)
             BuiltInHandler::MidiSource => return Err(ExecutionError::InvalidInputType),
         };
 

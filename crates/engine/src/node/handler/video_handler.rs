@@ -17,14 +17,10 @@ pub struct VideoSourceHandler {
 #[derive(Default)]
 struct PlaybackState {
     accumulator: f64,
-<<<<<<< HEAD
     last_gpu_frame: Option<GpuFrame>,
     /// CPU frame pending recycling back to the producer.
     /// We hold onto it until we need to fetch the next frame.
     pending_recycle: Option<Frame>,
-=======
-    last_frame: Option<GpuFrame>,
->>>>>>> 4e14061 (fps control and some more fixes)
 }
 
 impl Default for VideoSourceHandler {
@@ -70,11 +66,12 @@ impl VideoSourceHandler {
 
     pub fn fetch_frame(&mut self, path: &PathBuf) -> Result<Frame, ExecutionError> {
         // First, recycle any pending frame back to the producer
-        if let Some(playback_state) = self.playback_state.get_mut(path)
-            && let Some(frame_to_recycle) = playback_state.pending_recycle.take()
-            && let Some(producer) = self.producer_cache.get_mut(path)
-        {
-            producer.recycle_frame(frame_to_recycle);
+        if let Some(playback_state) = self.playback_state.get_mut(path) {
+            if let Some(frame_to_recycle) = playback_state.pending_recycle.take() {
+                if let Some(producer) = self.producer_cache.get_mut(path) {
+                    producer.recycle_frame(frame_to_recycle);
+                }
+            }
         }
 
         let producer = self.get_or_create_producer(path)?;
@@ -156,11 +153,7 @@ impl NodeHandler for VideoSourceHandler {
             playback_state.accumulator -= frames_to_advance as f64;
 
             let cached_frame = if frames_to_advance == 0 {
-<<<<<<< HEAD
                 playback_state.last_gpu_frame.clone()
-=======
-                playback_state.last_frame.clone()
->>>>>>> 4e14061 (fps control and some more fixes)
             } else {
                 None
             };
@@ -204,9 +197,11 @@ impl NodeHandler for VideoSourceHandler {
             },
         );
 
-        // Store last frame for reuse when playback rate is < 1.0
+        // Store GPU frame for reuse when playback rate is < 1.0, and
+        // store CPU frame for recycling back to the producer on next fetch
         if let Some(playback_state) = self.playback_state.get_mut(path) {
-            playback_state.last_frame = Some(gpu_frame.clone());
+            playback_state.last_gpu_frame = Some(gpu_frame.clone());
+            playback_state.pending_recycle = Some(frame);
         }
 
         // Return outputs in the order defined in node.json: Output, Fps, Duration
