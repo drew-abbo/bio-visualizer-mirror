@@ -190,16 +190,14 @@ impl GraphExecutor {
                 NodeExecutionPlan::Shader { .. } => {
                     self.execute_shader_node(device, queue, definition, &resolved_inputs)?
                 }
-                NodeExecutionPlan::BuiltIn(handler) => {
-                    self.execute_builtin_node(
-                        handler,
-                        &resolved_inputs,
-                        device,
-                        queue,
-                        definition,
-                        &context,
-                    )?
-                }
+                NodeExecutionPlan::BuiltIn(handler) => self.execute_builtin_node(
+                    handler,
+                    &resolved_inputs,
+                    device,
+                    queue,
+                    definition,
+                    &context,
+                )?,
             };
 
             // Cache the outputs
@@ -264,9 +262,7 @@ impl GraphExecutor {
                 InputValue::Bool(b) => NodeValue::Bool(*b),
                 InputValue::Int(i) => NodeValue::Int(*i),
                 InputValue::Float(f) => NodeValue::Float(*f),
-                InputValue::Dimensions { width, height } => {
-                    NodeValue::Dimensions(*width, *height)
-                }
+                InputValue::Dimensions { width, height } => NodeValue::Dimensions(*width, *height),
                 InputValue::Pixel { r, g, b, a } => NodeValue::Pixel([*r, *g, *b, *a]),
                 InputValue::Text(t) => NodeValue::Text(t.clone()),
                 InputValue::Enum(idx) => NodeValue::Enum(*idx),
@@ -412,14 +408,20 @@ impl GraphExecutor {
         context: &ExecutionContext,
     ) -> Result<HashMap<String, NodeValue>, ExecutionError> {
         let output_values = match *handler_type {
-            BuiltInHandler::ImageSource => {
-                self.image_handler
-                    .execute(inputs, device, queue, &mut self.upload_stager, context)?
-            }
-            BuiltInHandler::VideoSource => {
-                self.video_handler
-                    .execute(inputs, device, queue, &mut self.upload_stager, context)?
-            }
+            BuiltInHandler::ImageSource => self.image_handler.execute(
+                inputs,
+                device,
+                queue,
+                &mut self.upload_stager,
+                context,
+            )?,
+            BuiltInHandler::VideoSource => self.video_handler.execute(
+                inputs,
+                device,
+                queue,
+                &mut self.upload_stager,
+                context,
+            )?,
             BuiltInHandler::MidiSource => return Err(ExecutionError::InvalidInputType),
         };
 
