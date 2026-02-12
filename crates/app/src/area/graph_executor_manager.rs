@@ -64,25 +64,8 @@ impl GraphExecutorManager {
     /// Looks for nodes with no outgoing connections (sink nodes).
     /// Returns the last one found, or the default output node if none exist.
     pub fn find_display_node(&self) -> EngineNodeId {
-        // Find all nodes that have no outgoing connections
-        let nodes_with_outputs: std::collections::HashSet<EngineNodeId> = self
-            .engine_graph
-            .connections()
-            .iter()
-            .map(|conn| conn.from_node)
-            .collect();
-
-        // Find nodes that are not in the "has outputs" set (i.e., sink nodes)
-        let sink_nodes: Vec<EngineNodeId> = self
-            .engine_graph
-            .instances()
-            .keys()
-            .copied()
-            .filter(|id| !nodes_with_outputs.contains(id))
-            .collect();
-
-        // Return the last sink node, or fall back to default output node
-        sink_nodes
+        self.engine_graph
+            .find_output_nodes()
             .last()
             .copied()
             .unwrap_or_else(|| self.get_output_node_id())

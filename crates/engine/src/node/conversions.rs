@@ -27,16 +27,10 @@ pub fn default_value_for_input_kind(input_kind: &NodeInputKind) -> NodeValue {
         NodeInputKind::Bool { default, .. } => NodeValue::Bool(*default),
         NodeInputKind::Int { default, .. } => NodeValue::Int(*default),
         NodeInputKind::Float { default, .. } => NodeValue::Float(*default),
-        NodeInputKind::Dimensions { default, .. } => {
-            NodeValue::Dimensions(default.0, default.1)
-        }
+        NodeInputKind::Dimensions { default, .. } => NodeValue::Dimensions(default.0, default.1),
         NodeInputKind::Pixel { default, .. } => NodeValue::Pixel(*default),
         NodeInputKind::Text { default, .. } => NodeValue::Text(default.clone()),
-        NodeInputKind::Enum { default_idx, .. } => {
-            NodeValue::Enum(default_idx.unwrap_or(0))
-        }
-        NodeInputKind::File { default, .. } => {
-            NodeValue::File(default.clone().unwrap_or_default())
-        }
+        NodeInputKind::Enum { default_idx, .. } => NodeValue::Enum(default_idx.unwrap_or(0)),
+        NodeInputKind::File { default, .. } => NodeValue::File(default.clone().unwrap_or_default()),
     }
 }

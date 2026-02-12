@@ -38,7 +38,11 @@ impl App {
             match NodeLibrary::load_from_disk(nodes_path.clone()) {
                 Ok(lib) => lib,
                 Err(err) => {
-                    util::debug_log_error!("Failed to load node library from disk at {:?}: {}", nodes_path, err);
+                    util::debug_log_error!(
+                        "Failed to load node library from disk at {:?}: {}",
+                        nodes_path,
+                        err
+                    );
                     NodeLibrary::default()
                 }
             }
@@ -46,7 +50,10 @@ impl App {
             match NodeLibrary::load_from_users_folder() {
                 Ok(lib) => lib,
                 Err(err) => {
-                    util::debug_log_error!("Failed to load node library from users folder: {}", err);
+                    util::debug_log_error!(
+                        "Failed to load node library from users folder: {}",
+                        err
+                    );
                     NodeLibrary::default()
                 }
             }
