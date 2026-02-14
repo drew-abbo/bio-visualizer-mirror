@@ -11,4 +11,3 @@ mod snarl_style;
 pub use editor_area::EditorArea;
 =======
 pub use editor_area::EditorArea;
->>>>>>> a665ac9 (commit now so I don't screw something up)

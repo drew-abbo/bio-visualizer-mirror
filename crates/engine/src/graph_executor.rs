@@ -116,11 +116,19 @@ impl Default for ExecutionContext {
 >>>>>>> dc5fe4f (I have a working UI finally)
 }
 
-/// Execution context supplied by the app (timeline/master FPS, etc.).
+/// NOTE: This will change depending on the Media producer API changes in the future.
+/// Execution context supplied by the app for time-based playback control.
+///
+/// This context provides the timeline state and frame advancement control
+/// for video and time-based nodes. It allows the executor to know the current
+/// playback position and whether to advance to the next frame.
 #[derive(Debug, Clone, Copy)]
 pub struct ExecutionContext {
+    /// Current timeline position in seconds
     pub timeline_time_secs: f64,
+    /// Sampling rate in Hz (frames per second)
     pub sampling_rate_hz: f64,
+    /// Whether to advance to the next frame in video sources
     pub advance_frame: bool,
 }
 
@@ -181,7 +189,8 @@ impl GraphExecutor {
         self.output_node_id
     }
 
-    /// Execute the node graph, optionally targeting a specific node id.
+    /// Execute the node graph with an execution context.
+    /// Supply an optional target node id to execute only up to that node (for partial execution).
     pub fn execute<'a>(
         &'a mut self,
         graph: &NodeGraph,
