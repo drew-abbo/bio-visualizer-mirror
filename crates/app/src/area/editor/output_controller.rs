@@ -11,7 +11,10 @@ use super::playback_state::PlaybackState;
 pub struct OutputController;
 
 impl OutputController {
+<<<<<<< HEAD
     #[allow(clippy::too_many_arguments)]
+=======
+>>>>>>> a665ac9 (commit now so I don't screw something up)
     pub fn update(
         ctx: &util::egui::Context,
         output_panel: &mut OutputPanel,
@@ -24,7 +27,10 @@ impl OutputController {
     ) {
         let is_playing = playback_controls.is_playing();
         let selection_changed = executor_manager.selection_changed(selected_engine_node);
+<<<<<<< HEAD
         let graph_changed = executor_manager.consume_graph_changed();
+=======
+>>>>>>> a665ac9 (commit now so I don't screw something up)
 
         // Reset playback state on selection change
         if selection_changed {
@@ -54,7 +60,11 @@ impl OutputController {
         };
 
         // Determine if we should execute the graph
+<<<<<<< HEAD
         let should_execute = has_nodes && (selection_changed || should_advance || graph_changed);
+=======
+        let should_execute = has_nodes && (selection_changed || should_advance);
+>>>>>>> a665ac9 (commit now so I don't screw something up)
 
         let context = ExecutionContext {
             timeline_time_secs: playback_state.timeline_time_secs(sampling_rate_hz),

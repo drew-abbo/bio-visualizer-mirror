@@ -6,7 +6,6 @@ pub use title_bar_area::TitleBarArea;
 =======
 mod toolbar;
 use crate::area::title_bar::toolbar::ToolBar;
-use crate::view::View;
 use egui_phosphor::regular;
 use util::egui;
 
@@ -24,8 +23,8 @@ impl TitleBar {
     }
 }
 
-impl View for TitleBar {
-    fn ui(&mut self, ui: &mut egui::Ui) {
+impl TitleBar {
+    pub fn ui(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
 
         // Render toolbar on the left, and window controls on the right.

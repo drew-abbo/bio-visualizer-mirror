@@ -1,5 +1,6 @@
 mod area;
 mod components;
+<<<<<<< HEAD
 =======
 mod engine_controller;
 >>>>>>> 59a6b68 (started adding some basic node and video stuff)
@@ -14,6 +15,8 @@ use app::App;
 use app_area::App;
 >>>>>>> 2069524 (trying to get the UI looking right)
 =======
+=======
+>>>>>>> a665ac9 (commit now so I don't screw something up)
 use area::App;
 >>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
 

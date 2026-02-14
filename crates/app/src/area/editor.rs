@@ -7,4 +7,8 @@ mod playback_controls;
 mod playback_state;
 mod snarl_style;
 
+<<<<<<< HEAD
 pub use editor_area::EditorArea;
+=======
+pub use editor_area::EditorArea;
+>>>>>>> a665ac9 (commit now so I don't screw something up)

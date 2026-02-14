@@ -21,6 +21,7 @@ pub struct EditorArea {
 }
 
 impl EditorArea {
+<<<<<<< HEAD
     pub fn new() -> Self {
         let node_library = match NodeLibrary::load_all() {
             Ok(lib) => Arc::new(lib),
@@ -30,6 +31,9 @@ impl EditorArea {
             }
         };
 
+=======
+    pub fn new(node_library: Arc<NodeLibrary>) -> Self {
+>>>>>>> a665ac9 (commit now so I don't screw something up)
         Self {
             node_graph: NodeGraphState::new(),
             output_panel: OutputPanel::new(),
@@ -39,6 +43,7 @@ impl EditorArea {
             node_library,
         }
     }
+<<<<<<< HEAD
 }
 
 impl EditorArea {
@@ -46,6 +51,11 @@ impl EditorArea {
     pub fn show(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
         // show the node graph and get selected nodes
         // feed selected node into output panel to update its content
+=======
+
+    /// Render the entire editor area
+    pub fn show(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+>>>>>>> a665ac9 (commit now so I don't screw something up)
         let selected_nodes = self.show_node_graph(ctx);
         let selected_snarl_node = self.update_output_selection(&selected_nodes);
         self.update_output_from_graph(ctx, frame, selected_snarl_node);
@@ -58,12 +68,17 @@ impl EditorArea {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(ctx, |ui| {
+<<<<<<< HEAD
                 let mut viewer = NodeGraphViewer::new(self.node_library.clone());
+=======
+                let mut viewer = NodeGraphViewer::new(Arc::clone(&self.node_library));
+>>>>>>> a665ac9 (commit now so I don't screw something up)
 
                 let snarl_widget = egui_snarl::ui::SnarlWidget::new()
                     .id(egui::Id::new("node_graph"))
                     .style(snarl_style::snarl_style());
 
+<<<<<<< HEAD
                 snarl_widget.show(&mut self.node_graph.snarl, &mut viewer, ui);
                 selected_nodes = snarl_widget.get_selected_nodes(ui);
 
@@ -77,6 +92,15 @@ impl EditorArea {
                 if graph_changed {
                     self.executor_manager.mark_graph_changed();
                 }
+=======
+                // IMPORTANT: Capture the response to ensure proper interaction handling
+                let _response = snarl_widget.show(&mut self.node_graph.snarl, &mut viewer, ui);
+                selected_nodes = snarl_widget.get_selected_nodes(ui);
+
+                // Sync every frame for now (simple + reliable)
+                self.node_graph
+                    .sync_to_engine(self.executor_manager.engine_graph_mut(), &self.node_library);
+>>>>>>> a665ac9 (commit now so I don't screw something up)
             });
 
         selected_nodes
@@ -105,7 +129,10 @@ impl EditorArea {
             return;
         };
 
+<<<<<<< HEAD
         // Get the snarl node's associated engine node id
+=======
+>>>>>>> a665ac9 (commit now so I don't screw something up)
         let selected_engine_node =
             selected_snarl_node.and_then(|snarl_id| self.node_graph.snarl[snarl_id].engine_node_id);
 

@@ -4,8 +4,12 @@ use engine::graph_executor::NodeValue;
 use media::frame::Uid;
 use util::egui;
 
+<<<<<<< HEAD
 /// Displays output from a node graph
 /// This is for sure going to be changed in the near future
+=======
+/// Displays output from a node graph - can be reused for multiple displays
+>>>>>>> a665ac9 (commit now so I don't screw something up)
 pub struct OutputPanel {
     frame_display: FrameDisplay,
     selected_node_id: Option<NodeId>,
