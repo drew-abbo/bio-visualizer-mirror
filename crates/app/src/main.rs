@@ -1,6 +1,5 @@
 mod area;
 mod components;
-mod view;
 use area::App;
 
 fn main() -> Result<(), util::eframe::Error> {

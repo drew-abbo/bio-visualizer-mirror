@@ -1,4 +1,3 @@
-use crate::view::View;
 use egui::load::SizedTexture;
 use media::frame::Uid;
 use util::eframe::wgpu;
@@ -111,30 +110,5 @@ impl FrameDisplay {
         } else {
             ui.label("No frame data");
         }
-    }
-}
-
-impl View for FrameDisplay {
-    fn ui(&mut self, ui: &mut egui::Ui) {
-        let frame = egui::Frame::new()
-            .inner_margin(12)
-            .outer_margin(0)
-            .corner_radius(self.config.corner_radius)
-            .shadow(if self.config.show_shadow {
-                egui::Shadow {
-                    offset: [8, 12],
-                    blur: 16,
-                    spread: 0,
-                    color: egui::Color32::from_black_alpha(180),
-                }
-            } else {
-                egui::Shadow::NONE
-            })
-            .fill(self.config.bg_color)
-            .stroke(self.config.border_stroke);
-
-        frame.show(ui, |ui| {
-            self.render_content(ui);
-        });
     }
 }

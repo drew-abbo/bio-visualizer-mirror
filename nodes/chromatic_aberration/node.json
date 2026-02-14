@@ -1,0 +1,34 @@
+{
+    "name": "Chromatic Aberration",
+    "inputs": [
+        {
+            "name": "input",
+            "kind": "Frame"
+        },
+        {
+            "name": "strength",
+            "kind": {
+                "Float": {
+                    "default": 1.0,
+                    "min": 0.0,
+                    "max": 10.0,
+                    "step": 0.1
+                }
+            }
+        }
+    ],
+    "outputs": [
+        {
+            "name": "output",
+            "kind": "Frame"
+        }
+    ],
+    "executor": {
+        "Shader": {
+            "source": "shader.wgsl"
+        }
+    },
+    "short_description": "Separates RGB channels for a lens distortion effect",
+    "long_description": "Creates chromatic aberration by offsetting the red and blue channels from the green channel, simulating the effect of a cheap lens where different wavelengths of light focus at different distances.",
+    "search_keywords": ["chromatic", "aberration", "rgb", "split", "lens", "distortion", "glitch"]
+}

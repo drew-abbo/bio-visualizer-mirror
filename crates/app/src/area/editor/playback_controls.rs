@@ -37,10 +37,6 @@ impl PlaybackControls {
         self.playing = !self.playing;
     }
 
-    pub fn reset(&mut self) {
-        self.playing = true;
-    }
-
     pub fn sampling_rate(&self) -> &SamplingRate {
         &self.sampling_rate
     }

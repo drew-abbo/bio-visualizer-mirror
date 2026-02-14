@@ -403,7 +403,8 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
             return;
         }
 
-        // If types match, allow the default connection behavior to proceed
+        // Types match - create the connection
+        snarl.connect(from.id, to.id);
     }
 
     fn drop_inputs(&mut self, _pin: &InPin, _snarl: &mut Snarl<NodeData>) {
@@ -512,11 +513,8 @@ impl NodeGraphState {
             .collect();
 
         // Remove engine nodes that are no longer in the snarl (were deleted)
-        let all_engine_ids: Vec<EngineNodeId> = engine_graph
-            .instances()
-            .iter()
-            .map(|(id, _)| *id)
-            .collect();
+        let all_engine_ids: Vec<EngineNodeId> =
+            engine_graph.instances().iter().map(|(id, _)| *id).collect();
 
         for engine_id in all_engine_ids {
             if !snarl_engine_ids.contains(&engine_id) {
