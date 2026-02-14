@@ -1,4 +1,4 @@
-use crate::{area::title_bar::toolbar::tool_bar_button::ToolBarButton, view::View};
+use crate::{area::title_bar::toolbar::tool_bar_button::ToolBarButton};
 pub mod command;
 mod import_button;
 mod tool_bar_button;
@@ -25,8 +25,8 @@ impl ToolBar {
     }
 }
 
-impl View for ToolBar {
-    fn ui(&mut self, ui: &mut egui::Ui) {
+impl ToolBar {
+    pub fn ui(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             // Add vertical centering to match the window controls
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {

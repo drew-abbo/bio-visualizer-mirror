@@ -15,15 +15,6 @@ mod video;
 mod area;
 >>>>>>> 4e14061 (fps control and some more fixes)
 mod components;
-mod view;
-<<<<<<< HEAD
-<<<<<<< HEAD
-mod areas;
-use app::App;
-=======
-use app_area::App;
->>>>>>> 2069524 (trying to get the UI looking right)
-=======
 use area::App;
 >>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
 

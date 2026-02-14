@@ -5,6 +5,8 @@ use std::collections::HashMap;
 
 use super::graph_executor_manager::GraphExecutorManager;
 use super::output_panel::OutputPanel;
+use super::playback_controls::PlaybackControls;
+use super::playback_state::PlaybackState;
 
 pub struct OutputController;
 
@@ -12,29 +14,39 @@ impl OutputController {
     pub fn update(
         ctx: &util::egui::Context,
         output_panel: &mut OutputPanel,
+        playback_controls: &PlaybackControls,
+        playback_state: &mut PlaybackState,
         executor_manager: &mut GraphExecutorManager,
         node_library: &NodeLibrary,
         render_state: &egui_wgpu::RenderState,
         selected_engine_node: Option<EngineNodeId>,
     ) {
-        let is_playing = output_panel.playback_controls().is_playing();
+        let is_playing = playback_controls.is_playing();
         let selection_changed = executor_manager.selection_changed(selected_engine_node);
-        executor_manager.set_last_selected_engine_node(selected_engine_node);
+
+        // Reset playback state on selection change
+        if selection_changed {
+            playback_state.reset();
+            executor_manager.set_last_selected_engine_node(selected_engine_node);
+        }
 
         if is_playing {
             ctx.request_repaint();
         }
 
-        output_panel.update_playback_tick(is_playing);
+        // Resolve sampling rate from controls
+        let sampling_rate_hz = playback_controls.sampling_rate().resolve(30.0); // Default FPS, will be updated from output
+
+        playback_state.update_tick(is_playing, sampling_rate_hz);
 
         let has_nodes = !executor_manager.engine_graph().is_empty();
 
         if !has_nodes {
-            output_panel.reset(ctx);
+            output_panel.reset();
         }
 
         let should_advance = if is_playing {
-            output_panel.should_advance_frame()
+            playback_state.should_advance_frame(sampling_rate_hz)
         } else {
             false
         };
@@ -43,8 +55,8 @@ impl OutputController {
         let should_execute = has_nodes && (selection_changed || should_advance);
 
         let context = ExecutionContext {
-            timeline_time_secs: output_panel.timeline_time_secs(),
-            sampling_rate_hz: output_panel.sampling_rate_hz(),
+            timeline_time_secs: playback_state.timeline_time_secs(sampling_rate_hz),
+            sampling_rate_hz,
             advance_frame: should_advance,
         };
 
