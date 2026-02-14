@@ -51,6 +51,12 @@ impl View for TitleBar {
                 )
                 .on_hover_cursor(egui::CursorIcon::Default);
 
+            // Handle double click to toggle maximize/restore
+            if drag_resp.double_clicked() {
+                let is_maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!is_maximized));
+            }
+
             if drag_resp.drag_started_by(egui::PointerButton::Primary) {
                 ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
                 self.dragging = true;
