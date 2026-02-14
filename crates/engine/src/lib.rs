@@ -22,10 +22,17 @@
 //! let mut executor = GraphExecutor::new(wgpu::TextureFormat::Rgba8Unorm);
 //! ```
 //!
-//! - Run the graph (returns first output node's results):
+//! - Run the graph with execution context:
 //!
 //! ```ignore
-//! let result = executor.execute(&graph, &library, &device, &queue)?;
+//! let context = ExecutionContext {
+//!     timeline_time_secs: 0.0,
+//!     sampling_rate_hz: 30.0,
+//!     advance_frame: true,
+//! };
+//! let result = executor.execute(&graph, &library, &device, &queue, None, context)?;
+//! Or target a specific node:
+//! let result = executor.execute(&graph, &library, &device, &queue, Some(node_id), context)?;
 //! ```
 //!
 //! - Manage caches between runs:

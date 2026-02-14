@@ -1,4 +1,4 @@
-use crate::{area::title_bar::toolbar::tool_bar_button::ToolBarButton};
+use crate::area::title_bar::toolbar::tool_bar_button::ToolBarButton;
 pub mod command;
 mod import_button;
 mod tool_bar_button;
