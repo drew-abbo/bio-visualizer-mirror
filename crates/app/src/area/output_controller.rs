@@ -28,6 +28,11 @@ impl OutputController {
         output_panel.update_playback_tick(is_playing);
 
         let has_nodes = !executor_manager.engine_graph().is_empty();
+
+        if !has_nodes {
+            output_panel.reset(ctx);
+        }
+
         let should_advance = if is_playing {
             output_panel.should_advance_frame()
         } else {

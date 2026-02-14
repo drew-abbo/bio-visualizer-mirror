@@ -1,6 +1,5 @@
 use super::playback_controls::PlaybackControls;
 use crate::components::FrameDisplay;
-use crate::view::View;
 use egui_snarl::NodeId;
 use engine::graph_executor::NodeValue;
 use media::frame::Uid;
@@ -39,6 +38,14 @@ impl OutputPanel {
         }
     }
 
+    pub fn reset(&mut self, ctx: &egui::Context) {
+        self.playback_controls.reset();
+        self.playback_accumulator = std::time::Duration::ZERO;
+        self.timeline_frame_index = 0;
+        self.current_output = None;
+        ctx.request_repaint();
+    }
+        
     /// Set the currently selected output node
     pub fn set_selected_node(&mut self, node_id: Option<NodeId>) {
         if self.selected_node_id != node_id {
@@ -230,11 +237,5 @@ impl OutputPanel {
         } else {
             ui.label("No output available");
         }
-    }
-}
-
-impl View for OutputPanel {
-    fn ui(&mut self, ui: &mut egui::Ui) {
-        self.frame_display.ui(ui);
     }
 }

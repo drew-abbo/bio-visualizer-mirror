@@ -77,6 +77,9 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
 
                     match &input_def.kind {
                         NodeInputKind::File { .. } => {
+                            // We can restrict the kind of file based on the node name.
+                            // since those nodes are not user defined.
+
                             let current_value = node_data.input_values.get(&input_def.name);
                             let display_text = if let Some(InputValue::File(path)) = current_value {
                                 path.to_string_lossy()
@@ -85,7 +88,38 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
                             };
 
                             if ui.button(display_text).clicked() {
-                                if let Some(path) = rfd::FileDialog::new().pick_file() {
+                                // Create file dialog with appropriate filters based on node name
+                                // Not sure if everything is supported but for now I will just add this
+
+                                let mut dialog = rfd::FileDialog::new();
+
+                                if let Some(def) = self.node_library.get_definition(&node_name) {
+                                    match def.node.name.as_str() {
+                                        "Video" => {
+                                            dialog = dialog.add_filter(
+                                                "Video Files",
+                                                &[
+                                                    "mp4", "avi", "mov", "mkv", "webm", "flv",
+                                                    "wmv", "m4v", "mpg", "mpeg",
+                                                ],
+                                            );
+                                        }
+                                        "Image" => {
+                                            dialog = dialog.add_filter(
+                                                "Image Files",
+                                                &[
+                                                    "png", "jpg", "jpeg", "bmp", "gif", "tiff",
+                                                    "tif", "webp", "ico",
+                                                ],
+                                            );
+                                        }
+                                        _ => {
+                                            // Default: all files
+                                        }
+                                    }
+                                }
+
+                                if let Some(path) = dialog.pick_file() {
                                     node_data
                                         .input_values
                                         .insert(input_def.name.clone(), InputValue::File(path));
@@ -322,6 +356,63 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
                 }
             });
     }
+
+    fn has_node_menu(&mut self, _node: &NodeData) -> bool {
+        true
+    }
+
+    fn show_node_menu(
+        &mut self,
+        node_id: SnarlNodeId,
+        _inputs: &[InPin],
+        _outputs: &[OutPin],
+        ui: &mut egui::Ui,
+        snarl: &mut Snarl<NodeData>,
+    ) {
+        if ui.button("Delete Node").clicked() {
+            snarl.remove_node(node_id);
+            ui.close();
+        }
+    }
+
+    fn connect(&mut self, from: &OutPin, to: &InPin, snarl: &mut Snarl<NodeData>) {
+        // Validate connection types
+        let from_node = &snarl[from.id.node];
+        let to_node = &snarl[to.id.node];
+
+        let Some(from_def) = self.node_library.get_definition(&from_node.definition_name) else {
+            return;
+        };
+        let Some(to_def) = self.node_library.get_definition(&to_node.definition_name) else {
+            return;
+        };
+
+        let Some(from_output) = from_def.node.outputs.get(from.id.output) else {
+            return;
+        };
+        let Some(to_input) = to_def.node.inputs.get(to.id.input) else {
+            return;
+        };
+
+        // Check if types are compatible
+        let output_kind = &from_output.kind;
+        let expected_output_kind = input_kind_to_output_kind(&to_input.kind);
+
+        // Only allow connection if types match
+        if output_kind != &expected_output_kind {
+            return;
+        }
+
+        // If types match, allow the default connection behavior to proceed
+    }
+
+    fn drop_inputs(&mut self, _pin: &InPin, _snarl: &mut Snarl<NodeData>) {
+        // Allow dropping all input connections (default behavior)
+    }
+
+    fn drop_outputs(&mut self, _pin: &OutPin, _snarl: &mut Snarl<NodeData>) {
+        // Allow dropping all output connections (default behavior)
+    }
 }
 
 fn input_kind_color(kind: &NodeInputKind) -> egui::Color32 {
@@ -413,6 +504,25 @@ impl NodeGraphState {
     pub fn sync_to_engine(&mut self, engine_graph: &mut NodeGraph, node_library: &NodeLibrary) {
         // Collect all snarl node IDs (must do this before mutating)
         let all_node_ids: Vec<_> = self.snarl.node_ids().map(|(id, _)| id).collect();
+
+        // Collect all engine node IDs that are still in the snarl
+        let snarl_engine_ids: HashSet<EngineNodeId> = all_node_ids
+            .iter()
+            .filter_map(|node_id| self.snarl[*node_id].engine_node_id)
+            .collect();
+
+        // Remove engine nodes that are no longer in the snarl (were deleted)
+        let all_engine_ids: Vec<EngineNodeId> = engine_graph
+            .instances()
+            .iter()
+            .map(|(id, _)| *id)
+            .collect();
+
+        for engine_id in all_engine_ids {
+            if !snarl_engine_ids.contains(&engine_id) {
+                engine_graph.remove_instance(engine_id);
+            }
+        }
 
         // First, identify which nodes should be in the engine
         let mut to_add = Vec::new();
