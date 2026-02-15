@@ -1,4 +1,4 @@
-use crate::area::title_bar::toolbar::Command;
+use super::command::Command;
 use util::egui::Context;
 
 pub trait ToolBarButton {

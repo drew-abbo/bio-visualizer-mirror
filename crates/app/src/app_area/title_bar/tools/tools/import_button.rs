@@ -1,5 +1,5 @@
-use crate::area::title_bar::toolbar::Command;
-use crate::area::title_bar::toolbar::tool_bar_button::ToolBarButton;
+use super::command::Command;
+use super::tool_bar_button::ToolBarButton;
 use util::egui::Context;
 
 pub struct LoadVideoFile;

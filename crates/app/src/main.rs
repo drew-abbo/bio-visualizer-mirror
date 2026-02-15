@@ -1,5 +1,6 @@
-mod area;
+mod app_area;
 mod components;
+<<<<<<< HEAD
 <<<<<<< HEAD
 =======
 mod engine_controller;
@@ -19,12 +20,17 @@ use app_area::App;
 >>>>>>> a665ac9 (commit now so I don't screw something up)
 use area::App;
 >>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
+=======
+use app_area::AppArea;
+>>>>>>> ee4c645 (restructure and some comments)
 
 fn main() -> Result<(), util::eframe::Error> {
-    // Initialize logger
     env_logger::init();
 
     // Configure the native window
+    // TODO
+    // I think here we are going to want to import what is in the users settings
+    // This will make sure that when they restart the app, it will open with the same window size and position as before
     let native_options = util::eframe::NativeOptions {
         viewport: util::egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 720.0])
@@ -34,10 +40,9 @@ fn main() -> Result<(), util::eframe::Error> {
         ..Default::default()
     };
 
-    // Run the app
     util::eframe::run_native(
         "Bio Visualizer",
         native_options,
-        Box::new(|cc| Ok(Box::new(App::new(cc)))),
+        Box::new(|cc| Ok(Box::new(AppArea::new(cc)))),
     )
 }

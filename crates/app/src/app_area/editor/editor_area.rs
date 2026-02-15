@@ -21,6 +21,7 @@ pub struct EditorArea {
 }
 
 impl EditorArea {
+<<<<<<< HEAD:crates/app/src/area/editor/editor_area.rs
 <<<<<<< HEAD
     pub fn new() -> Self {
         let node_library = match NodeLibrary::load_all() {
@@ -34,6 +35,38 @@ impl EditorArea {
 =======
     pub fn new(node_library: Arc<NodeLibrary>) -> Self {
 >>>>>>> a665ac9 (commit now so I don't screw something up)
+=======
+    pub fn new() -> Self {
+
+        let node_library = if cfg!(debug_assertions) {
+            let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            let workspace_root = manifest_dir.parent().and_then(|p| p.parent()).unwrap();
+            let nodes_path = workspace_root.join("Nodes");
+            match NodeLibrary::load_from_disk(nodes_path.clone()) {
+                Ok(lib) => Arc::new(lib),
+                Err(err) => {
+                    util::debug_log_error!(
+                        "Failed to load node library from disk at {:?}: {}",
+                        nodes_path,
+                        err
+                    );
+                    Arc::new(NodeLibrary::default())
+                }
+            }
+        } else {
+            match NodeLibrary::load_from_users_folder() {
+                Ok(lib) => Arc::new(lib),
+                Err(err) => {
+                    util::debug_log_error!(
+                        "Failed to load node library from users folder: {}",
+                        err
+                    );
+                    Arc::new(NodeLibrary::default())
+                }
+            }
+        };
+
+>>>>>>> ee4c645 (restructure and some comments):crates/app/src/app_area/editor/editor_area.rs
         Self {
             node_graph: NodeGraphState::new(),
             output_panel: OutputPanel::new(),
@@ -43,6 +76,7 @@ impl EditorArea {
             node_library,
         }
     }
+<<<<<<< HEAD:crates/app/src/area/editor/editor_area.rs
 <<<<<<< HEAD
 }
 
@@ -52,7 +86,11 @@ impl EditorArea {
         // show the node graph and get selected nodes
         // feed selected node into output panel to update its content
 =======
+=======
+}
+>>>>>>> ee4c645 (restructure and some comments):crates/app/src/app_area/editor/editor_area.rs
 
+impl EditorArea {
     /// Render the entire editor area
     pub fn show(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
 >>>>>>> a665ac9 (commit now so I don't screw something up)
@@ -68,11 +106,15 @@ impl EditorArea {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(ctx, |ui| {
+<<<<<<< HEAD:crates/app/src/area/editor/editor_area.rs
 <<<<<<< HEAD
                 let mut viewer = NodeGraphViewer::new(self.node_library.clone());
 =======
                 let mut viewer = NodeGraphViewer::new(Arc::clone(&self.node_library));
 >>>>>>> a665ac9 (commit now so I don't screw something up)
+=======
+                let mut viewer = NodeGraphViewer::new(self.node_library.clone());
+>>>>>>> ee4c645 (restructure and some comments):crates/app/src/app_area/editor/editor_area.rs
 
                 let snarl_widget = egui_snarl::ui::SnarlWidget::new()
                     .id(egui::Id::new("node_graph"))
