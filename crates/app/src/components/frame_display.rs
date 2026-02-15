@@ -8,24 +8,12 @@ use util::egui;
 pub struct FrameDisplayConfig {
     /// Maximum size to display the frame at
     pub max_size: egui::Vec2,
-    /// Corner radius for the frame styling
-    pub corner_radius: f32,
-    /// Whether to show a shadow
-    pub show_shadow: bool,
-    /// Background color
-    pub bg_color: egui::Color32,
-    /// Border stroke
-    pub border_stroke: egui::Stroke,
 }
 
 impl Default for FrameDisplayConfig {
     fn default() -> Self {
         Self {
             max_size: egui::vec2(640.0, 480.0),
-            corner_radius: 14.0,
-            show_shadow: true,
-            bg_color: egui::Color32::from_rgba_unmultiplied(30, 30, 30, 200),
-            border_stroke: egui::Stroke::new(1.0, egui::Color32::GRAY),
         }
     }
 }

@@ -21,7 +21,36 @@ pub struct EditorArea {
 }
 
 impl EditorArea {
-    pub fn new(node_library: Arc<NodeLibrary>) -> Self {
+    pub fn new() -> Self {
+
+        let node_library = if cfg!(debug_assertions) {
+            let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            let workspace_root = manifest_dir.parent().and_then(|p| p.parent()).unwrap();
+            let nodes_path = workspace_root.join("Nodes");
+            match NodeLibrary::load_from_disk(nodes_path.clone()) {
+                Ok(lib) => Arc::new(lib),
+                Err(err) => {
+                    util::debug_log_error!(
+                        "Failed to load node library from disk at {:?}: {}",
+                        nodes_path,
+                        err
+                    );
+                    Arc::new(NodeLibrary::default())
+                }
+            }
+        } else {
+            match NodeLibrary::load_from_users_folder() {
+                Ok(lib) => Arc::new(lib),
+                Err(err) => {
+                    util::debug_log_error!(
+                        "Failed to load node library from users folder: {}",
+                        err
+                    );
+                    Arc::new(NodeLibrary::default())
+                }
+            }
+        };
+
         Self {
             node_graph: NodeGraphState::new(),
             output_panel: OutputPanel::new(),
@@ -31,7 +60,9 @@ impl EditorArea {
             node_library,
         }
     }
+}
 
+impl EditorArea {
     /// Render the entire editor area
     pub fn show(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
         let selected_nodes = self.show_node_graph(ctx);
@@ -46,7 +77,7 @@ impl EditorArea {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(ctx, |ui| {
-                let mut viewer = NodeGraphViewer::new(Arc::clone(&self.node_library));
+                let mut viewer = NodeGraphViewer::new(self.node_library.clone());
 
                 let snarl_widget = egui_snarl::ui::SnarlWidget::new()
                     .id(egui::Id::new("node_graph"))

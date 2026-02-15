@@ -1,9 +1,8 @@
-use crate::area::title_bar::toolbar::tool_bar_button::ToolBarButton;
-pub mod command;
-mod import_button;
-mod tool_bar_button;
-pub use crate::area::title_bar::toolbar::command::Command;
 use util::egui;
+
+use super::command::Command;
+use super::tool_bar_button::ToolBarButton;
+use super::import_button::LoadVideoFile;
 
 pub struct ToolBar {
     file_buttons: Vec<Box<dyn ToolBarButton>>,
@@ -13,13 +12,14 @@ pub struct ToolBar {
 impl ToolBar {
     pub fn new() -> Self {
         Self {
-            file_buttons: vec![Box::new(import_button::LoadVideoFile)],
+            file_buttons: vec![Box::new(LoadVideoFile)],
             pending: Vec::new(),
         }
     }
 }
 
 impl ToolBar {
+    #[allow(dead_code)]
     fn add_pending(&mut self, command: Command) {
         self.pending.push(command);
     }
