@@ -21,7 +21,7 @@ use std::mem::{self, MaybeUninit};
 use std::ops::{Index, IndexMut};
 use std::path::Path;
 use std::ptr;
-use std::slice::{self, Chunks, ChunksMut};
+use std::slice::{Chunks, ChunksMut};
 
 use image::{ImageError, ImageReader};
 
@@ -683,7 +683,7 @@ impl Frame {
             // type to another. Since the length and alignment is on the caller,
             // we're ok here.
             pixels: unsafe {
-                Box::from_raw(slice::from_raw_parts_mut(
+                Box::from_raw(ptr::slice_from_raw_parts_mut(
                     Box::into_raw(data) as *mut Pixel,
                     dimensions.area() as usize,
                 ))
