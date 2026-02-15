@@ -1,14 +1,15 @@
-mod toolbar;
-use crate::area::title_bar::toolbar::ToolBar;
-use egui_phosphor::regular;
 use util::egui;
+use egui_phosphor::regular;
+use super::tools::ToolBar;
 
-pub struct TitleBar {
+pub struct TitleBarArea {
     tool_bar: ToolBar,
     dragging: bool,
 }
 
-impl TitleBar {
+/// The title bar area is responsible for rendering the title bar of the app, which includes the toolbar and window controls (minimize, maximize, close).
+/// This also handles actions in the [ToolBar] once we start using that more.
+impl TitleBarArea {
     pub fn new() -> Self {
         Self {
             tool_bar: ToolBar::new(),
@@ -17,7 +18,7 @@ impl TitleBar {
     }
 }
 
-impl TitleBar {
+impl TitleBarArea {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
 
