@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::node::Node;
-use crate::node::errors::LibraryError;
+use super::errors::LibraryError;
 
 /// A loaded node definition with resolved paths
 #[derive(Debug, Clone)]
