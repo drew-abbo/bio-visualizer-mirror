@@ -4,9 +4,15 @@ use std::path::{Path, PathBuf};
 
 use serde_json;
 
+<<<<<<< HEAD
 use super::engine_node::{EngineNode, NodeExecutionPlan};
 use super::errors::LibraryError;
 use super::node_definition::NodeDefinition;
+=======
+use super::errors::LibraryError;
+use super::node_definition::NodeDefinition;
+use super::node::{Node, NodeExecutionPlan};
+>>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
 
 /// The node library - holds all available node definitions loaded from disk
 #[derive(Debug)]
@@ -160,6 +166,8 @@ impl NodeLibrary {
 
         let node: EngineNode = serde_json::from_str(&json_content)
             .map_err(|e| LibraryError::ParseError(node_json.clone(), e.to_string()))?;
+
+
 
         // Resolve shader file path if this is a shader node
         let shader_path = if let NodeExecutionPlan::Shader { source } = &node.executor {

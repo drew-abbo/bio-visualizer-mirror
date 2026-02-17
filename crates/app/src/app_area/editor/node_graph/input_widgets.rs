@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 use engine::node::engine_node::NodeInput;
+=======
+use engine::node::node::NodeInput;
+>>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
 use engine::node::{NodeInputKind, NodeLibrary};
 use engine::node_graph::InputValue;
 use std::collections::HashMap;
@@ -81,16 +85,25 @@ fn show_file_input(
                     dialog = dialog.add_filter(
                         "Video Files",
                         &[
+<<<<<<< HEAD
                             "mp4", "avi", "mov", "mkv", "webm", "flv", "wmv", "m4v", "mpg", "mpeg",
+=======
+                            "mp4", "avi", "mov", "mkv", "webm", "flv", "wmv", "m4v", "mpg",
+                            "mpeg",
+>>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
                         ],
                     );
                 }
                 IMAGE_NODE_NAME => {
                     dialog = dialog.add_filter(
                         "Image Files",
+<<<<<<< HEAD
                         &[
                             "png", "jpg", "jpeg", "bmp", "gif", "tiff", "tif", "webp", "ico",
                         ],
+=======
+                        &["png", "jpg", "jpeg", "bmp", "gif", "tiff", "tif", "webp", "ico"],
+>>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
                     );
                 }
                 _ => {
@@ -228,12 +241,22 @@ fn show_pixel_input(
     input_def: &NodeInput,
     default: [f32; 4],
 ) {
+<<<<<<< HEAD
     let (r, g, b, a) =
         if let Some(InputValue::Pixel { r, g, b, a }) = input_values.get(&input_def.name) {
             (*r, *g, *b, *a)
         } else {
             (default[0], default[1], default[2], default[3])
         };
+=======
+    let (r, g, b, a) = if let Some(InputValue::Pixel { r, g, b, a }) =
+        input_values.get(&input_def.name)
+    {
+        (*r, *g, *b, *a)
+    } else {
+        (default[0], default[1], default[2], default[3])
+    };
+>>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
 
     let mut color = egui::Color32::from_rgba_premultiplied(
         (r * 255.0) as u8,

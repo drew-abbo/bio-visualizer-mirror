@@ -9,9 +9,13 @@ use engine::node::NodeLibrary;
 use engine::node_graph::{EngineNodeId, NodeGraph};
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 /// Manager for the node graph and its execution, separate from the UI state in EditorArea
 =======
 >>>>>>> a665ac9 (commit now so I don't screw something up)
+=======
+/// Manager for the node graph and its execution, separate from the UI state in EditorArea
+>>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
 pub struct GraphExecutorManager {
     engine_graph: NodeGraph,
     graph_executor: GraphExecutor,
@@ -69,18 +73,27 @@ impl GraphExecutorManager {
     }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
     /// Check if the selection has changed since the last execution
     /// Used to determine if we need to re-execute the graph when the user selects a different node
 =======
 >>>>>>> a665ac9 (commit now so I don't screw something up)
+=======
+    /// Check if the selection has changed since the last execution
+    /// Used to determine if we need to re-execute the graph when the user selects a different node
+>>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
     pub fn selection_changed(&self, new_selection: Option<EngineNodeId>) -> bool {
         new_selection != self.last_selected_engine_node
     }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
     /// Execute the graph and return the outputs of the selected node (or output node if none selected)
 =======
 >>>>>>> a665ac9 (commit now so I don't screw something up)
+=======
+    /// Execute the graph and return the outputs of the selected node (or output node if none selected)
+>>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
     pub fn execute(
         &mut self,
         node_library: &NodeLibrary,

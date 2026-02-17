@@ -1,6 +1,7 @@
 use super::engine_node::NumberInputUiMode;
 use std::path::PathBuf;
 use thiserror::Error;
+use super::node::NumberInputUiMode;
 
 #[derive(Error, Debug)]
 pub enum LibraryError {

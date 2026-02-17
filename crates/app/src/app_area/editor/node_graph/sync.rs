@@ -1,22 +1,38 @@
 use egui_snarl::{NodeId as SnarlNodeId, Snarl};
+<<<<<<< HEAD
 use engine::node::engine_node::NodeInput;
+=======
+use engine::node::node::NodeInput;
+>>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
 use engine::node::{NodeInputKind, NodeLibrary};
 use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
 use std::collections::{HashMap, HashSet};
 
+<<<<<<< HEAD
 use super::{NodeData, NodeGraphState, validation};
 
 /// Sync the entire node graph to the engine
 /// Returns true if any changes were made to the engine graph
+=======
+use super::{validation, NodeData, NodeGraphState};
+
+/// Sync the entire node graph to the engine
+>>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
 pub fn sync_to_engine(
     state: &mut NodeGraphState,
     engine_graph: &mut NodeGraph,
     node_library: &NodeLibrary,
+<<<<<<< HEAD
 ) -> bool {
     let mut changes_made = false;
 
     // Collect all snarl node IDs (must do this before mutating)
     let all_node_ids: Vec<SnarlNodeId> = state.snarl.node_ids().map(|(id, _)| id).collect();
+=======
+) {
+    // Collect all snarl node IDs (must do this before mutating)
+    let all_node_ids: Vec<_> = state.snarl.node_ids().map(|(id, _)| id).collect();
+>>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
 
     // Collect all engine node IDs that are still in the snarl
     let snarl_engine_ids: HashSet<EngineNodeId> = all_node_ids
@@ -30,7 +46,10 @@ pub fn sync_to_engine(
     for engine_id in all_engine_ids {
         if !snarl_engine_ids.contains(&engine_id) {
             engine_graph.remove_instance(engine_id);
+<<<<<<< HEAD
             changes_made = true;
+=======
+>>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
         }
     }
 
@@ -59,10 +78,15 @@ pub fn sync_to_engine(
             .input_values
             .values()
             .any(|v| matches!(v, InputValue::File(_)));
+<<<<<<< HEAD
 
         let inputs_satisfied =
             validation::are_inputs_satisfied(&state.snarl, *node_id, node_library);
 
+=======
+        let inputs_satisfied =
+            validation::are_inputs_satisfied(&state.snarl, *node_id, node_library);
+>>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
         let should_be_in_engine = if is_source {
             has_file && inputs_satisfied // Source nodes need configured file
         } else {
@@ -80,13 +104,19 @@ pub fn sync_to_engine(
     // Remove disconnected nodes
     for node_id in to_remove {
         remove_node_from_engine(state, node_id, engine_graph);
+<<<<<<< HEAD
         changes_made = true;
+=======
+>>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
     }
 
     // Add newly connected nodes
     for node_id in to_add {
         sync_node_to_engine(state, node_id, engine_graph, node_library);
+<<<<<<< HEAD
         changes_made = true;
+=======
+>>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
     }
 
     // Update input values for nodes already in engine
@@ -124,16 +154,21 @@ pub fn sync_to_engine(
                 merged_inputs.insert(key.clone(), value.clone());
             }
 
+<<<<<<< HEAD
             // Only update if values actually changed
             if merged_inputs != instance.input_values {
                 instance.input_values = merged_inputs;
                 changes_made = true;
             }
+=======
+            instance.input_values = merged_inputs;
+>>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
         }
     }
 
     // Sync all wires
     for node_id in &all_node_ids {
+<<<<<<< HEAD
         if state.snarl[*node_id].engine_node_id.is_some()
             && sync_wires_for_node(state, *node_id, engine_graph, node_library) {
                 changes_made = true;
@@ -141,6 +176,12 @@ pub fn sync_to_engine(
     }
 
     changes_made
+=======
+        if state.snarl[*node_id].engine_node_id.is_some() {
+            sync_wires_for_node(state, *node_id, engine_graph, node_library);
+        }
+    }
+>>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
 }
 
 /// Sync a node to the engine if it should be active
@@ -158,21 +199,33 @@ pub fn sync_node_to_engine(
     // Check conditions before borrowing mutably
     let definition_name = state.snarl[node_id].definition_name.clone();
     let input_values = state.snarl[node_id].input_values.clone();
+<<<<<<< HEAD
 
     let Some(definition) = node_library.get_definition(&definition_name) else {
         return;
     };
 
+=======
+    let Some(definition) = node_library.get_definition(&definition_name) else {
+        return;
+    };
+>>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
     let is_source = definition
         .node
         .inputs
         .iter()
         .any(|input| matches!(input.kind, NodeInputKind::File { .. }));
+<<<<<<< HEAD
 
     let has_file = input_values
         .values()
         .any(|v| matches!(v, InputValue::File(_)));
 
+=======
+    let has_file = input_values
+        .values()
+        .any(|v| matches!(v, InputValue::File(_)));
+>>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
     let should_add = if is_source {
         has_file
     } else {
@@ -235,24 +288,39 @@ fn sync_wires_for_node(
     node_id: SnarlNodeId,
     engine_graph: &mut NodeGraph,
     node_library: &NodeLibrary,
+<<<<<<< HEAD
 ) -> bool {
     let mut changes_made = false;
 
     let node = &state.snarl[node_id];
     let Some(to_engine_id) = node.engine_node_id else {
         return false;
+=======
+) {
+    let node = &state.snarl[node_id];
+    let Some(to_engine_id) = node.engine_node_id else {
+        return;
+>>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
     };
 
     // Get node definition to map input indices to names
     let Some(definition) = node_library.get_definition(&node.definition_name) else {
+<<<<<<< HEAD
         return false;
+=======
+        return;
+>>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
     };
 
     // Clear existing engine connections for this node's inputs
     for input_def in &definition.node.inputs {
+<<<<<<< HEAD
         if engine_graph.disconnect(to_engine_id, &input_def.name) {
             changes_made = true;
         }
+=======
+        engine_graph.disconnect(to_engine_id, &input_def.name);
+>>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
     }
 
     // Connect all inputs
@@ -279,12 +347,17 @@ fn sync_wires_for_node(
         };
 
         // Connect in engine graph
+<<<<<<< HEAD
         match engine_graph.connect(
+=======
+        if let Err(err) = engine_graph.connect(
+>>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
             from_engine_id,
             output_def.name.clone(),
             to_engine_id,
             input_def.name.clone(),
         ) {
+<<<<<<< HEAD
             Ok(_) => {
                 changes_made = true;
             }
@@ -302,6 +375,18 @@ fn sync_wires_for_node(
     }
 
     changes_made
+=======
+            util::debug_log_error!(
+                "Failed to connect {} output '{}' to {} input '{}': {}",
+                from_engine_id,
+                output_def.name,
+                to_engine_id,
+                input_def.name,
+                err
+            );
+        }
+    }
+>>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
 }
 
 fn connected_input_names(
@@ -340,7 +425,13 @@ fn default_input_value(input_def: &NodeInput) -> Option<InputValue> {
             b: default[2],
             a: default[3],
         }),
+<<<<<<< HEAD
         NodeInputKind::Enum { default_idx, .. } => Some(InputValue::Enum(default_idx.unwrap_or(0))),
+=======
+        NodeInputKind::Enum { default_idx, .. } => {
+            Some(InputValue::Enum(default_idx.unwrap_or(0)))
+        }
+>>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
         NodeInputKind::Text { default, .. } => Some(InputValue::Text(default.clone())),
         NodeInputKind::File { default, .. } => default.clone().map(InputValue::File),
         NodeInputKind::Frame | NodeInputKind::Midi => None,

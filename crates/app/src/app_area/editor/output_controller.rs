@@ -11,10 +11,7 @@ use super::playback_state::PlaybackState;
 pub struct OutputController;
 
 impl OutputController {
-<<<<<<< HEAD
     #[allow(clippy::too_many_arguments)]
-=======
->>>>>>> a665ac9 (commit now so I don't screw something up)
     pub fn update(
         ctx: &util::egui::Context,
         output_panel: &mut OutputPanel,
