@@ -55,6 +55,7 @@ impl PlaybackControls {
             ui.separator();
 
             // Timeline sampling rate selector
+            // This will probably get removed soon
             ui.label("Sampling Rate:");
             egui::ComboBox::from_id_salt("sampling_rate")
                 .selected_text(match self.sampling_rate {

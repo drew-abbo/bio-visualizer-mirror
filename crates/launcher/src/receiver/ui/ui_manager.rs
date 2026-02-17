@@ -6,7 +6,7 @@ use std::fmt::Debug;
 use std::time::{self, Duration, SystemTime};
 
 use eframe::{App, Frame};
-use util::egui::{CentralPanel, Context, Ui, UserAttentionType, Vec2, ViewportCommand, Visuals};
+use util::egui::{CentralPanel, Context, Ui, UserAttentionType, Vec2, ViewportCommand, Visuals, Color32};
 
 use util::channels::request_channel::Request;
 use util::local_data::project::ProjectId;

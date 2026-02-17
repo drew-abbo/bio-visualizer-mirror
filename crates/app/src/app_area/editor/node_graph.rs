@@ -1,3 +1,5 @@
+//! This is the most important place in the app
+
 use egui_snarl::ui::{PinInfo, SnarlViewer};
 use egui_snarl::{InPin, NodeId as SnarlNodeId, OutPin, Snarl};
 use engine::node::node::{NodeInput, NodeOutputKind};
@@ -67,6 +69,7 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
         snarl: &mut Snarl<NodeData>,
     ) -> impl egui_snarl::ui::SnarlPin + 'static {
         let node_name = snarl[pin.id.node].definition_name.clone();
+        
         if let Some(def) = self.node_library.get_definition(&node_name) {
             if let Some(input_def) = def.node.inputs.get(pin.id.input) {
                 ui.label(&input_def.name);
