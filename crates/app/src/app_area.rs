@@ -40,10 +40,7 @@ impl AppArea {
 
 impl eframe::App for AppArea {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        // Render minimal top-level UI
         self.show_top_bar(ctx);
-
-        // Editor area handles all its own logic
         self.editor_area.show(ctx, frame);
     }
 }

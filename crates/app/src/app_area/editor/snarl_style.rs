@@ -1,5 +1,6 @@
 use util::egui;
 
+/// Custom snarl style for the editor area
 pub fn snarl_style() -> egui_snarl::ui::SnarlStyle {
     egui_snarl::ui::SnarlStyle {
         bg_pattern: Some(egui_snarl::ui::BackgroundPattern::grid(
