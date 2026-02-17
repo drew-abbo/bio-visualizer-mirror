@@ -1,10 +1,7 @@
 use std::time::{Duration, Instant};
 
 /// Manages playback timing state shared across all output displays
-<<<<<<< HEAD
 /// TODO Use the new media trait PlaybackStream
-=======
->>>>>>> a665ac9 (commit now so I don't screw something up)
 pub struct PlaybackState {
     last_tick: Instant,
     playback_accumulator: Duration,

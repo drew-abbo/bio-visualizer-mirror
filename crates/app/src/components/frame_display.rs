@@ -3,10 +3,8 @@ use media::frame::Uid;
 use util::eframe::wgpu;
 use util::egui;
 
-/// Configuration for how a frame should be displayed
 #[derive(Clone, Debug)]
 pub struct FrameDisplayConfig {
-    /// Maximum size to display the frame at
     pub max_size: egui::Vec2,
 }
 
@@ -36,7 +34,6 @@ impl FrameDisplay {
         }
     }
 
-    /// Create with default configuration
     pub fn default_config() -> Self {
         Self::new(FrameDisplayConfig::default())
     }
@@ -59,7 +56,6 @@ impl FrameDisplay {
         }
 
         // Register new texture
-        // Both engine and app now use the same wgpu version (27), so no transmute needed
         let texture_id = render_state.renderer.write().register_native_texture(
             &render_state.device,
             texture_view,
@@ -82,7 +78,7 @@ impl FrameDisplay {
         self.last_frame_id = None;
     }
 
-    /// Render just the texture content (for embedding in other UIs)
+    /// Render just the texture content
     pub fn render_content(&self, ui: &mut egui::Ui) {
         if let Some(texture_id) = self.texture_id {
             let original_size =

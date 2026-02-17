@@ -1,22 +1,5 @@
-<<<<<<< HEAD
-//! Node graph editor UI and synchronization with engine graph
-//! This module defines the state and UI for the node graph editor, as well as the logic to sync
-//! the snarl graph to the engine graph. It also includes validation logic for node connections and input values.
-mod colors;
-mod input_widgets;
-mod sync;
-mod validation;
+//! This is the most important place in the app
 
-use egui_snarl::ui::{PinInfo, SnarlViewer};
-use egui_snarl::{InPin, NodeId as SnarlNodeId, OutPin, Snarl};
-use engine::node::{NodeLibrary, input_kind_to_output_kind};
-use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
-use std::collections::HashMap;
-use std::sync::Arc;
-use util::egui;
-
-/// Data associated with each node in the snarl graph, including its definition and configured input values
-=======
 use egui_snarl::ui::{PinInfo, SnarlViewer};
 use egui_snarl::{InPin, NodeId as SnarlNodeId, OutPin, Snarl};
 use engine::node::node::{NodeInput, NodeOutputKind};
@@ -91,31 +74,7 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
         snarl: &mut Snarl<NodeData>,
     ) -> impl egui_snarl::ui::SnarlPin + 'static {
         let node_name = snarl[pin.id.node].definition_name.clone();
-<<<<<<< HEAD
-        if let Some(def) = self.node_library.get_definition(&node_name)
-            && let Some(input_def) = def.node.inputs.get(pin.id.input)
-        {
-            ui.label(&input_def.name);
-
-            // Show input configuration UI if no connection
-            if pin.remotes.is_empty() {
-                let node_data = &mut snarl[pin.id.node];
-                input_widgets::show_input_widget(
-                    ui,
-                    &mut node_data.input_values,
-                    input_def,
-                    &node_name,
-                    &self.node_library,
-                );
-            } else if let Some(remote) = pin.remotes.first() {
-                // Show connected value
-                let remote_node = &snarl[remote.node];
-                ui.label(format!("Connected to {}", remote_node.definition_name));
-            }
-
-            let color = colors::input_kind_color(&input_def.kind);
-            return PinInfo::circle().with_fill(color);
-=======
+        
         if let Some(def) = self.node_library.get_definition(&node_name) {
             if let Some(input_def) = def.node.inputs.get(pin.id.input) {
                 ui.label(&input_def.name);
