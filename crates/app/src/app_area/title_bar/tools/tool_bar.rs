@@ -33,10 +33,10 @@ impl ToolBar {
                 // File menu with dropdown - larger text
                 ui.menu_button(egui::RichText::new("File").size(16.0), |ui| {
                     for button in &mut self.file_buttons {
-                        if ui.button(button.label()).clicked() {
-                            if let Some(action) = button.on_click(ui.ctx()) {
+                        if ui.button(button.label()).clicked()
+                            && let Some(action) = button.on_click(ui.ctx())
+                        {
                                 self.pending.push(action);
-                            }
                         }
                     }
                 });

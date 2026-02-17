@@ -2,6 +2,7 @@ use engine::graph_executor::{ExecutionContext, GraphExecutor, NodeValue};
 use engine::node::NodeLibrary;
 use engine::node_graph::{EngineNodeId, NodeGraph};
 
+/// Manager for the node graph and its execution, separate from the UI state in EditorArea
 pub struct GraphExecutorManager {
     engine_graph: NodeGraph,
     graph_executor: GraphExecutor,
@@ -29,10 +30,13 @@ impl GraphExecutorManager {
         self.last_selected_engine_node = node;
     }
 
+    /// Check if the selection has changed since the last execution
+    /// Used to determine if we need to re-execute the graph when the user selects a different node
     pub fn selection_changed(&self, new_selection: Option<EngineNodeId>) -> bool {
         new_selection != self.last_selected_engine_node
     }
 
+    /// Execute the graph and return the outputs of the selected node (or output node if none selected)
     pub fn execute(
         &mut self,
         node_library: &NodeLibrary,

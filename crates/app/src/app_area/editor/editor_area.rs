@@ -65,6 +65,8 @@ impl EditorArea {
 impl EditorArea {
     /// Render the entire editor area
     pub fn show(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+        // show the node graph and get selected nodes
+        // feed selected node into output panel to update its content
         let selected_nodes = self.show_node_graph(ctx);
         let selected_snarl_node = self.update_output_selection(&selected_nodes);
         self.update_output_from_graph(ctx, frame, selected_snarl_node);
@@ -83,11 +85,11 @@ impl EditorArea {
                     .id(egui::Id::new("node_graph"))
                     .style(snarl_style::snarl_style());
 
-                // IMPORTANT: Capture the response to ensure proper interaction handling
-                let _response = snarl_widget.show(&mut self.node_graph.snarl, &mut viewer, ui);
+                snarl_widget.show(&mut self.node_graph.snarl, &mut viewer, ui);
                 selected_nodes = snarl_widget.get_selected_nodes(ui);
 
-                // Sync every frame for now (simple + reliable)
+                // Sync every frame for now
+                // Might need to optimize later if it becomes a bottleneck, but I think this is fine
                 self.node_graph
                     .sync_to_engine(self.executor_manager.engine_graph_mut(), &self.node_library);
             });
@@ -118,6 +120,7 @@ impl EditorArea {
             return;
         };
 
+        // Get the snarl node's associated engine node id
         let selected_engine_node =
             selected_snarl_node.and_then(|snarl_id| self.node_graph.snarl[snarl_id].engine_node_id);
 
