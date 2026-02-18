@@ -126,10 +126,8 @@ impl NodeLibrary {
                     // This is a node folder!
                     match Self::load_node_definition(&path) {
                         Ok(def) => {
-                            if cfg!(debug_assertions) {
-                                println!("Found node: {}", def.node.name);
-                            }
-                            
+                            util::debug_println!("Found node: {}", def.node.name);
+
                             if definitions.contains_key(&def.node.name) {
                                 util::debug_log_warning!(
                                     "Warning: Duplicate node name '{}', skipping",
