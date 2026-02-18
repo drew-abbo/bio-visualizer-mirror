@@ -1,6 +1,6 @@
 use egui_snarl::{NodeId as SnarlNodeId, Snarl};
-use engine::node::NodeLibrary;
 use engine::node::NodeInputKind;
+use engine::node::NodeLibrary;
 use engine::node_graph::InputValue;
 use std::collections::HashSet;
 

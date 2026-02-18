@@ -1,5 +1,6 @@
 mod app_area;
 mod components;
+
 use app_area::AppArea;
 
 fn main() -> Result<(), util::eframe::Error> {

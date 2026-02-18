@@ -4,16 +4,17 @@ use engine::node::{NodeInputKind, NodeLibrary};
 use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
 use std::collections::{HashMap, HashSet};
 
-use super::{validation, NodeData, NodeGraphState};
+use super::{NodeData, NodeGraphState, validation};
 
 /// Sync the entire node graph to the engine
+/// Not sure if this method will become a bottleneck, but it is simpler to reason about than trying to sync incrementally on every change
 pub fn sync_to_engine(
     state: &mut NodeGraphState,
     engine_graph: &mut NodeGraph,
     node_library: &NodeLibrary,
 ) {
     // Collect all snarl node IDs (must do this before mutating)
-    let all_node_ids: Vec<_> = state.snarl.node_ids().map(|(id, _)| id).collect();
+    let all_node_ids: Vec<SnarlNodeId> = state.snarl.node_ids().map(|(id, _)| id).collect();
 
     // Collect all engine node IDs that are still in the snarl
     let snarl_engine_ids: HashSet<EngineNodeId> = all_node_ids
@@ -55,8 +56,10 @@ pub fn sync_to_engine(
             .input_values
             .values()
             .any(|v| matches!(v, InputValue::File(_)));
+
         let inputs_satisfied =
             validation::are_inputs_satisfied(&state.snarl, *node_id, node_library);
+
         let should_be_in_engine = if is_source {
             has_file && inputs_satisfied // Source nodes need configured file
         } else {
@@ -143,17 +146,21 @@ pub fn sync_node_to_engine(
     // Check conditions before borrowing mutably
     let definition_name = state.snarl[node_id].definition_name.clone();
     let input_values = state.snarl[node_id].input_values.clone();
+
     let Some(definition) = node_library.get_definition(&definition_name) else {
         return;
     };
+    
     let is_source = definition
         .node
         .inputs
         .iter()
         .any(|input| matches!(input.kind, NodeInputKind::File { .. }));
+
     let has_file = input_values
         .values()
         .any(|v| matches!(v, InputValue::File(_)));
+    
     let should_add = if is_source {
         has_file
     } else {
@@ -310,9 +317,7 @@ fn default_input_value(input_def: &NodeInput) -> Option<InputValue> {
             b: default[2],
             a: default[3],
         }),
-        NodeInputKind::Enum { default_idx, .. } => {
-            Some(InputValue::Enum(default_idx.unwrap_or(0)))
-        }
+        NodeInputKind::Enum { default_idx, .. } => Some(InputValue::Enum(default_idx.unwrap_or(0))),
         NodeInputKind::Text { default, .. } => Some(InputValue::Text(default.clone())),
         NodeInputKind::File { default, .. } => default.clone().map(InputValue::File),
         NodeInputKind::Frame | NodeInputKind::Midi => None,

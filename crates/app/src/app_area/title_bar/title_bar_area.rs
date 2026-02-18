@@ -1,6 +1,6 @@
-use util::egui;
-use egui_phosphor::regular;
 use super::tools::ToolBar;
+use egui_phosphor::regular;
+use util::egui;
 
 pub struct TitleBarArea {
     tool_bar: ToolBar,

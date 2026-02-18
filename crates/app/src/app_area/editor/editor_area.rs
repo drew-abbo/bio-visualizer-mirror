@@ -18,11 +18,11 @@ pub struct EditorArea {
     playback_state: PlaybackState,
     executor_manager: GraphExecutorManager,
     node_library: Arc<NodeLibrary>,
+    last_graph_state: (usize, usize, u64), // (node_count, wire_count, input_hash)
 }
 
 impl EditorArea {
     pub fn new() -> Self {
-
         let node_library = if cfg!(debug_assertions) {
             let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
             let workspace_root = manifest_dir.parent().and_then(|p| p.parent()).unwrap();
@@ -58,6 +58,7 @@ impl EditorArea {
             playback_state: PlaybackState::new(),
             executor_manager: GraphExecutorManager::new(),
             node_library,
+            last_graph_state: (0, 0, 0),
         }
     }
 }
@@ -88,10 +89,16 @@ impl EditorArea {
                 snarl_widget.show(&mut self.node_graph.snarl, &mut viewer, ui);
                 selected_nodes = snarl_widget.get_selected_nodes(ui);
 
-                // Sync every frame for now
-                // Might need to optimize later if it becomes a bottleneck, but I think this is fine
-                self.node_graph
-                    .sync_to_engine(self.executor_manager.engine_graph_mut(), &self.node_library);
+                // Sync when graph structure or input values change
+                let current_state = Self::compute_graph_state(&self.node_graph.snarl);
+                if current_state != self.last_graph_state {
+                    self.node_graph.sync_to_engine(
+                        self.executor_manager.engine_graph_mut(),
+                        &self.node_library,
+                    );
+
+                    self.last_graph_state = current_state;
+                }
             });
 
         selected_nodes
@@ -149,5 +156,40 @@ impl EditorArea {
                 // Output panel content
                 self.output_panel.render_content(ui);
             });
+    }
+
+    /// Compute a state fingerprint for detecting graph changes
+    /// Returns (node_count, wire_count, input_values_hash)
+    fn compute_graph_state(snarl: &egui_snarl::Snarl<super::node_graph::NodeData>) -> (usize, usize, u64) {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let node_count = snarl.node_ids().count();
+        let wire_count = snarl.wires().count();
+        
+        // Hash all input values to detect property changes
+        let mut hasher = DefaultHasher::new();
+        for (_, node) in snarl.node_ids() {
+            // Hash the number of input values and their presence/count
+            node.input_values.len().hash(&mut hasher);
+            
+            // Simple hash based on keys and value discriminants
+            // We don't need perfect hashing, just change detection
+            let mut keys: Vec<_> = node.input_values.keys().collect();
+            keys.sort();
+            for key in keys {
+                key.hash(&mut hasher);
+                // Hash the value variant and key data
+                if let Some(value) = node.input_values.get(key) {
+                    std::mem::discriminant(value).hash(&mut hasher);
+                    // For files, hash the path
+                    if let engine::node_graph::InputValue::File(path) = value {
+                        path.hash(&mut hasher);
+                    }
+                }
+            }
+        }
+        
+        (node_count, wire_count, hasher.finish())
     }
 }
