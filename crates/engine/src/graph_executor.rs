@@ -152,7 +152,7 @@ impl GraphExecutor {
             image_handler: ImageSourceHandler::new(),
             target_format: format,
             cached_execution_order: None,
-            output_node_id: EngineNodeId(0),
+            output_node_id: EngineNodeId::default(),
         }
     }
 

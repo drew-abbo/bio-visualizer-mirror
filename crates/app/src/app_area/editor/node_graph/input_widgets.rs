@@ -86,11 +86,15 @@ fn show_file_input(
                         "Video Files",
                         &[
 <<<<<<< HEAD
+<<<<<<< HEAD
                             "mp4", "avi", "mov", "mkv", "webm", "flv", "wmv", "m4v", "mpg", "mpeg",
 =======
                             "mp4", "avi", "mov", "mkv", "webm", "flv", "wmv", "m4v", "mpg",
                             "mpeg",
 >>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
+=======
+                            "mp4", "avi", "mov", "mkv", "webm", "flv", "wmv", "m4v", "mpg", "mpeg",
+>>>>>>> cc1a573 (I think this is very close to being ready)
                         ],
                     );
                 }
@@ -98,12 +102,18 @@ fn show_file_input(
                     dialog = dialog.add_filter(
                         "Image Files",
 <<<<<<< HEAD
+<<<<<<< HEAD
                         &[
                             "png", "jpg", "jpeg", "bmp", "gif", "tiff", "tif", "webp", "ico",
                         ],
 =======
                         &["png", "jpg", "jpeg", "bmp", "gif", "tiff", "tif", "webp", "ico"],
 >>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
+=======
+                        &[
+                            "png", "jpg", "jpeg", "bmp", "gif", "tiff", "tif", "webp", "ico",
+                        ],
+>>>>>>> cc1a573 (I think this is very close to being ready)
                     );
                 }
                 _ => {
@@ -242,12 +252,16 @@ fn show_pixel_input(
     default: [f32; 4],
 ) {
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> cc1a573 (I think this is very close to being ready)
     let (r, g, b, a) =
         if let Some(InputValue::Pixel { r, g, b, a }) = input_values.get(&input_def.name) {
             (*r, *g, *b, *a)
         } else {
             (default[0], default[1], default[2], default[3])
         };
+<<<<<<< HEAD
 =======
     let (r, g, b, a) = if let Some(InputValue::Pixel { r, g, b, a }) =
         input_values.get(&input_def.name)
@@ -257,6 +271,8 @@ fn show_pixel_input(
         (default[0], default[1], default[2], default[3])
     };
 >>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
+=======
+>>>>>>> cc1a573 (I think this is very close to being ready)
 
     let mut color = egui::Color32::from_rgba_premultiplied(
         (r * 255.0) as u8,

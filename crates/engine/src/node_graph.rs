@@ -13,6 +13,7 @@ use util::uid::Uid;
 /// Unique identifier for a node instance in the graph
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord, Default,
 )]
@@ -24,24 +25,14 @@ impl std::fmt::Display for EngineNodeId {
 =======
 /// This is intentionally compatible with egui_node_editor::EngineNodeId (u32)
 >>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
+=======
+>>>>>>> cc1a573 (I think this is very close to being ready)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
-pub struct EngineNodeId(pub u32);
+pub struct EngineNodeId(pub Uid);
 
-impl EngineNodeId {
-    pub fn new(id: u32) -> Self {
-        EngineNodeId(id)
-    }
-}
-
-impl From<u32> for EngineNodeId {
-    fn from(id: u32) -> Self {
-        EngineNodeId(id)
-    }
-}
-
-impl From<EngineNodeId> for u32 {
-    fn from(id: EngineNodeId) -> Self {
-        id.0
+impl Default for EngineNodeId {
+    fn default() -> Self {
+        EngineNodeId(Uid::default())
     }
 }
 
@@ -58,6 +49,7 @@ impl std::fmt::Display for EngineNodeId {
 <<<<<<< HEAD
 =======
 
+<<<<<<< HEAD
 impl std::ops::AddAssign<u32> for EngineNodeId {
     fn add_assign(&mut self, rhs: u32) {
         self.0 += rhs;
@@ -65,6 +57,8 @@ impl std::ops::AddAssign<u32> for EngineNodeId {
 }
 >>>>>>> 9bce97e (just messing around a bit with a lib for nodes, this is getting really complicated)
 
+=======
+>>>>>>> cc1a573 (I think this is very close to being ready)
 /// A node instance referencing a definition and its input values.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeInstance {
@@ -102,9 +96,12 @@ pub struct NodeGraph {
     instances: HashMap<EngineNodeId, NodeInstance>,
     connections: Vec<Connection>,
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
     next_id: EngineNodeId,
 >>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
+=======
+>>>>>>> cc1a573 (I think this is very close to being ready)
 }
 
 impl Default for NodeGraph {
@@ -120,12 +117,15 @@ impl NodeGraph {
             connections: Vec::new(),
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
             next_id: NodeId(0),
 >>>>>>> 9bce97e (just messing around a bit with a lib for nodes, this is getting really complicated)
 =======
             next_id: EngineNodeId(0),
 >>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
+=======
+>>>>>>> cc1a573 (I think this is very close to being ready)
         }
     }
 
@@ -133,11 +133,15 @@ impl NodeGraph {
     /// definition_name should match a loaded [crate::node::NodeDefinition] at execution time.
     pub fn add_instance(&mut self, definition_name: String) -> EngineNodeId {
 <<<<<<< HEAD
+<<<<<<< HEAD
         let id = EngineNodeId::default();
 =======
         let id = self.next_id;
         self.next_id += 1;
 >>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
+=======
+        let id = EngineNodeId::default();
+>>>>>>> cc1a573 (I think this is very close to being ready)
 
         self.instances.insert(
             id,
@@ -149,23 +153,6 @@ impl NodeGraph {
         );
 
         id
-    }
-
-    /// Add a node instance with a specific ID (used when syncing from UI graph).
-    /// definition_name should match a loaded [crate::node::NodeDefinition] at execution time.
-    pub fn add_instance_with_id(&mut self, id: EngineNodeId, definition_name: String) {
-        self.instances.insert(
-            id,
-            NodeInstance {
-                id,
-                definition_name,
-                input_values: HashMap::new(),
-            },
-        );
-
-        if id.0 >= self.next_id.0 {
-            self.next_id = EngineNodeId(id.0 + 1);
-        }
     }
 
     /// Remove a node instance and any connections to/from it.
@@ -401,12 +388,15 @@ impl NodeGraph {
         self.connections.clear();
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
         self.next_id = NodeId(0);
 >>>>>>> 9bce97e (just messing around a bit with a lib for nodes, this is getting really complicated)
 =======
         self.next_id = EngineNodeId(0);
 >>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
+=======
+>>>>>>> cc1a573 (I think this is very close to being ready)
     }
 
     pub fn is_empty(&self) -> bool {

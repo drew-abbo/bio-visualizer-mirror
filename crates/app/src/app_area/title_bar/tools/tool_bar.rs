@@ -1,8 +1,8 @@
 use util::egui;
 
 use super::command::Command;
-use super::tool_bar_button::ToolBarButton;
 use super::import_button::LoadVideoFile;
+use super::tool_bar_button::ToolBarButton;
 
 pub struct ToolBar {
     file_buttons: Vec<Box<dyn ToolBarButton>>,
@@ -36,7 +36,7 @@ impl ToolBar {
                         if ui.button(button.label()).clicked()
                             && let Some(action) = button.on_click(ui.ctx())
                         {
-                                self.pending.push(action);
+                            self.pending.push(action);
                         }
                     }
                 });

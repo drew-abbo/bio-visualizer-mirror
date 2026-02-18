@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 <<<<<<< HEAD:crates/app/src/area/title_bar.rs
 <<<<<<< HEAD
 mod tools;
@@ -12,7 +13,11 @@ use egui_phosphor::regular;
 >>>>>>> ee4c645 (restructure and some comments):crates/app/src/app_area/title_bar/title_bar_area.rs
 use util::egui;
 use egui_phosphor::regular;
+=======
+>>>>>>> cc1a573 (I think this is very close to being ready)
 use super::tools::ToolBar;
+use egui_phosphor::regular;
+use util::egui;
 
 pub struct TitleBarArea {
     tool_bar: ToolBar,

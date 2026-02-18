@@ -5,7 +5,7 @@ mod validation;
 
 use egui_snarl::ui::{PinInfo, SnarlViewer};
 use egui_snarl::{InPin, NodeId as SnarlNodeId, OutPin, Snarl};
-use engine::node::{input_kind_to_output_kind, NodeLibrary};
+use engine::node::{NodeLibrary, input_kind_to_output_kind};
 use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -76,26 +76,26 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
         if let Some(def) = self.node_library.get_definition(&node_name)
             && let Some(input_def) = def.node.inputs.get(pin.id.input)
         {
-                ui.label(&input_def.name);
+            ui.label(&input_def.name);
 
-                // Show input configuration UI if no connection
-                if pin.remotes.is_empty() {
-                    let node_data = &mut snarl[pin.id.node];
-                    input_widgets::show_input_widget(
-                        ui,
-                        &mut node_data.input_values,
-                        input_def,
-                        &node_name,
-                        &self.node_library,
-                    );
-                } else if let Some(remote) = pin.remotes.first() {
-                    // Show connected value
-                    let remote_node = &snarl[remote.node];
-                    ui.label(format!("Connected to {}", remote_node.definition_name));
-                }
+            // Show input configuration UI if no connection
+            if pin.remotes.is_empty() {
+                let node_data = &mut snarl[pin.id.node];
+                input_widgets::show_input_widget(
+                    ui,
+                    &mut node_data.input_values,
+                    input_def,
+                    &node_name,
+                    &self.node_library,
+                );
+            } else if let Some(remote) = pin.remotes.first() {
+                // Show connected value
+                let remote_node = &snarl[remote.node];
+                ui.label(format!("Connected to {}", remote_node.definition_name));
+            }
 
-                let color = colors::input_kind_color(&input_def.kind);
-                return PinInfo::circle().with_fill(color);
+            let color = colors::input_kind_color(&input_def.kind);
+            return PinInfo::circle().with_fill(color);
         }
 
         ui.label("input");
@@ -112,9 +112,9 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
         if let Some(def) = self.node_library.get_definition(node_name)
             && let Some(output_def) = def.node.outputs.get(pin.id.output)
         {
-                ui.label(&output_def.name);
-                let color = colors::output_kind_color(&output_def.kind);
-                return PinInfo::circle().with_fill(color);
+            ui.label(&output_def.name);
+            let color = colors::output_kind_color(&output_def.kind);
+            return PinInfo::circle().with_fill(color);
         }
 
 >>>>>>> a665ac9 (commit now so I don't screw something up)

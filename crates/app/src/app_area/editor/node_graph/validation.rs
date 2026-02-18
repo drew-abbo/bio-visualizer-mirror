@@ -1,11 +1,16 @@
 use egui_snarl::{NodeId as SnarlNodeId, Snarl};
 <<<<<<< HEAD
+<<<<<<< HEAD
 use engine::node::NodeInputKind;
 use engine::node::NodeLibrary;
 =======
 use engine::node::NodeLibrary;
 use engine::node::NodeInputKind;
 >>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
+=======
+use engine::node::NodeInputKind;
+use engine::node::NodeLibrary;
+>>>>>>> cc1a573 (I think this is very close to being ready)
 use engine::node_graph::InputValue;
 use std::collections::HashSet;
 

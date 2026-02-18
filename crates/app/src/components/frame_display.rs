@@ -72,7 +72,7 @@ impl FrameDisplay {
         if let Some(old_id) = self.texture_id.take()
             && let Some(rs) = render_state
         {
-                rs.renderer.write().free_texture(&old_id);
+            rs.renderer.write().free_texture(&old_id);
         }
         self.texture_size = [0, 0];
         self.last_frame_id = None;

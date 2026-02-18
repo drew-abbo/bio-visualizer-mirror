@@ -2,6 +2,7 @@ mod app_area;
 mod components;
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 mod engine_controller;
 >>>>>>> 59a6b68 (started adding some basic node and video stuff)
@@ -21,6 +22,9 @@ use app_area::App;
 use area::App;
 >>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
 =======
+=======
+
+>>>>>>> cc1a573 (I think this is very close to being ready)
 use app_area::AppArea;
 >>>>>>> ee4c645 (restructure and some comments)
 

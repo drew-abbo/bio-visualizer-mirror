@@ -1,12 +1,17 @@
 use std::path::PathBuf;
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 use super::errors::LibraryError;
 use crate::node::EngineNode;
 =======
 use crate::node::Node;
 use super::errors::LibraryError;
 >>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
+=======
+use super::errors::LibraryError;
+use crate::node::Node;
+>>>>>>> cc1a573 (I think this is very close to being ready)
 
 /// A loaded node definition with resolved paths
 #[derive(Debug, Clone)]
