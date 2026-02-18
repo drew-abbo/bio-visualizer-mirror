@@ -281,7 +281,7 @@ impl NodeRenderPipeline {
             }
             _ => {
                 // Type mismatch or unsupported type
-                eprintln!("Warning: Type mismatch for parameter {}", param.name);
+                util::debug_log_warning!("Warning: Type mismatch for parameter {}", param.name);
             }
         }
     }
