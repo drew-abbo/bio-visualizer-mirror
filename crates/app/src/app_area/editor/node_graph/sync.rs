@@ -193,8 +193,8 @@ pub fn sync_to_engine(
 
     changes_made
 =======
-        if state.snarl[*node_id].engine_node_id.is_some() {
-            if sync_wires_for_node(state, *node_id, engine_graph, node_library) {
+        if state.snarl[*node_id].engine_node_id.is_some()
+            && sync_wires_for_node(state, *node_id, engine_graph, node_library) {
                 changes_made = true;
             }
         }

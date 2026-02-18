@@ -1,4 +1,5 @@
 use std::collections::hash_map::Entry;
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -55,7 +56,6 @@ impl NodeLibrary {
         let user_library = Self::load_from_users_folder()?;
 
         for (name, def) in user_library.definitions {
-<<<<<<< HEAD
             if let Entry::Vacant(e) = library.definitions.entry(name.clone()) {
                 e.insert(def);
             } else {
@@ -63,15 +63,6 @@ impl NodeLibrary {
                     "Warning: User node '{}' has the same name as a prebuilt node. Skipping user node.",
                     name
                 );
-=======
-            if library.definitions.contains_key(&name) {
-                util::debug_log_warning!(
-                    "Warning: User node '{}' has the same name as a prebuilt node. Skipping user node.",
-                    name
-                );
-            } else {
-                library.definitions.insert(name, def);
->>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
             }
         }
 
