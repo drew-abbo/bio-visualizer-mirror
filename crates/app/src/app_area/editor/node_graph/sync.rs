@@ -1,9 +1,13 @@
 use egui_snarl::{NodeId as SnarlNodeId, Snarl};
 <<<<<<< HEAD
+<<<<<<< HEAD
 use engine::node::engine_node::NodeInput;
 =======
 use engine::node::node::NodeInput;
 >>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
+=======
+use engine::node::engine_node::NodeInput;
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
 use engine::node::{NodeInputKind, NodeLibrary};
 use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
 use std::collections::{HashMap, HashSet};
@@ -11,11 +15,12 @@ use std::collections::{HashMap, HashSet};
 use super::{NodeData, NodeGraphState, validation};
 
 /// Sync the entire node graph to the engine
-/// Not sure if this method will become a bottleneck, but it is simpler to reason about than trying to sync incrementally on every change
+/// Returns true if any changes were made to the engine graph
 pub fn sync_to_engine(
     state: &mut NodeGraphState,
     engine_graph: &mut NodeGraph,
     node_library: &NodeLibrary,
+<<<<<<< HEAD
 <<<<<<< HEAD
 ) -> bool {
     let mut changes_made = false;
@@ -24,6 +29,11 @@ pub fn sync_to_engine(
     let all_node_ids: Vec<SnarlNodeId> = state.snarl.node_ids().map(|(id, _)| id).collect();
 =======
 ) {
+=======
+) -> bool {
+    let mut changes_made = false;
+
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
     // Collect all snarl node IDs (must do this before mutating)
     let all_node_ids: Vec<SnarlNodeId> = state.snarl.node_ids().map(|(id, _)| id).collect();
 
@@ -40,9 +50,13 @@ pub fn sync_to_engine(
         if !snarl_engine_ids.contains(&engine_id) {
             engine_graph.remove_instance(engine_id);
 <<<<<<< HEAD
+<<<<<<< HEAD
             changes_made = true;
 =======
 >>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
+=======
+            changes_made = true;
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
         }
     }
 
@@ -93,18 +107,26 @@ pub fn sync_to_engine(
     for node_id in to_remove {
         remove_node_from_engine(state, node_id, engine_graph);
 <<<<<<< HEAD
+<<<<<<< HEAD
         changes_made = true;
 =======
 >>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
+=======
+        changes_made = true;
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
     }
 
     // Add newly connected nodes
     for node_id in to_add {
         sync_node_to_engine(state, node_id, engine_graph, node_library);
 <<<<<<< HEAD
+<<<<<<< HEAD
         changes_made = true;
 =======
 >>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
+=======
+        changes_made = true;
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
     }
 
     // Update input values for nodes already in engine
@@ -143,14 +165,20 @@ pub fn sync_to_engine(
             }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
             // Only update if values actually changed
             if merged_inputs != instance.input_values {
                 instance.input_values = merged_inputs;
                 changes_made = true;
             }
+<<<<<<< HEAD
 =======
             instance.input_values = merged_inputs;
 >>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
+=======
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
         }
     }
 
@@ -166,10 +194,17 @@ pub fn sync_to_engine(
     changes_made
 =======
         if state.snarl[*node_id].engine_node_id.is_some() {
-            sync_wires_for_node(state, *node_id, engine_graph, node_library);
+            if sync_wires_for_node(state, *node_id, engine_graph, node_library) {
+                changes_made = true;
+            }
         }
     }
+<<<<<<< HEAD
 >>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
+=======
+
+    changes_made
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
 }
 
 /// Sync a node to the engine if it should be active
@@ -191,7 +226,7 @@ pub fn sync_node_to_engine(
     let Some(definition) = node_library.get_definition(&definition_name) else {
         return;
     };
-    
+
     let is_source = definition
         .node
         .inputs
@@ -201,7 +236,7 @@ pub fn sync_node_to_engine(
     let has_file = input_values
         .values()
         .any(|v| matches!(v, InputValue::File(_)));
-    
+
     let should_add = if is_source {
         has_file
     } else {
@@ -265,6 +300,7 @@ fn sync_wires_for_node(
     engine_graph: &mut NodeGraph,
     node_library: &NodeLibrary,
 <<<<<<< HEAD
+<<<<<<< HEAD
 ) -> bool {
     let mut changes_made = false;
 
@@ -277,19 +313,32 @@ fn sync_wires_for_node(
     let Some(to_engine_id) = node.engine_node_id else {
         return;
 >>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
+=======
+) -> bool {
+    let mut changes_made = false;
+
+    let node = &state.snarl[node_id];
+    let Some(to_engine_id) = node.engine_node_id else {
+        return false;
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
     };
 
     // Get node definition to map input indices to names
     let Some(definition) = node_library.get_definition(&node.definition_name) else {
 <<<<<<< HEAD
+<<<<<<< HEAD
         return false;
 =======
         return;
 >>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
+=======
+        return false;
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
     };
 
     // Clear existing engine connections for this node's inputs
     for input_def in &definition.node.inputs {
+<<<<<<< HEAD
 <<<<<<< HEAD
         if engine_graph.disconnect(to_engine_id, &input_def.name) {
             changes_made = true;
@@ -297,6 +346,11 @@ fn sync_wires_for_node(
 =======
         engine_graph.disconnect(to_engine_id, &input_def.name);
 >>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
+=======
+        if engine_graph.disconnect(to_engine_id, &input_def.name) {
+            changes_made = true;
+        }
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
     }
 
     // Connect all inputs
@@ -324,16 +378,23 @@ fn sync_wires_for_node(
 
         // Connect in engine graph
 <<<<<<< HEAD
+<<<<<<< HEAD
         match engine_graph.connect(
 =======
         if let Err(err) = engine_graph.connect(
 >>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
+=======
+        match engine_graph.connect(
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
             from_engine_id,
             output_def.name.clone(),
             to_engine_id,
             input_def.name.clone(),
         ) {
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
             Ok(_) => {
                 changes_made = true;
             }
@@ -347,6 +408,7 @@ fn sync_wires_for_node(
                     err
                 );
             }
+<<<<<<< HEAD
         }
     }
 
@@ -363,6 +425,12 @@ fn sync_wires_for_node(
         }
     }
 >>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
+=======
+        }
+    }
+
+    changes_made
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
 }
 
 fn connected_input_names(

@@ -13,9 +13,12 @@ use crate::node::handler::ImageSourceHandler;
 use crate::node::handler::NodeHandler;
 use crate::node::handler::VideoSourceHandler;
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 use crate::node::node::{BuiltInHandler, NodeExecutionPlan, NodeOutputKind};
 >>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
+=======
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
 use crate::node_graph::EngineNodeId;
 use crate::node_graph::{InputValue, NodeGraph, NodeInstance};
 use crate::node_render_pipeline::NodeRenderPipeline;
@@ -210,10 +213,10 @@ impl GraphExecutor {
         // Clear cache from previous execution
         self.output_cache.clear();
 
-        if let Some(target) = target_node_id {
-            if graph.get_instance(target).is_none() {
-                return Err(ExecutionError::TargetNodeNotFound(target));
-            }
+        if let Some(target) = target_node_id
+            && graph.get_instance(target).is_none()
+        {
+            return Err(ExecutionError::TargetNodeNotFound(target));
         }
 
         // Get execution order (topologically sorted)
@@ -222,10 +225,10 @@ impl GraphExecutor {
             .execution_order()
             .map_err(ExecutionError::GraphError)?;
 
-        if let Some(target) = target_node_id {
-            if !order.contains(&target) {
-                return Err(ExecutionError::TargetNodeNotInExecutionOrder(target));
-            }
+        if let Some(target) = target_node_id
+            && !order.contains(&target)
+        {
+            return Err(ExecutionError::TargetNodeNotInExecutionOrder(target));
         }
 
         // Execute each node in order

@@ -25,9 +25,13 @@ impl OutputController {
         let is_playing = playback_controls.is_playing();
         let selection_changed = executor_manager.selection_changed(selected_engine_node);
 <<<<<<< HEAD
+<<<<<<< HEAD
         let graph_changed = executor_manager.consume_graph_changed();
 =======
 >>>>>>> a665ac9 (commit now so I don't screw something up)
+=======
+        let graph_changed = executor_manager.consume_graph_changed();
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
 
         // Reset playback state on selection change
         if selection_changed {
@@ -58,10 +62,14 @@ impl OutputController {
 
         // Determine if we should execute the graph
 <<<<<<< HEAD
+<<<<<<< HEAD
         let should_execute = has_nodes && (selection_changed || should_advance || graph_changed);
 =======
         let should_execute = has_nodes && (selection_changed || should_advance);
 >>>>>>> a665ac9 (commit now so I don't screw something up)
+=======
+        let should_execute = has_nodes && (selection_changed || should_advance || graph_changed);
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
 
         let context = ExecutionContext {
             timeline_time_secs: playback_state.timeline_time_secs(sampling_rate_hz),

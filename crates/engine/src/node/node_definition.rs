@@ -10,8 +10,12 @@ use super::errors::LibraryError;
 >>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
 =======
 use super::errors::LibraryError;
+<<<<<<< HEAD
 use crate::node::Node;
 >>>>>>> cc1a573 (I think this is very close to being ready)
+=======
+use crate::node::EngineNode;
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
 
 /// A loaded node definition with resolved paths
 #[derive(Debug, Clone)]

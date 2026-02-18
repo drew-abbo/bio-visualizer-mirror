@@ -1,8 +1,12 @@
 //! Conversion utilities between node input/output kinds and resolved values
 
 use crate::graph_executor::NodeValue;
+<<<<<<< HEAD
 use crate::node::node::{NodeInputKind, NodeOutputKind};
 >>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
+=======
+use crate::node::engine_node::{NodeInputKind, NodeOutputKind};
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
 
 /// Convert a NodeInputKind to its corresponding NodeOutputKind for connection typing
 pub fn input_kind_to_output_kind(input_kind: &NodeInputKind) -> NodeOutputKind {

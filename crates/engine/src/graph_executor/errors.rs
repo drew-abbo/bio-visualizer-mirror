@@ -3,10 +3,14 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 use crate::node::engine_node::NodeOutputKind;
 =======
 use crate::node::node::NodeOutputKind;
 >>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
+=======
+use crate::node::engine_node::NodeOutputKind;
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
 use crate::node_graph::EngineNodeId;
 
 /// Errors that can occur during graph execution

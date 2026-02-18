@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use serde_json;
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 use super::engine_node::{EngineNode, NodeExecutionPlan};
 use super::errors::LibraryError;
 use super::node_definition::NodeDefinition;
@@ -14,6 +15,10 @@ use super::node::{Node, NodeExecutionPlan};
 <<<<<<< HEAD
 >>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
 =======
+=======
+use super::engine_node::{EngineNode, NodeExecutionPlan};
+use super::errors::LibraryError;
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
 use super::node_definition::NodeDefinition;
 >>>>>>> cc1a573 (I think this is very close to being ready)
 
@@ -50,6 +55,7 @@ impl NodeLibrary {
         let user_library = Self::load_from_users_folder()?;
 
         for (name, def) in user_library.definitions {
+<<<<<<< HEAD
             if let Entry::Vacant(e) = library.definitions.entry(name.clone()) {
                 e.insert(def);
             } else {
@@ -57,6 +63,15 @@ impl NodeLibrary {
                     "Warning: User node '{}' has the same name as a prebuilt node. Skipping user node.",
                     name
                 );
+=======
+            if library.definitions.contains_key(&name) {
+                eprintln!(
+                    "Warning: User node '{}' has the same name as a prebuilt node. Skipping user node.",
+                    name
+                );
+            } else {
+                library.definitions.insert(name, def);
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
             }
         }
 
@@ -80,7 +95,7 @@ impl NodeLibrary {
         Self::scan_directory(&nodes_folder, &nodes_folder, &mut definitions)?;
 
         if cfg!(debug_assertions) {
-            println!(
+            util::debug_log_info!(
                 "Loaded {} node definitions from {:?}",
                 definitions.len(),
                 nodes_folder
@@ -93,7 +108,7 @@ impl NodeLibrary {
         })
     }
 
-    pub fn load_from_users_folder() -> Result<Self, LibraryError> {
+    fn load_from_users_folder() -> Result<Self, LibraryError> {
         use util::local_data;
 
         let nodes_folder = PathBuf::from(local_data::nodes_path());
@@ -101,11 +116,13 @@ impl NodeLibrary {
         let mut definitions = HashMap::new();
         Self::scan_directory(&nodes_folder, &nodes_folder, &mut definitions)?;
 
-        println!(
-            "Loaded {} node definitions from user data: {:?}",
-            definitions.len(),
-            nodes_folder
-        );
+        if cfg!(debug_assertions) {
+            util::debug_log_info!(
+                "Loaded {} node definitions from user data: {:?}",
+                definitions.len(),
+                nodes_folder
+            );
+        }
 
         Ok(Self {
             definitions,
@@ -134,8 +151,15 @@ impl NodeLibrary {
                     // This is a node folder!
                     match Self::load_node_definition(&path) {
                         Ok(def) => {
+<<<<<<< HEAD
                             util::debug_println!("Found node: {}", def.node.name);
 
+=======
+                            if cfg!(debug_assertions) {
+                                println!("Found node: {}", def.node.name);
+                            }
+                            
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
                             if definitions.contains_key(&def.node.name) {
                                 util::debug_log_warning!(
                                     "Warning: Duplicate node name '{}', skipping",

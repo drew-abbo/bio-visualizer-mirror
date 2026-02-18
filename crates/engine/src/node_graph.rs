@@ -14,6 +14,7 @@ use util::uid::Uid;
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord, Default,
 )]
@@ -40,6 +41,13 @@ impl Default for EngineNodeId {
 impl std::fmt::Display for NodeId {
 >>>>>>> 9bce97e (just messing around a bit with a lib for nodes, this is getting really complicated)
 =======
+=======
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord, Default,
+)]
+pub struct EngineNodeId(pub Uid);
+
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
 impl std::fmt::Display for EngineNodeId {
 >>>>>>> e361ed9 (re doing some things and make the values in the engine be used for input and output)
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

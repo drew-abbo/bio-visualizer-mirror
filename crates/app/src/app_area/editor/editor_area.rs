@@ -18,7 +18,6 @@ pub struct EditorArea {
     playback_state: PlaybackState,
     executor_manager: GraphExecutorManager,
     node_library: Arc<NodeLibrary>,
-    last_graph_state: (usize, usize, u64), // (node_count, wire_count, input_hash)
 }
 
 impl EditorArea {
@@ -38,31 +37,11 @@ impl EditorArea {
 >>>>>>> a665ac9 (commit now so I don't screw something up)
 =======
     pub fn new() -> Self {
-        let node_library = if cfg!(debug_assertions) {
-            let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            let workspace_root = manifest_dir.parent().and_then(|p| p.parent()).unwrap();
-            let nodes_path = workspace_root.join("Nodes");
-            match NodeLibrary::load_from_disk(nodes_path.clone()) {
-                Ok(lib) => Arc::new(lib),
-                Err(err) => {
-                    util::debug_log_error!(
-                        "Failed to load node library from disk at {:?}: {}",
-                        nodes_path,
-                        err
-                    );
-                    Arc::new(NodeLibrary::default())
-                }
-            }
-        } else {
-            match NodeLibrary::load_from_users_folder() {
-                Ok(lib) => Arc::new(lib),
-                Err(err) => {
-                    util::debug_log_error!(
-                        "Failed to load node library from users folder: {}",
-                        err
-                    );
-                    Arc::new(NodeLibrary::default())
-                }
+        let node_library = match NodeLibrary::load_all() {
+            Ok(lib) => Arc::new(lib),
+            Err(err) => {
+                util::debug_log_error!("Failed to load node library: {:?}", err);
+                Arc::new(NodeLibrary::default())
             }
         };
 
@@ -74,7 +53,6 @@ impl EditorArea {
             playback_state: PlaybackState::new(),
             executor_manager: GraphExecutorManager::new(),
             node_library,
-            last_graph_state: (0, 0, 0),
         }
     }
 <<<<<<< HEAD:crates/app/src/area/editor/editor_area.rs
@@ -115,22 +93,15 @@ impl EditorArea {
                 snarl_widget.show(&mut self.node_graph.snarl, &mut viewer, ui);
                 selected_nodes = snarl_widget.get_selected_nodes(ui);
 
-<<<<<<< HEAD
-                // Sync every frame for now
-                // Might need to optimize later if it becomes a bottleneck, but I think this is fine
-                self.node_graph
-                    .sync_to_engine(self.executor_manager.engine_graph_mut(), &self.node_library);
->>>>>>> a665ac9 (commit now so I don't screw something up)
-=======
-                // Sync when graph structure or input values change
-                let current_state = Self::compute_graph_state(&self.node_graph.snarl);
-                if current_state != self.last_graph_state {
-                    self.node_graph.sync_to_engine(
-                        self.executor_manager.engine_graph_mut(),
-                        &self.node_library,
-                    );
+                // Sync every frame - the sync logic detects what actually changed
+                let graph_changed = self.node_graph.sync_to_engine(
+                    self.executor_manager.engine_graph_mut_no_flag(),
+                    &self.node_library,
+                );
 
-                    self.last_graph_state = current_state;
+                // Only mark as changed if sync actually made changes
+                if graph_changed {
+                    self.executor_manager.mark_graph_changed();
                 }
 >>>>>>> cc1a573 (I think this is very close to being ready)
             });
@@ -190,40 +161,5 @@ impl EditorArea {
                 // Output panel content
                 self.output_panel.render_content(ui);
             });
-    }
-
-    /// Compute a state fingerprint for detecting graph changes
-    /// Returns (node_count, wire_count, input_values_hash)
-    fn compute_graph_state(snarl: &egui_snarl::Snarl<super::node_graph::NodeData>) -> (usize, usize, u64) {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let node_count = snarl.node_ids().count();
-        let wire_count = snarl.wires().count();
-        
-        // Hash all input values to detect property changes
-        let mut hasher = DefaultHasher::new();
-        for (_, node) in snarl.node_ids() {
-            // Hash the number of input values and their presence/count
-            node.input_values.len().hash(&mut hasher);
-            
-            // Simple hash based on keys and value discriminants
-            // We don't need perfect hashing, just change detection
-            let mut keys: Vec<_> = node.input_values.keys().collect();
-            keys.sort();
-            for key in keys {
-                key.hash(&mut hasher);
-                // Hash the value variant and key data
-                if let Some(value) = node.input_values.get(key) {
-                    std::mem::discriminant(value).hash(&mut hasher);
-                    // For files, hash the path
-                    if let engine::node_graph::InputValue::File(path) = value {
-                        path.hash(&mut hasher);
-                    }
-                }
-            }
-        }
-        
-        (node_count, wire_count, hasher.finish())
     }
 }

@@ -1,8 +1,12 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 use engine::node::engine_node::NodeInput;
 =======
 use engine::node::node::NodeInput;
 >>>>>>> bc26540 (spreading things out from the node_graph and added another node to rotate things.)
+=======
+use engine::node::engine_node::NodeInput;
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
 use engine::node::{NodeInputKind, NodeLibrary};
 use engine::node_graph::InputValue;
 use std::collections::HashMap;

@@ -21,9 +21,13 @@ pub struct GraphExecutorManager {
     graph_executor: GraphExecutor,
     last_selected_engine_node: Option<EngineNodeId>,
 <<<<<<< HEAD
+<<<<<<< HEAD
     graph_changed: bool,
 =======
 >>>>>>> a665ac9 (commit now so I don't screw something up)
+=======
+    graph_changed: bool,
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
 }
 
 impl GraphExecutorManager {
@@ -33,9 +37,13 @@ impl GraphExecutorManager {
             graph_executor: GraphExecutor::default(),
             last_selected_engine_node: None,
 <<<<<<< HEAD
+<<<<<<< HEAD
             graph_changed: false,
 =======
 >>>>>>> a665ac9 (commit now so I don't screw something up)
+=======
+            graph_changed: false,
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
         }
     }
 
@@ -43,6 +51,7 @@ impl GraphExecutorManager {
         &self.engine_graph
     }
 
+<<<<<<< HEAD
 <<<<<<< HEAD
     /// Get mutable access to the engine graph without automatically marking as changed
     /// Use this when you want to check or sync the graph but track changes manually
@@ -68,6 +77,26 @@ impl GraphExecutorManager {
     }
 
 >>>>>>> a665ac9 (commit now so I don't screw something up)
+=======
+    /// Get mutable access to the engine graph without automatically marking as changed
+    /// Use this when you want to check or sync the graph but track changes manually
+    pub fn engine_graph_mut_no_flag(&mut self) -> &mut NodeGraph {
+        &mut self.engine_graph
+    }
+
+    /// Manually mark the graph as changed (typically after sync_to_engine returns true)
+    pub fn mark_graph_changed(&mut self) {
+        self.graph_changed = true;
+    }
+
+    /// Check if the graph has changed since last execution and clear the flag
+    pub fn consume_graph_changed(&mut self) -> bool {
+        let changed = self.graph_changed;
+        self.graph_changed = false;
+        changed
+    }
+
+>>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
     pub fn set_last_selected_engine_node(&mut self, node: Option<EngineNodeId>) {
         self.last_selected_engine_node = node;
     }
