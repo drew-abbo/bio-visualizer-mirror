@@ -1,3 +1,6 @@
+//! Node graph editor UI and synchronization with engine graph
+//! This module defines the state and UI for the node graph editor, as well as the logic to sync
+//! the snarl graph to the engine graph. It also includes validation logic for node connections and input values.
 mod colors;
 mod input_widgets;
 mod sync;
