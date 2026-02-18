@@ -1,4 +1,4 @@
-use engine::node::node::NodeInput;
+use engine::node::engine_node::NodeInput;
 use engine::node::{NodeInputKind, NodeLibrary};
 use engine::node_graph::InputValue;
 use std::collections::HashMap;

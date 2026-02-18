@@ -8,10 +8,10 @@ use std::collections::HashMap;
 use crate::gpu_frame::GpuFrame;
 use crate::node::NodeDefinition;
 use crate::node::NodeLibrary;
+use crate::node::engine_node::{BuiltInHandler, NodeExecutionPlan, NodeOutputKind};
 use crate::node::handler::ImageSourceHandler;
 use crate::node::handler::NodeHandler;
 use crate::node::handler::VideoSourceHandler;
-use crate::node::node::{BuiltInHandler, NodeExecutionPlan, NodeOutputKind};
 use crate::node_graph::EngineNodeId;
 use crate::node_graph::{InputValue, NodeGraph, NodeInstance};
 use crate::node_render_pipeline::NodeRenderPipeline;
@@ -160,10 +160,10 @@ impl GraphExecutor {
         // Clear cache from previous execution
         self.output_cache.clear();
 
-        if let Some(target) = target_node_id {
-            if graph.get_instance(target).is_none() {
-                return Err(ExecutionError::TargetNodeNotFound(target));
-            }
+        if let Some(target) = target_node_id
+            && graph.get_instance(target).is_none()
+        {
+            return Err(ExecutionError::TargetNodeNotFound(target));
         }
 
         // Get execution order (topologically sorted)
@@ -172,10 +172,10 @@ impl GraphExecutor {
             .execution_order()
             .map_err(ExecutionError::GraphError)?;
 
-        if let Some(target) = target_node_id {
-            if !order.contains(&target) {
-                return Err(ExecutionError::TargetNodeNotInExecutionOrder(target));
-            }
+        if let Some(target) = target_node_id
+            && !order.contains(&target)
+        {
+            return Err(ExecutionError::TargetNodeNotInExecutionOrder(target));
         }
 
         // Execute each node in order
@@ -324,7 +324,10 @@ impl GraphExecutor {
             .inputs
             .iter()
             .filter_map(|input_def| {
-                if matches!(input_def.kind, crate::node::node::NodeInputKind::Frame) {
+                if matches!(
+                    input_def.kind,
+                    crate::node::engine_node::NodeInputKind::Frame
+                ) {
                     inputs.get(&input_def.name).and_then(|input| match input {
                         NodeValue::Frame(frame) => Some(frame),
                         _ => None,

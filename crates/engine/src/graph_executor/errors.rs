@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
-use crate::node::node::NodeOutputKind;
+use crate::node::engine_node::NodeOutputKind;
 use crate::node_graph::EngineNodeId;
 
 /// Errors that can occur during graph execution

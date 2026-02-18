@@ -1,4 +1,4 @@
-use super::node::NumberInputUiMode;
+use super::engine_node::NumberInputUiMode;
 use std::path::PathBuf;
 use thiserror::Error;
 

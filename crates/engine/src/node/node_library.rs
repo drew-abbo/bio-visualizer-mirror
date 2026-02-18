@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json;
 
+use super::engine_node::{EngineNode, NodeExecutionPlan};
 use super::errors::LibraryError;
-use super::node::{Node, NodeExecutionPlan};
 use super::node_definition::NodeDefinition;
 
 /// The node library - holds all available node definitions loaded from disk
@@ -31,9 +31,34 @@ impl NodeLibrary {
         self.definitions.get(name)
     }
 
-    /// Load all node definitions from the Nodes/ folder
-    pub fn load_from_disk(nodes_folder: impl AsRef<Path>) -> Result<Self, LibraryError> {
-        let nodes_folder = nodes_folder.as_ref().to_path_buf();
+    /// Load all nodes from the prebuilt nodes folder and the users nodes folder.
+    /// Check to make sure that there are no nodes being loaded from the users folder with the same name as prebuilt nodes.
+    pub fn load_all() -> Result<Self, LibraryError> {
+        let mut library = Self::load_from_disk()?;
+
+        // Load user nodes and check for duplicates
+        let user_library = Self::load_from_users_folder()?;
+
+        for (name, def) in user_library.definitions {
+            if library.definitions.contains_key(&name) {
+                eprintln!(
+                    "Warning: User node '{}' has the same name as a prebuilt node. Skipping user node.",
+                    name
+                );
+            } else {
+                library.definitions.insert(name, def);
+            }
+        }
+
+        Ok(library)
+    }
+
+    /// Load all node definitions from the nodes/ folder
+    fn load_from_disk() -> Result<Self, LibraryError> {
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let workspace_root = manifest_dir.parent().and_then(|p| p.parent()).unwrap();
+        let nodes_path = workspace_root.join("nodes");
+        let nodes_folder = nodes_path.to_path_buf();
 
         if !nodes_folder.exists() {
             return Err(LibraryError::NodesFolderNotFound(nodes_folder));
@@ -45,7 +70,7 @@ impl NodeLibrary {
         Self::scan_directory(&nodes_folder, &nodes_folder, &mut definitions)?;
 
         if cfg!(debug_assertions) {
-            println!(
+            util::debug_log_info!(
                 "Loaded {} node definitions from {:?}",
                 definitions.len(),
                 nodes_folder
@@ -58,7 +83,7 @@ impl NodeLibrary {
         })
     }
 
-    pub fn load_from_users_folder() -> Result<Self, LibraryError> {
+    fn load_from_users_folder() -> Result<Self, LibraryError> {
         use util::local_data;
 
         let nodes_folder = PathBuf::from(local_data::nodes_path());
@@ -66,11 +91,13 @@ impl NodeLibrary {
         let mut definitions = HashMap::new();
         Self::scan_directory(&nodes_folder, &nodes_folder, &mut definitions)?;
 
-        println!(
-            "Loaded {} node definitions from user data: {:?}",
-            definitions.len(),
-            nodes_folder
-        );
+        if cfg!(debug_assertions) {
+            util::debug_log_info!(
+                "Loaded {} node definitions from user data: {:?}",
+                definitions.len(),
+                nodes_folder
+            );
+        }
 
         Ok(Self {
             definitions,
@@ -99,9 +126,12 @@ impl NodeLibrary {
                     // This is a node folder!
                     match Self::load_node_definition(&path) {
                         Ok(def) => {
-                            println!("Found node: {}", def.node.name);
+                            if cfg!(debug_assertions) {
+                                println!("Found node: {}", def.node.name);
+                            }
+                            
                             if definitions.contains_key(&def.node.name) {
-                                eprintln!(
+                                util::debug_log_warning!(
                                     "Warning: Duplicate node name '{}', skipping",
                                     def.node.name
                                 );
@@ -110,7 +140,7 @@ impl NodeLibrary {
                             }
                         }
                         Err(e) => {
-                            eprintln!("Error loading node from {:?}: {}", path, e);
+                            util::debug_log_error!("Error loading node from {:?}: {}", path, e);
                         }
                     }
                 } else {
@@ -131,7 +161,7 @@ impl NodeLibrary {
         let json_content = std::fs::read_to_string(&node_json)
             .map_err(|e| LibraryError::IoError(node_json.clone(), e))?;
 
-        let node: Node = serde_json::from_str(&json_content)
+        let node: EngineNode = serde_json::from_str(&json_content)
             .map_err(|e| LibraryError::ParseError(node_json.clone(), e.to_string()))?;
 
         // Resolve shader file path if this is a shader node

@@ -237,11 +237,7 @@ impl ApplicationHandler for App {
 
         let blit_pipeline = BlitPipeline::new(&device, format);
 
-        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let workspace_root = manifest_dir.parent().and_then(|p| p.parent()).unwrap();
-        let nodes_path = workspace_root.join("Nodes");
-
-        let node_library = NodeLibrary::load_from_disk(&nodes_path).unwrap();
+        let node_library = NodeLibrary::load_all().unwrap();
         let executor = GraphExecutor::new(format);
 
         let mut graph = NodeGraph::new();
