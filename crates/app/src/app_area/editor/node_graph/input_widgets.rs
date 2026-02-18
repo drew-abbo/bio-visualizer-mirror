@@ -81,15 +81,16 @@ fn show_file_input(
                     dialog = dialog.add_filter(
                         "Video Files",
                         &[
-                            "mp4", "avi", "mov", "mkv", "webm", "flv", "wmv", "m4v", "mpg",
-                            "mpeg",
+                            "mp4", "avi", "mov", "mkv", "webm", "flv", "wmv", "m4v", "mpg", "mpeg",
                         ],
                     );
                 }
                 IMAGE_NODE_NAME => {
                     dialog = dialog.add_filter(
                         "Image Files",
-                        &["png", "jpg", "jpeg", "bmp", "gif", "tiff", "tif", "webp", "ico"],
+                        &[
+                            "png", "jpg", "jpeg", "bmp", "gif", "tiff", "tif", "webp", "ico",
+                        ],
                     );
                 }
                 _ => {
@@ -227,13 +228,12 @@ fn show_pixel_input(
     input_def: &NodeInput,
     default: [f32; 4],
 ) {
-    let (r, g, b, a) = if let Some(InputValue::Pixel { r, g, b, a }) =
-        input_values.get(&input_def.name)
-    {
-        (*r, *g, *b, *a)
-    } else {
-        (default[0], default[1], default[2], default[3])
-    };
+    let (r, g, b, a) =
+        if let Some(InputValue::Pixel { r, g, b, a }) = input_values.get(&input_def.name) {
+            (*r, *g, *b, *a)
+        } else {
+            (default[0], default[1], default[2], default[3])
+        };
 
     let mut color = egui::Color32::from_rgba_premultiplied(
         (r * 255.0) as u8,

@@ -8,39 +8,21 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use util::uid::Uid;
 
 /// Unique identifier for a node instance in the graph
-/// This is intentionally compatible with egui_node_editor::EngineNodeId (u32)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
-pub struct EngineNodeId(pub u32);
+pub struct EngineNodeId(pub Uid);
 
-impl EngineNodeId {
-    pub fn new(id: u32) -> Self {
-        EngineNodeId(id)
-    }
-}
-
-impl From<u32> for EngineNodeId {
-    fn from(id: u32) -> Self {
-        EngineNodeId(id)
-    }
-}
-
-impl From<EngineNodeId> for u32 {
-    fn from(id: EngineNodeId) -> Self {
-        id.0
+impl Default for EngineNodeId {
+    fn default() -> Self {
+        EngineNodeId(Uid::default())
     }
 }
 
 impl std::fmt::Display for EngineNodeId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
-    }
-}
-
-impl std::ops::AddAssign<u32> for EngineNodeId {
-    fn add_assign(&mut self, rhs: u32) {
-        self.0 += rhs;
     }
 }
 
@@ -80,7 +62,6 @@ pub struct Connection {
 pub struct NodeGraph {
     instances: HashMap<EngineNodeId, NodeInstance>,
     connections: Vec<Connection>,
-    next_id: EngineNodeId,
 }
 
 impl Default for NodeGraph {
@@ -94,15 +75,13 @@ impl NodeGraph {
         Self {
             instances: HashMap::new(),
             connections: Vec::new(),
-            next_id: EngineNodeId(0),
         }
     }
 
     /// Add a new node instance and return its [EngineNodeId].
     /// definition_name should match a loaded [crate::node::NodeDefinition] at execution time.
     pub fn add_instance(&mut self, definition_name: String) -> EngineNodeId {
-        let id = self.next_id;
-        self.next_id += 1;
+        let id = EngineNodeId::default();
 
         self.instances.insert(
             id,
@@ -114,23 +93,6 @@ impl NodeGraph {
         );
 
         id
-    }
-
-    /// Add a node instance with a specific ID (used when syncing from UI graph).
-    /// definition_name should match a loaded [crate::node::NodeDefinition] at execution time.
-    pub fn add_instance_with_id(&mut self, id: EngineNodeId, definition_name: String) {
-        self.instances.insert(
-            id,
-            NodeInstance {
-                id,
-                definition_name,
-                input_values: HashMap::new(),
-            },
-        );
-
-        if id.0 >= self.next_id.0 {
-            self.next_id = EngineNodeId(id.0 + 1);
-        }
     }
 
     /// Remove a node instance and any connections to/from it.
@@ -364,7 +326,6 @@ impl NodeGraph {
     pub fn clear(&mut self) {
         self.instances.clear();
         self.connections.clear();
-        self.next_id = EngineNodeId(0);
     }
 
     pub fn is_empty(&self) -> bool {
