@@ -152,6 +152,7 @@ impl NodeLibrary {
                     match Self::load_node_definition(&path) {
                         Ok(def) => {
 <<<<<<< HEAD
+<<<<<<< HEAD
                             util::debug_println!("Found node: {}", def.node.name);
 
 =======
@@ -160,6 +161,10 @@ impl NodeLibrary {
                             }
                             
 >>>>>>> 95b0833 (renamed the node to engine node and added a new function to the node_library)
+=======
+                            util::debug_println!("Found node: {}", def.node.name);
+
+>>>>>>> cfcf9db (some more small changes)
                             if definitions.contains_key(&def.node.name) {
                                 util::debug_log_warning!(
                                     "Warning: Duplicate node name '{}', skipping",

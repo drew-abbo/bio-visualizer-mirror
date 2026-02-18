@@ -1,9 +1,6 @@
-<<<<<<< HEAD
 //! Manager for the node graph and its execution, separate from the UI state in EditorArea
 //! This module defines the GraphExecutorManager, which holds the engine graph and the GraphExecutor instance.
 //! It provides methods to check for changes, execute the graph, and determine which node's output to display based on selection or graph structure.
-=======
->>>>>>> a665ac9 (commit now so I don't screw something up)
 use engine::graph_executor::{ExecutionContext, GraphExecutor, NodeValue};
 use engine::node::NodeLibrary;
 use engine::node_graph::{EngineNodeId, NodeGraph};
