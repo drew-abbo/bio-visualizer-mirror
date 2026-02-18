@@ -65,7 +65,7 @@ impl NodeLibrary {
                 );
 =======
             if library.definitions.contains_key(&name) {
-                eprintln!(
+                util::debug_log_warning!(
                     "Warning: User node '{}' has the same name as a prebuilt node. Skipping user node.",
                     name
                 );
