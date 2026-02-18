@@ -1,3 +1,4 @@
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -40,13 +41,13 @@ impl NodeLibrary {
         let user_library = Self::load_from_users_folder()?;
 
         for (name, def) in user_library.definitions {
-            if library.definitions.contains_key(&name) {
+            if let Entry::Vacant(e) = library.definitions.entry(name.clone()) {
+                e.insert(def);
+            } else {
                 util::debug_log_warning!(
                     "Warning: User node '{}' has the same name as a prebuilt node. Skipping user node.",
                     name
                 );
-            } else {
-                library.definitions.insert(name, def);
             }
         }
 
