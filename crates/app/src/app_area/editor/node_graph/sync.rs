@@ -1,5 +1,5 @@
 use egui_snarl::{NodeId as SnarlNodeId, Snarl};
-use engine::node::node::NodeInput;
+use engine::node::engine_node::NodeInput;
 use engine::node::{NodeInputKind, NodeLibrary};
 use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
 use std::collections::{HashMap, HashSet};
@@ -7,12 +7,14 @@ use std::collections::{HashMap, HashSet};
 use super::{NodeData, NodeGraphState, validation};
 
 /// Sync the entire node graph to the engine
-/// Not sure if this method will become a bottleneck, but it is simpler to reason about than trying to sync incrementally on every change
+/// Returns true if any changes were made to the engine graph
 pub fn sync_to_engine(
     state: &mut NodeGraphState,
     engine_graph: &mut NodeGraph,
     node_library: &NodeLibrary,
-) {
+) -> bool {
+    let mut changes_made = false;
+
     // Collect all snarl node IDs (must do this before mutating)
     let all_node_ids: Vec<SnarlNodeId> = state.snarl.node_ids().map(|(id, _)| id).collect();
 
@@ -28,6 +30,7 @@ pub fn sync_to_engine(
     for engine_id in all_engine_ids {
         if !snarl_engine_ids.contains(&engine_id) {
             engine_graph.remove_instance(engine_id);
+            changes_made = true;
         }
     }
 
@@ -77,11 +80,13 @@ pub fn sync_to_engine(
     // Remove disconnected nodes
     for node_id in to_remove {
         remove_node_from_engine(state, node_id, engine_graph);
+        changes_made = true;
     }
 
     // Add newly connected nodes
     for node_id in to_add {
         sync_node_to_engine(state, node_id, engine_graph, node_library);
+        changes_made = true;
     }
 
     // Update input values for nodes already in engine
@@ -119,16 +124,24 @@ pub fn sync_to_engine(
                 merged_inputs.insert(key.clone(), value.clone());
             }
 
-            instance.input_values = merged_inputs;
+            // Only update if values actually changed
+            if merged_inputs != instance.input_values {
+                instance.input_values = merged_inputs;
+                changes_made = true;
+            }
         }
     }
 
     // Sync all wires
     for node_id in &all_node_ids {
         if state.snarl[*node_id].engine_node_id.is_some() {
-            sync_wires_for_node(state, *node_id, engine_graph, node_library);
+            if sync_wires_for_node(state, *node_id, engine_graph, node_library) {
+                changes_made = true;
+            }
         }
     }
+
+    changes_made
 }
 
 /// Sync a node to the engine if it should be active
@@ -150,7 +163,7 @@ pub fn sync_node_to_engine(
     let Some(definition) = node_library.get_definition(&definition_name) else {
         return;
     };
-    
+
     let is_source = definition
         .node
         .inputs
@@ -160,7 +173,7 @@ pub fn sync_node_to_engine(
     let has_file = input_values
         .values()
         .any(|v| matches!(v, InputValue::File(_)));
-    
+
     let should_add = if is_source {
         has_file
     } else {
@@ -223,20 +236,24 @@ fn sync_wires_for_node(
     node_id: SnarlNodeId,
     engine_graph: &mut NodeGraph,
     node_library: &NodeLibrary,
-) {
+) -> bool {
+    let mut changes_made = false;
+
     let node = &state.snarl[node_id];
     let Some(to_engine_id) = node.engine_node_id else {
-        return;
+        return false;
     };
 
     // Get node definition to map input indices to names
     let Some(definition) = node_library.get_definition(&node.definition_name) else {
-        return;
+        return false;
     };
 
     // Clear existing engine connections for this node's inputs
     for input_def in &definition.node.inputs {
-        engine_graph.disconnect(to_engine_id, &input_def.name);
+        if engine_graph.disconnect(to_engine_id, &input_def.name) {
+            changes_made = true;
+        }
     }
 
     // Connect all inputs
@@ -263,22 +280,29 @@ fn sync_wires_for_node(
         };
 
         // Connect in engine graph
-        if let Err(err) = engine_graph.connect(
+        match engine_graph.connect(
             from_engine_id,
             output_def.name.clone(),
             to_engine_id,
             input_def.name.clone(),
         ) {
-            util::debug_log_error!(
-                "Failed to connect {} output '{}' to {} input '{}': {}",
-                from_engine_id,
-                output_def.name,
-                to_engine_id,
-                input_def.name,
-                err
-            );
+            Ok(_) => {
+                changes_made = true;
+            }
+            Err(err) => {
+                util::debug_log_error!(
+                    "Failed to connect {} output '{}' to {} input '{}': {}",
+                    from_engine_id,
+                    output_def.name,
+                    to_engine_id,
+                    input_def.name,
+                    err
+                );
+            }
         }
     }
+
+    changes_made
 }
 
 fn connected_input_names(

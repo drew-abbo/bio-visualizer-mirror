@@ -1,4 +1,4 @@
-use engine::node::node::NodeOutputKind;
+use engine::node::engine_node::NodeOutputKind;
 use engine::node::{NodeInputKind, input_kind_to_output_kind};
 use util::egui;
 

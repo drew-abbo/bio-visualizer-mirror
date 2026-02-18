@@ -7,6 +7,7 @@ pub struct GraphExecutorManager {
     engine_graph: NodeGraph,
     graph_executor: GraphExecutor,
     last_selected_engine_node: Option<EngineNodeId>,
+    graph_changed: bool,
 }
 
 impl GraphExecutorManager {
@@ -15,6 +16,7 @@ impl GraphExecutorManager {
             engine_graph: NodeGraph::default(),
             graph_executor: GraphExecutor::default(),
             last_selected_engine_node: None,
+            graph_changed: false,
         }
     }
 
@@ -22,8 +24,22 @@ impl GraphExecutorManager {
         &self.engine_graph
     }
 
-    pub fn engine_graph_mut(&mut self) -> &mut NodeGraph {
+    /// Get mutable access to the engine graph without automatically marking as changed
+    /// Use this when you want to check or sync the graph but track changes manually
+    pub fn engine_graph_mut_no_flag(&mut self) -> &mut NodeGraph {
         &mut self.engine_graph
+    }
+
+    /// Manually mark the graph as changed (typically after sync_to_engine returns true)
+    pub fn mark_graph_changed(&mut self) {
+        self.graph_changed = true;
+    }
+
+    /// Check if the graph has changed since last execution and clear the flag
+    pub fn consume_graph_changed(&mut self) -> bool {
+        let changed = self.graph_changed;
+        self.graph_changed = false;
+        changed
     }
 
     pub fn set_last_selected_engine_node(&mut self, node: Option<EngineNodeId>) {

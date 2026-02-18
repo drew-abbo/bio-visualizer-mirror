@@ -66,12 +66,11 @@ impl VideoSourceHandler {
 
     pub fn fetch_frame(&mut self, path: &PathBuf) -> Result<Frame, ExecutionError> {
         // First, recycle any pending frame back to the producer
-        if let Some(playback_state) = self.playback_state.get_mut(path) {
-            if let Some(frame_to_recycle) = playback_state.pending_recycle.take() {
-                if let Some(producer) = self.producer_cache.get_mut(path) {
-                    producer.recycle_frame(frame_to_recycle);
-                }
-            }
+        if let Some(playback_state) = self.playback_state.get_mut(path)
+            && let Some(frame_to_recycle) = playback_state.pending_recycle.take()
+            && let Some(producer) = self.producer_cache.get_mut(path)
+        {
+            producer.recycle_frame(frame_to_recycle);
         }
 
         let producer = self.get_or_create_producer(path)?;
@@ -135,10 +134,7 @@ impl NodeHandler for VideoSourceHandler {
         };
 
         let (mut frames_to_advance, cached_frame) = {
-            let playback_state = self
-                .playback_state
-                .entry(path.clone())
-                .or_insert_with(PlaybackState::default);
+            let playback_state = self.playback_state.entry(path.clone()).or_default();
 
             if context.advance_frame {
                 playback_state.accumulator += advance_ratio;

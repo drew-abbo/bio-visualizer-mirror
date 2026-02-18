@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use crate::engine_errors::EngineError;
 use crate::graph_executor::NodeValue;
 use crate::node::NodeDefinition;
-use crate::node::node::NodeInputKind;
+use crate::node::engine_node::NodeInputKind;
 use crate::node_render_pipeline::helpers::create_linear_sampler;
 use crate::node_render_pipeline::pipeline_base::PipelineBase;
 
@@ -339,7 +339,7 @@ impl NodeRenderPipeline {
     }
 
     /// Extract non-texture parameters and calculate their buffer offsets
-    fn build_param_layout(inputs: &[crate::node::node::NodeInput]) -> Vec<ShaderParam> {
+    fn build_param_layout(inputs: &[crate::node::engine_node::NodeInput]) -> Vec<ShaderParam> {
         // Convert node [inputs] into a list of [ShaderParam] describing the
         // order and byte offsets of parameters placed in the uniform buffer.
         // Frame and Midi inputs are skipped (they are bound as textures or handled elsewhere).

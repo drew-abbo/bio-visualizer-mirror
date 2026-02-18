@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 // The structure of the node is still evolving and might change in the future.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Node {
+pub struct EngineNode {
     /// The name of this node
     pub name: String,
 

@@ -212,7 +212,12 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
 
 impl NodeGraphState {
     /// Sync the entire node graph to the engine
-    pub fn sync_to_engine(&mut self, engine_graph: &mut NodeGraph, node_library: &NodeLibrary) {
-        sync::sync_to_engine(self, engine_graph, node_library);
+    /// Returns true if any changes were made to the engine graph
+    pub fn sync_to_engine(
+        &mut self,
+        engine_graph: &mut NodeGraph,
+        node_library: &NodeLibrary,
+    ) -> bool {
+        sync::sync_to_engine(self, engine_graph, node_library)
     }
 }

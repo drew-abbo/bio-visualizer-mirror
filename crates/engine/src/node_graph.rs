@@ -11,14 +11,10 @@ use thiserror::Error;
 use util::uid::Uid;
 
 /// Unique identifier for a node instance in the graph
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord, Default,
+)]
 pub struct EngineNodeId(pub Uid);
-
-impl Default for EngineNodeId {
-    fn default() -> Self {
-        EngineNodeId(Uid::default())
-    }
-}
 
 impl std::fmt::Display for EngineNodeId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -334,7 +330,7 @@ impl NodeGraph {
 }
 
 /// The value of a node input - either a direct value or a connection
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum InputValue {
     Connection {
         from_node: EngineNodeId,
