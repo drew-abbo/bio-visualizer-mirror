@@ -458,6 +458,9 @@ mod tests {
 
     // Tests
 
+    // Entry -> receive()
+    // receive() -> Error (returns Err)
+    // Error paths -> return Err(StopWorkReason)
     #[test]
     #[should_panic(expected = "Panicking on error logging enabled")]
     fn test_receive_error() {
@@ -469,6 +472,9 @@ mod tests {
         let _result = handle_oi_msgs_test(&mut test_data);
     }
 
+    // Entry -> receive()
+    // receive() -> Ok(None) (loop exits)
+    // Ok(None) -> normal return Ok(rescan_required)
     #[test]
     fn test_receive_none() {
         let mut test_data = TestWorkerData::new(vec![Ok(None)]);
@@ -477,6 +483,11 @@ mod tests {
         assert_eq!(result.unwrap(), false);
     }
 
+    // Entry -> receive()
+    // receive() -> Ok(Some(msg))
+    // Ok(Some(msg)) -> try_into() success
+    // try_into() success -> send_outbox_msg() failure
+    // Error paths -> return Err(StopWorkReason)
     #[test]
     fn test_send_outbox_error() {
         let mut test_data = TestWorkerData::new(vec![Ok(Some(OIMsg::Focus)), Ok(None)])
@@ -486,6 +497,12 @@ mod tests {
         assert!(matches!(result, Err(StopWorkReason::ConnectionDropped)));
     }
 
+    // Entry -> receive()
+    // receive() -> Ok(Some(msg))
+    // Ok(Some(msg)) -> try_into() success
+    // try_into() success -> send_outbox_msg() success
+    // Match -> Focus branch
+    // Ok(None) -> normal return Ok(rescan_required)
     #[test]
     fn test_successful_message_flow() {
         let mut test_data = TestWorkerData::new(vec![Ok(Some(OIMsg::Focus)), Ok(None)]);
@@ -496,6 +513,12 @@ mod tests {
         assert_eq!(test_data.sent_messages.len(), 1);
     }
 
+    // Entry -> receive()
+    // receive() -> Ok(Some(msg))
+    // Ok(Some(msg)) -> try_into()
+    // try_into() failure -> match statement
+    // Match -> ProjectUpdated branch
+    // Ok(None) -> normal return Ok(rescan_required)
     #[test]
     fn test_project_updated_requires_rescan() {
         let mut test_data =
@@ -507,6 +530,13 @@ mod tests {
         assert_eq!(test_data.sent_messages.len(), 0);
     }
 
+    // Entry -> receive()
+    // receive() -> Ok(Some(msg))
+    // Match -> Focus branch
+    // Match -> ProjectUpdated branch
+    // Match -> Close branch
+    // Match -> loop back to receive()
+    // Ok(None) -> normal return Ok(rescan_required)
     #[test]
     fn test_multiple_messages() {
         let mut test_data = TestWorkerData::new(vec![
@@ -522,6 +552,12 @@ mod tests {
         assert_eq!(test_data.sent_messages.len(), 2);
     }
 
+    // Entry -> receive()
+    // receive() -> Ok(Some(msg))
+    // Match -> ProjectOpenFailed branch
+    // Match -> ProjectUpdated branch
+    // Match -> loop back to receive()
+    // Ok(None) -> normal return Ok(rescan_required)
     #[test]
     fn test_multiple_updates_require_rescan() {
         let mut test_data = TestWorkerData::new(vec![
@@ -534,5 +570,28 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), true);
         assert_eq!(test_data.sent_messages.len(), 1);
+    }
+
+    // Entry -> receive()
+    // receive() -> Ok(Some(msg))
+    // Ok(Some(msg)) -> try_into() success
+    // try_into() success -> send_outbox_msg() success
+    // Match -> Focus branch
+    // Match -> ProjectUpdated branch
+    // Match -> loop back to receive()
+    // Ok(None) -> normal return Ok(rescan_required)
+    #[test]
+    fn test_try_into_fails_no_message_sent_but_rescan_checked() {
+        let mut test_data = TestWorkerData::new(vec![
+            Ok(Some(OIMsg::Focus)),
+            Ok(Some(OIMsg::ProjectUpdated)),
+            Ok(None),
+        ]);
+
+        let result = handle_oi_msgs_test(&mut test_data);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), true);
+        assert_eq!(test_data.sent_messages.len(), 1);
+        assert!(matches!(test_data.sent_messages[0], WorkerMsg::Focus));
     }
 }
