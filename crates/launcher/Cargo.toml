@@ -17,6 +17,3 @@ egui_extras = { version = "0.33.3", features = ["image"] }
 # Disables the console that automatically opens when you run an executable on
 # Windows.
 no-console = []
-
-[dev-dependencies]
-mockall = "0.14"
