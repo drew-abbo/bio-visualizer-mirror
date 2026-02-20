@@ -376,3 +376,163 @@ fn refresh_project(project: &mut Project, known_state: ProjectKnownState) -> Opt
         )),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::VecDeque;
+    use std::io;
+
+    // This is fine in rust.
+    struct FakeOIMsgReceiver {
+        responses: VecDeque<Result<Option<OIMsg>, io::Error>>,
+    }
+
+    impl FakeOIMsgReceiver {
+        fn new(responses: Vec<Result<Option<OIMsg>, io::Error>>) -> Self {
+            Self {
+                responses: responses.into(),
+            }
+        }
+
+        fn receive(&mut self) -> Result<Option<OIMsg>, io::Error> {
+            self.responses
+                .pop_front()
+                .expect("No more fake responses configured")
+        }
+    }
+
+    struct TestWorkerData {
+        oi_msg_receiver: FakeOIMsgReceiver,
+        sent_messages: Vec<WorkerMsg>,
+        send_should_fail: bool,
+    }
+
+    impl TestWorkerData {
+        fn new(responses: Vec<Result<Option<OIMsg>, io::Error>>) -> Self {
+            Self {
+                oi_msg_receiver: FakeOIMsgReceiver::new(responses),
+                sent_messages: Vec::new(),
+                send_should_fail: false,
+            }
+        }
+
+        fn with_send_failure(mut self) -> Self {
+            self.send_should_fail = true;
+            self
+        }
+
+        fn send_outbox_msg(&mut self, msg: WorkerMsg) -> Result<(), StopWorkReason> {
+            if self.send_should_fail {
+                return Err(StopWorkReason::ConnectionDropped);
+            }
+            self.sent_messages.push(msg);
+            Ok(())
+        }
+    }
+
+    fn handle_oi_msgs_test(test_data: &mut TestWorkerData) -> Result<bool, StopWorkReason> {
+        let mut rescan_required = false;
+
+        while let Some(msg) = test_data.oi_msg_receiver.receive().map_err(|e| {
+            util::debug_log_error!("Failed to receive message from other instance: {e}");
+            StopWorkReason::FatalError("Failed to receive message from other instance.".into())
+        })? {
+            util::debug_log_info!("Other instance message received: `{msg}`.");
+
+            if let Ok(msg) = msg.try_into() {
+                test_data.send_outbox_msg(msg)?;
+            }
+
+            rescan_required = rescan_required
+                || match msg {
+                    OIMsg::Focus => false,
+                    OIMsg::Close => false,
+                    OIMsg::ProjectUpdated => true,
+                    OIMsg::ProjectOpenFailed => true,
+                };
+        }
+
+        Ok(rescan_required)
+    }
+
+    // Tests
+
+    #[test]
+    #[should_panic(expected = "Panicking on error logging enabled")]
+    fn test_receive_error() {
+        let mut test_data = TestWorkerData::new(vec![Err(io::Error::new(
+            io::ErrorKind::ConnectionReset,
+            "connection closed",
+        ))]);
+
+        let _result = handle_oi_msgs_test(&mut test_data);
+    }
+
+    #[test]
+    fn test_receive_none() {
+        let mut test_data = TestWorkerData::new(vec![Ok(None)]);
+
+        let result = handle_oi_msgs_test(&mut test_data);
+        assert_eq!(result.unwrap(), false);
+    }
+
+    #[test]
+    fn test_send_outbox_error() {
+        let mut test_data = TestWorkerData::new(vec![Ok(Some(OIMsg::Focus)), Ok(None)])
+            .with_send_failure();
+
+        let result = handle_oi_msgs_test(&mut test_data);
+        assert!(matches!(result, Err(StopWorkReason::ConnectionDropped)));
+    }
+
+    #[test]
+    fn test_successful_message_flow() {
+        let mut test_data = TestWorkerData::new(vec![Ok(Some(OIMsg::Focus)), Ok(None)]);
+
+        let result = handle_oi_msgs_test(&mut test_data);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), false);
+        assert_eq!(test_data.sent_messages.len(), 1);
+    }
+
+    #[test]
+    fn test_project_updated_requires_rescan() {
+        let mut test_data =
+            TestWorkerData::new(vec![Ok(Some(OIMsg::ProjectUpdated)), Ok(None)]);
+
+        let result = handle_oi_msgs_test(&mut test_data);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), true);
+        assert_eq!(test_data.sent_messages.len(), 0);
+    }
+
+    #[test]
+    fn test_multiple_messages() {
+        let mut test_data = TestWorkerData::new(vec![
+            Ok(Some(OIMsg::Focus)),
+            Ok(Some(OIMsg::ProjectUpdated)),
+            Ok(Some(OIMsg::Close)),
+            Ok(None),
+        ]);
+
+        let result = handle_oi_msgs_test(&mut test_data);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), true);
+        assert_eq!(test_data.sent_messages.len(), 2);
+    }
+
+    #[test]
+    fn test_multiple_updates_require_rescan() {
+        let mut test_data = TestWorkerData::new(vec![
+            Ok(Some(OIMsg::ProjectOpenFailed)),
+            Ok(Some(OIMsg::ProjectUpdated)),
+            Ok(None),
+        ]);
+
+        let result = handle_oi_msgs_test(&mut test_data);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), true);
+        assert_eq!(test_data.sent_messages.len(), 1);
+    }
+}

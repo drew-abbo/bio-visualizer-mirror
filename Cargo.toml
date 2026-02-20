@@ -4,8 +4,7 @@ members = [
   "crates/util",
   "crates/media",
   "crates/engine",
-  "crates/launcher"
-, "crates/render_testing"]
+  "crates/launcher"]
 resolver = "2"
 
 # Debugging essentially becomes impossible with this profile, but it will
