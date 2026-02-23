@@ -18,17 +18,15 @@ Usage
 
   let mut executor = GraphExecutor::new(wgpu::TextureFormat::Rgba8Unorm);
 
-- Run the graph (returns first output node's results):
+- Run the graph, stops executing and returns the texture of the target node provided. If no id is provided then it will execute the whole graph.
 
-  let result = executor.execute(&graph, &library, &device, &queue)?;
+  let result = executor.execute(&graph, &library, &device, &queue, target_node_id, context)?;
 
 - Manage caches between runs:
 
   executor.clear_producer_cache();
   executor.clear_image_cache();
   executor.invalidate_execution_order();
-
-View the `render_testing` crate for examples.
 
 Errors
 ------
