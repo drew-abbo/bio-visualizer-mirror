@@ -5,7 +5,9 @@
 pub mod message_channel;
 pub mod request_channel;
 
-use std::sync::Arc;
+mod conn_n;
+use conn_n::ConnN;
+
 use std::time::Duration;
 
 use thiserror::Error;
@@ -25,20 +27,13 @@ pub enum ChannelError {
 
 const THREAD_PANIC_MSG: &str = "Another thread panicked while holding a resource this one needs.";
 
-fn connection_not_dropped<T>(channel: &Arc<T>) -> bool {
-    let connection_count = Arc::strong_count(channel);
-
-    debug_assert!(
-        connection_count <= 2,
-        "An SPSC channel should never have > 2 connected parties."
-    );
-
-    // If this is only 1, the other party dropped their connection (new messages
-    // won't go to anyone).
-    connection_count == 2
+#[inline(always)]
+fn connection_not_dropped<T>(channel: &ConnN<T>) -> bool {
+    !channel.is_only_handle()
 }
 
-fn ensure_connection_not_dropped<T>(channel: &Arc<T>) -> Result<(), ChannelError> {
+#[inline(always)]
+fn ensure_connection_not_dropped<T>(channel: &ConnN<T>) -> Result<(), ChannelError> {
     if connection_not_dropped(channel) {
         Ok(())
     } else {

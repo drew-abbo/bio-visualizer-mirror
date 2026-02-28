@@ -5,10 +5,10 @@
 use std::collections::VecDeque;
 use std::num::NonZeroUsize;
 use std::ops::{Deref, DerefMut};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, TryLockError};
+use std::sync::{Condvar, Mutex, MutexGuard, TryLockError};
 use std::time::{Duration, Instant};
 
-use super::{ChannelError, ChannelResult, THREAD_PANIC_MSG};
+use super::{ChannelError, ChannelResult, ConnN, THREAD_PANIC_MSG};
 
 /// The inbox (message receiver) of a one-way message channel (single producer
 /// single consumer queue). Also see [Outbox].
@@ -16,7 +16,7 @@ use super::{ChannelError, ChannelResult, THREAD_PANIC_MSG};
 /// See [new], [with_capacity], and [with_starting_messages] to construct.
 #[derive(Debug)]
 pub struct Inbox<T> {
-    channel: Arc<OneWayChannel<T>>,
+    channel: ConnN<OneWayChannel<T>>,
 }
 
 impl<T> Inbox<T> {
@@ -541,7 +541,7 @@ impl<T> Drop for Inbox<T> {
 /// See [new], [with_capacity], and [with_starting_messages] to construct.
 #[derive(Debug)]
 pub struct Outbox<T> {
-    channel: Arc<OneWayChannel<T>>,
+    channel: ConnN<OneWayChannel<T>>,
 }
 
 impl<T> Outbox<T> {
@@ -846,12 +846,14 @@ struct OneWayChannel<T> {
 
 impl<T> From<OneWayChannel<T>> for (Inbox<T>, Outbox<T>) {
     fn from(channel: OneWayChannel<T>) -> Self {
-        let channel = Arc::new(channel);
+        let [inbox_channel, outbox_channel] = ConnN::new::<2>(channel);
         (
             Inbox {
-                channel: channel.clone(),
+                channel: inbox_channel,
             },
-            Outbox { channel },
+            Outbox {
+                channel: outbox_channel,
+            },
         )
     }
 }

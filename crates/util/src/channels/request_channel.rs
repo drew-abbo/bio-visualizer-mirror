@@ -5,11 +5,11 @@
 
 use std::collections::VecDeque;
 use std::marker::PhantomData;
-use std::sync::{Arc, Condvar, Mutex, TryLockError};
+use std::sync::{Condvar, Mutex, TryLockError};
 use std::time::{Duration, Instant};
 
 use super::message_channel;
-use super::{ChannelError, ChannelResult, THREAD_PANIC_MSG};
+use super::{ChannelError, ChannelResult, ConnN, THREAD_PANIC_MSG};
 
 /// The request data from a [Client] (`Q`) and the handler from the [Server]
 /// that can be used to respond to the request (optional because some requests
@@ -545,23 +545,25 @@ impl<Q, A> Client<Q, A> {
         self.channel.with_queue_in_place(f)
     }
 
+    #[inline]
     fn send_template<F, R>(&self, request: Q, sender: F) -> ChannelResult<Request<A>>
     where
         F: FnOnce(&message_channel::Outbox<ReqRes<Q, A>>, ReqRes<Q, A>) -> ChannelResult<R>,
     {
-        let responder = Arc::new(Responder {
+        let [client_responder, server_responder] = ConnN::new::<2>(Responder {
             response: Mutex::new(None),
             notifier: Condvar::default(),
         });
 
         sender(
             &self.channel,
-            (request, Some(ResponseHandle(responder.clone()))),
+            (request, Some(ResponseHandle(server_responder))),
         )?;
 
-        Ok(Request(Some(responder)))
+        Ok(Request(Some(client_responder)))
     }
 
+    #[inline]
     fn alert_template<F, R>(&self, request: Q, sender: F) -> ChannelResult<()>
     where
         F: FnOnce(&message_channel::Outbox<ReqRes<Q, A>>, ReqRes<Q, A>) -> ChannelResult<R>,
@@ -572,7 +574,7 @@ impl<Q, A> Client<Q, A> {
 
 /// A handle to use for responding to a request from a [Client].
 #[derive(Debug)]
-pub struct ResponseHandle<A>(Arc<Responder<A>>);
+pub struct ResponseHandle<A>(ConnN<Responder<A>>);
 
 impl<A> ResponseHandle<A> {
     /// Respond to a request from the server.
@@ -619,7 +621,7 @@ impl<A> Drop for ResponseHandle<A> {
 
 /// A handle to use to await a response to a request from a [Server].
 #[derive(Debug)]
-pub struct Request<A>(Option<Arc<Responder<A>>>);
+pub struct Request<A>(Option<ConnN<Responder<A>>>);
 
 impl<A> Request<A> {
     /// Waits for a response from the server until one appears.
