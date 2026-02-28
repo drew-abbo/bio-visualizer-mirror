@@ -389,7 +389,7 @@ impl<Q, A> Server<Q, A> {
 
     /// Direct access to the inner request queue.
     ///
-    /// No messages can be sent while `f` is executing.
+    /// No requests can be sent while `f` is executing.
     ///
     /// There are no checks for whether or not the connection has been dropped.
     pub fn with_queue_in_place<F, R>(&self, f: F) -> R
@@ -531,6 +531,18 @@ impl<Q, A> Client<Q, A> {
     /// inverse of [Self::connection_open].
     pub fn connection_closed(&self) -> bool {
         self.channel.connection_closed()
+    }
+
+    /// Direct access to the inner request queue.
+    ///
+    /// No requests can be received while `f` is executing.
+    ///
+    /// There are no checks for whether or not the connection has been dropped.
+    pub fn with_queue_in_place<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut VecDeque<ReqRes<Q, A>>) -> R,
+    {
+        self.channel.with_queue_in_place(f)
     }
 
     fn send_template<F, R>(&self, request: Q, sender: F) -> ChannelResult<Request<A>>

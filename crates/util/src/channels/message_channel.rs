@@ -682,6 +682,25 @@ impl<T> Outbox<T> {
         Ok(in_flight)
     }
 
+    /// Direct access to the inner message queue.
+    ///
+    /// No messages can be received while `f` is executing.
+    ///
+    /// There are no checks for whether or not the connection has been dropped.
+    pub fn with_queue_in_place<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut VecDeque<T>) -> R,
+    {
+        let mut queue = self.channel.queue.lock().expect(THREAD_PANIC_MSG);
+        let ret = f(queue.as_mut());
+
+        // We need to notify the inbox that a message may have arrived if it's
+        // waiting.
+        self.channel.notifier.notify_one();
+
+        ret
+    }
+
     /// The number of messages that have been sent but not received.
     ///
     /// A [ChannelError::ConnectionDropped] error is returned if the other end
