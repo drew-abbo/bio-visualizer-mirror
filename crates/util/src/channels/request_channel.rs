@@ -40,6 +40,10 @@ impl<Q, A> Server<Q, A> {
     /// - [Self::wait_timeout_all]
     /// - [Self::check_all]
     /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
     ///
     /// # Example
     ///
@@ -74,6 +78,10 @@ impl<Q, A> Server<Q, A> {
     /// - [Self::wait_timeout_all]
     /// - [Self::check_all]
     /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
     pub fn wait_timeout(&self, timeout: Duration) -> ChannelResult<ReqRes<Q, A>> {
         self.channel.wait_timeout(timeout)
     }
@@ -95,6 +103,10 @@ impl<Q, A> Server<Q, A> {
     /// - [Self::wait_timeout_all]
     /// - [Self::check_all]
     /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
     pub fn check(&self) -> ChannelResult<Option<ReqRes<Q, A>>> {
         self.channel.check()
     }
@@ -118,6 +130,10 @@ impl<Q, A> Server<Q, A> {
     /// - [Self::wait_timeout_all]
     /// - [Self::check_all]
     /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
     pub fn check_non_blocking(&self) -> ChannelResult<Option<ReqRes<Q, A>>> {
         self.channel.check_non_blocking()
     }
@@ -138,6 +154,10 @@ impl<Q, A> Server<Q, A> {
     /// - [Self::wait_timeout_all]
     /// - [Self::check_all]
     /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
     pub fn wait_all(&self) -> ChannelResult<VecDeque<ReqRes<Q, A>>> {
         self.channel.wait_all()
     }
@@ -162,6 +182,10 @@ impl<Q, A> Server<Q, A> {
     /// - [Self::wait_all]
     /// - [Self::check_all]
     /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
     pub fn wait_timeout_all(&self, timeout: Duration) -> ChannelResult<VecDeque<ReqRes<Q, A>>> {
         self.channel.wait_timeout_all(timeout)
     }
@@ -185,6 +209,10 @@ impl<Q, A> Server<Q, A> {
     /// - [Self::wait_all]
     /// - [Self::wait_timeout_all]
     /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
     pub fn check_all(&self) -> ChannelResult<Option<VecDeque<ReqRes<Q, A>>>> {
         self.channel.check_all()
     }
@@ -210,8 +238,141 @@ impl<Q, A> Server<Q, A> {
     /// - [Self::wait_all]
     /// - [Self::wait_timeout_all]
     /// - [Self::check_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
     pub fn check_non_blocking_all(&self) -> ChannelResult<Option<VecDeque<ReqRes<Q, A>>>> {
         self.channel.check_non_blocking_all()
+    }
+
+    /// Waits for a request from the outbox until one appears, giving in-place
+    /// access to all requests if multiple have built up.
+    ///
+    /// No messages can be sent while `f` is executing.
+    ///
+    /// The [VecDeque] is guaranteed to have at least 1 element.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::wait_timeout]
+    /// - [Self::check]
+    /// - [Self::check_non_blocking]
+    /// - [Self::wait_all]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_all]
+    /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
+    pub fn wait_in_place<F, R>(&self, f: F) -> ChannelResult<R>
+    where
+        F: FnOnce(&mut VecDeque<ReqRes<Q, A>>) -> R,
+    {
+        self.channel.wait_in_place(f)
+    }
+
+    /// Waits for a request from the outbox for up to `timeout` time, giving
+    /// in-place access to all requests if multiple have built up.
+    ///
+    /// After `timeout` time, a [ChannelError::Timeout] error is returned. Note
+    /// that this function's execution may take slightly longer than `timeout`
+    /// time.
+    ///
+    /// No messages can be sent while `f` is executing.
+    ///
+    /// The [VecDeque] is guaranteed to have at least 1 element.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::wait_timeout]
+    /// - [Self::check]
+    /// - [Self::check_non_blocking]
+    /// - [Self::wait_all]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_all]
+    /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
+    pub fn wait_timeout_in_place<F, R>(&self, f: F, timeout: Duration) -> ChannelResult<R>
+    where
+        F: FnOnce(&mut VecDeque<ReqRes<Q, A>>) -> R,
+    {
+        self.channel.wait_timeout_in_place(f, timeout)
+    }
+
+    /// Gives in-place access to all requests from the outbox if at least one
+    /// request is waiting, returning [None] otherwise. This function may still
+    /// block slightly.
+    ///
+    /// This function will block if the outbox is currently sending a new
+    /// message.
+    ///
+    /// No messages can be sent while `f` is executing.
+    ///
+    /// The [VecDeque] is guaranteed to have at least 1 element.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::wait_timeout]
+    /// - [Self::check]
+    /// - [Self::check_non_blocking]
+    /// - [Self::wait_all]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_all]
+    /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_non_blocking_in_place]
+    pub fn check_in_place<F, R>(&self, f: F) -> ChannelResult<Option<R>>
+    where
+        F: FnOnce(&mut VecDeque<ReqRes<Q, A>>) -> R,
+    {
+        self.channel.check_in_place(f)
+    }
+
+    /// Gives in-place access to all requests from the outbox if the queue is
+    /// not locked and at least one request is waiting, returning [None]
+    /// otherwise. This function will not block.
+    ///
+    /// Note that [None] being returned *does not* always mean there are no
+    /// messages in the inbox. If the outbox is currently adding an item, [None]
+    /// will still be returned (even if there are items in the queue).
+    ///
+    /// No messages can be sent while `f` is executing.
+    ///
+    /// The [VecDeque] is guaranteed to have at least 1 element.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::wait_timeout]
+    /// - [Self::check]
+    /// - [Self::check_non_blocking]
+    /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_all]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    pub fn check_non_blocking_in_place<F, R>(&self, f: F) -> ChannelResult<Option<R>>
+    where
+        F: FnOnce(&mut VecDeque<ReqRes<Q, A>>) -> R,
+    {
+        self.channel.check_non_blocking_in_place(f)
     }
 
     /// Whether the other party still has their end of the connection alive, the
@@ -224,6 +385,18 @@ impl<Q, A> Server<Q, A> {
     /// inverse of [Self::connection_open].
     pub fn connection_closed(&self) -> bool {
         self.channel.connection_closed()
+    }
+
+    /// Direct access to the inner request queue.
+    ///
+    /// No messages can be sent while `f` is executing.
+    ///
+    /// There are no checks for whether or not the connection has been dropped.
+    pub fn with_queue_in_place<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut VecDeque<ReqRes<Q, A>>) -> R,
+    {
+        self.channel.with_queue_in_place(f)
     }
 }
 
@@ -241,24 +414,102 @@ impl<Q, A> Client<Q, A> {
     ///
     /// A [ChannelError::ConnectionDropped] error is returned if the other end
     /// of the connection was dropped.
+    ///
+    /// Also see [Self::request_bounded] and [Self::request_bounded].
     pub fn request(&self, request: Q) -> ChannelResult<Request<A>> {
-        let responder = Arc::new(Responder {
-            response: Mutex::new(None),
-            notifier: Condvar::default(),
-        });
+        Self::send_template(self, request, |channel, msg| channel.send(msg))
+    }
 
-        self.channel
-            .send((request, Some(ResponseHandle(responder.clone()))))?;
+    /// Send a request to the server only once there are less than
+    /// `max_in_flight` requests [in flight](Self::messages_in_flight).
+    ///
+    /// If `max_in_flight` is `0`, `1` will be used instead.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped.
+    ///
+    /// Also see [Self::request] and [Self::request_bounded_timeout].
+    pub fn request_bounded(&self, request: Q, max_in_flight: usize) -> ChannelResult<Request<A>> {
+        Self::send_template(self, request, |channel, msg| {
+            channel.send_bounded(msg, max_in_flight)
+        })
+    }
 
-        Ok(Request(Some(responder)))
+    /// Sends a request to the inbox only once there are less than
+    /// `max_in_flight` requests [in flight](Self::messages_in_flight) (waiting
+    /// for up to `timeout` time).
+    ///
+    /// After `timeout` time, a [ChannelError::Timeout] error is returned. Note
+    /// that this function's execution may take slightly longer than `timeout`
+    /// time.
+    ///
+    /// If `max_in_flight` is `0`, `1` will be used instead.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped.
+    ///
+    /// Also see [Self::request] and [Self::request_bounded].
+    pub fn request_bounded_timeout(
+        &self,
+        request: Q,
+        max_in_flight: usize,
+        timeout: Duration,
+    ) -> ChannelResult<Request<A>> {
+        Self::send_template(self, request, |channel, msg| {
+            channel.send_bounded_timeout(msg, max_in_flight, timeout)
+        })
     }
 
     /// Send a message to the server that it does not need to reply to.
     ///
     /// A [ChannelError::ConnectionDropped] error is returned if the other end
     /// of the connection was dropped.
+    ///
+    /// Also see [Self::alert_bounded] and [Self::alert_bounded_timeout].
     pub fn alert(&self, request: Q) -> ChannelResult<()> {
-        self.channel.send((request, None)).map(|_| ())
+        self.alert_template(request, |channel, msg| channel.send(msg))
+    }
+
+    /// Send a message to the server that it does not need to reply to once
+    /// there are less than `max_in_flight` requests
+    /// [in flight](Self::messages_in_flight).
+    ///
+    /// If `max_in_flight` is `0`, `1` will be used instead.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped.
+    ///
+    /// Also see [Self::alert] and [Self::alert_bounded_timeout].
+    pub fn alert_bounded(&self, request: Q, max_in_flight: usize) -> ChannelResult<()> {
+        Self::alert_template(self, request, |channel, msg| {
+            channel.send_bounded(msg, max_in_flight)
+        })
+    }
+
+    /// Send a message to the server that it does not need to reply to once
+    /// there are less than `max_in_flight` requests
+    /// [in flight](Self::messages_in_flight) (waiting for up to `timeout`
+    /// time).
+    ///
+    /// After `timeout` time, a [ChannelError::Timeout] error is returned. Note
+    /// that this function's execution may take slightly longer than `timeout`
+    /// time.
+    ///
+    /// If `max_in_flight` is `0`, `1` will be used instead.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped.
+    ///
+    /// Also see [Self::alert] and [Self::alert_bounded].
+    pub fn alert_bounded_timeout(
+        &self,
+        request: Q,
+        max_in_flight: usize,
+        timeout: Duration,
+    ) -> ChannelResult<()> {
+        Self::alert_template(self, request, |channel, msg| {
+            channel.send_bounded_timeout(msg, max_in_flight, timeout)
+        })
     }
 
     /// The number of requests that have been sent but not received. Received
@@ -280,6 +531,30 @@ impl<Q, A> Client<Q, A> {
     /// inverse of [Self::connection_open].
     pub fn connection_closed(&self) -> bool {
         self.channel.connection_closed()
+    }
+
+    fn send_template<F, R>(&self, request: Q, sender: F) -> ChannelResult<Request<A>>
+    where
+        F: FnOnce(&message_channel::Outbox<ReqRes<Q, A>>, ReqRes<Q, A>) -> ChannelResult<R>,
+    {
+        let responder = Arc::new(Responder {
+            response: Mutex::new(None),
+            notifier: Condvar::default(),
+        });
+
+        sender(
+            &self.channel,
+            (request, Some(ResponseHandle(responder.clone()))),
+        )?;
+
+        Ok(Request(Some(responder)))
+    }
+
+    fn alert_template<F, R>(&self, request: Q, sender: F) -> ChannelResult<()>
+    where
+        F: FnOnce(&message_channel::Outbox<ReqRes<Q, A>>, ReqRes<Q, A>) -> ChannelResult<R>,
+    {
+        sender(&self.channel, (request, None)).map(|_| ())
     }
 }
 
