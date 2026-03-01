@@ -122,13 +122,41 @@ fn new_project_popup(ui: &mut Ui, state: &mut LayoutState<'_>) {
             .new_project_name_buffer
             .get_or_insert_with(|| "".into());
 
-        let name_input = TextEdit::singleline(new_project_name_buffer)
-            .font(TextStyle::Heading)
-            .desired_width(f32::INFINITY)
-            .background_color(Color32::TRANSPARENT)
-            .margin(Margin::symmetric(15, 15))
-            .hint_text("Project name...")
-            .show(ui);
+        let name_input = ui
+            .scope(|ui| {
+                // #FE71D0
+                ui.visuals_mut().widgets.inactive.bg_stroke =
+                    Stroke::new(2.0, Color32::from_rgb(0xFE, 0x71, 0xD0));
+                // #FE71D0
+                ui.visuals_mut().widgets.hovered.bg_stroke =
+                    Stroke::new(2.0, Color32::from_rgb(0xFE, 0x71, 0xD0));
+                ui.visuals_mut().widgets.active.bg_stroke =
+                    Stroke::new(2.0, Color32::from_rgb(0xFE, 0x71, 0xD0));
+                ui.visuals_mut().widgets.inactive.bg_stroke =
+                    Stroke::new(2.0, Color32::from_rgb(0xFE, 0x71, 0xD0));
+                ui.visuals_mut().widgets.noninteractive.bg_stroke =
+                    Stroke::new(2.0, Color32::from_rgb(0xFE, 0x71, 0xD0));
+                ui.visuals_mut().widgets.open.bg_stroke =
+                    Stroke::new(2.0, Color32::from_rgb(0xFE, 0x71, 0xD0));
+
+                ui.style_mut().visuals.override_text_color =
+                    Some(Color32::from_rgb(0xFE, 0x71, 0xD0));              // #FE71D0
+
+                TextEdit::singleline(new_project_name_buffer)
+                    .font(TextStyle::Heading)
+                    .desired_width(f32::INFINITY)
+                    .background_color(Color32::from_rgb(0x02, 0x24, 0xC0))      // #022C40
+                    .margin(Margin::symmetric(15, 15))
+                    .hint_text("Project name...")
+                    .show(ui)
+
+                // ui.painter().rect_stroke(
+                //     outer.response_rect,
+                //     3.0,
+                //     Stroke::new(1.5, egui::Color32::GREEN),
+                // )
+            })
+            .inner;
 
         if is_first_frame_of_popup {
             name_input.response.request_focus();

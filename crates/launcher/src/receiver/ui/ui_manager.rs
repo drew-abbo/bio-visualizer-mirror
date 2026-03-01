@@ -6,7 +6,7 @@ use std::fmt::Debug;
 use std::time::{self, Duration, SystemTime};
 
 use eframe::{App, Frame};
-use egui::{CentralPanel, Context, Ui, UserAttentionType, Vec2, ViewportCommand, Visuals};
+use egui::{CentralPanel, Color32, Context, Ui, UserAttentionType, Vec2, ViewportCommand, Visuals};
 
 use util::channels::request_channel::Request;
 use util::local_data::project::ProjectId;
@@ -422,6 +422,17 @@ fn apply_base_style(ctx: &Context) {
     ctx.style_mut(|style| {
         // Add some padding to the inside of buttons.
         style.spacing.button_padding = egui::vec2(10.0, 5.0);
+        // This is the color of hte buttons
+        style.visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(0x72, 0x02, 0x57); // #EB0CB7
+        style.visuals.widgets.active.weak_bg_fill = Color32::from_rgb(0xFE, 0xB6, 0xE3); // #FEB6E3
+        style.visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(0x3D, 0x01, 0x2D); // #3D012D
+
+        // I am not sure I have seen a noninteractive or open button yet
+        //style.visuals.widgets.noninteractive.weak_bg_fill = Color32::BLUE;
+        //style.visuals.widgets.open.weak_bg_fill = Color32::PURPLE;
+
+        //Override for all the text
+        style.visuals.override_text_color = Some(Color32::from_rgb(0xC2, 0xB8, 0x07)) // #C2B807
     });
 }
 
