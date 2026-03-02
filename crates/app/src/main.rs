@@ -26,7 +26,7 @@ use area::App;
 
 >>>>>>> cc1a573 (I think this is very close to being ready)
 use app_area::AppArea;
->>>>>>> ee4c645 (restructure and some comments)
+use util::version::APP_NAME;
 
 fn main() -> Result<(), util::eframe::Error> {
     env_logger::init();
@@ -39,7 +39,7 @@ fn main() -> Result<(), util::eframe::Error> {
         viewport: util::egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 720.0])
             .with_min_inner_size([60.0, 40.0])
-            .with_title("Bio Visualizer")
+            .with_title(APP_NAME)
             .with_decorations(false),
         ..Default::default()
     };
