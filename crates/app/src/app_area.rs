@@ -29,7 +29,7 @@ impl AppArea {
         egui::TopBottomPanel::top("menu")
             .frame(
                 egui::Frame::NONE
-                    .fill(egui::Color32::from_rgb(24, 29, 31))
+                    .fill(egui::Color32::from_rgb(0x3E, 0x3A, 0x3C))    // #3E3A3C
                     .inner_margin(egui::Margin::symmetric(12, 6)),
             )
             .show(ctx, |ui| {
