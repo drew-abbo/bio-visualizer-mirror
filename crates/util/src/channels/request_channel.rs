@@ -4,7 +4,7 @@
 //! single thread making requests and another single thread responding.
 
 use std::collections::VecDeque;
-use std::marker::PhantomData;
+use std::mem;
 use std::sync::{Condvar, Mutex, TryLockError};
 use std::time::{Duration, Instant};
 
@@ -23,7 +23,6 @@ pub type ReqRes<Q, A> = (Q, Option<ResponseHandle<A>>);
 #[derive(Debug)]
 pub struct Server<Q, A> {
     channel: message_channel::Inbox<ReqRes<Q, A>>,
-    _marker: PhantomData<A>,
 }
 
 impl<Q, A> Server<Q, A> {
@@ -550,17 +549,9 @@ impl<Q, A> Client<Q, A> {
     where
         F: FnOnce(&message_channel::Outbox<ReqRes<Q, A>>, ReqRes<Q, A>) -> ChannelResult<R>,
     {
-        let [client_responder, server_responder] = ConnN::new::<2>(Responder {
-            response: Mutex::new(None),
-            notifier: Condvar::default(),
-        });
-
-        sender(
-            &self.channel,
-            (request, Some(ResponseHandle(server_responder))),
-        )?;
-
-        Ok(Request(Some(client_responder)))
+        let (req, res) = Request::new();
+        sender(&self.channel, (request, Some(res)))?;
+        Ok(req)
     }
 
     #[inline]
@@ -572,7 +563,9 @@ impl<Q, A> Client<Q, A> {
     }
 }
 
-/// A handle to use for responding to a request from a [Client].
+/// A handle to use for responding to a request (usually from a [Client]).
+///
+/// Also see [Request].
 #[derive(Debug)]
 pub struct ResponseHandle<A>(ConnN<Responder<A>>);
 
@@ -619,11 +612,38 @@ impl<A> Drop for ResponseHandle<A> {
     }
 }
 
-/// A handle to use to await a response to a request from a [Server].
+/// A handle to use to await a response to a request (usually from a [Server]).
+///
+/// Also see [ResponseHandle].
 #[derive(Debug)]
-pub struct Request<A>(Option<ConnN<Responder<A>>>);
+pub struct Request<A>(RequestInner<A>);
 
 impl<A> Request<A> {
+    /// Create a new [Request] and [ResponseHandle].
+    pub fn new() -> (Self, ResponseHandle<A>) {
+        let [con1, con2] = ConnN::new::<2>(Responder::default());
+        (
+            Request(RequestInner::AwaitingResponse(con1)),
+            ResponseHandle(con2),
+        )
+    }
+
+    /// Create a [Request] that has already been responded to.
+    ///
+    /// No connection will be allocated since the request has already been
+    /// resolved.
+    pub const fn with_response(response: A) -> Self {
+        Request(RequestInner::ResponseInline(response))
+    }
+
+    /// Create a [Request] that has already been received.
+    ///
+    /// No connection will be allocated since the request has already been
+    /// resolved.
+    pub const fn with_response_received() -> Self {
+        Request(RequestInner::ResponseReceived)
+    }
+
     /// Waits for a response from the server until one appears.
     ///
     /// For a version with a maximum wait time, see [Self::wait_timeout]. If you
@@ -642,12 +662,12 @@ impl<A> Request<A> {
     /// let response = request.wait().unwrap();
     /// ```
     pub fn wait(&mut self) -> ChannelResult<A> {
-        let request = self
-            .0
-            .as_ref()
-            .ok_or(ChannelError::ResponseAlreadyReceived)?;
+        if let Some(response_result) = self.0.received_response() {
+            return response_result;
+        }
+        let responder = self.0.responder().unwrap();
 
-        let mut response = request.response.lock().expect(THREAD_PANIC_MSG);
+        let mut response = responder.response.lock().expect(THREAD_PANIC_MSG);
 
         if let Some(response) = response.take() {
             return Ok(response);
@@ -655,10 +675,10 @@ impl<A> Request<A> {
 
         // If there's no response we need to make sure the other end hasn't hung
         // up.
-        super::ensure_connection_not_dropped(request)?;
+        super::ensure_connection_not_dropped(responder)?;
 
         loop {
-            response = request.notifier.wait(response).expect(THREAD_PANIC_MSG);
+            response = responder.notifier.wait(response).expect(THREAD_PANIC_MSG);
 
             if let Some(response) = response.take() {
                 return Ok(response);
@@ -667,7 +687,7 @@ impl<A> Request<A> {
             // No response after waking up means one of two things:
             // 1. The other end hung up.
             // 2. This was a spurious (early) wakeup (should go back to sleep).
-            super::ensure_connection_not_dropped(request)?;
+            super::ensure_connection_not_dropped(responder)?;
         }
     }
 
@@ -686,12 +706,12 @@ impl<A> Request<A> {
     /// A [ChannelError::ResponseAlreadyReceived] is returned if this request
     /// has already been responded to.
     pub fn wait_timeout(&mut self, timeout: Duration) -> ChannelResult<A> {
-        let request = self
-            .0
-            .as_ref()
-            .ok_or(ChannelError::ResponseAlreadyReceived)?;
+        if let Some(response_result) = self.0.received_response() {
+            return response_result;
+        }
+        let responder = self.0.responder().unwrap();
 
-        let mut response = request.response.lock().expect(THREAD_PANIC_MSG);
+        let mut response = responder.response.lock().expect(THREAD_PANIC_MSG);
 
         if let Some(response) = response.take() {
             return Ok(response);
@@ -699,14 +719,14 @@ impl<A> Request<A> {
 
         // If there's no response we need to make sure the other end hasn't hung
         // up.
-        super::ensure_connection_not_dropped(request)?;
+        super::ensure_connection_not_dropped(responder)?;
 
         let deadline = Instant::now() + timeout;
 
         loop {
             let time_until_deadline = deadline.saturating_duration_since(Instant::now());
 
-            let (returned_response, wait_result) = request
+            let (returned_response, wait_result) = responder
                 .notifier
                 .wait_timeout(response, time_until_deadline)
                 .expect(THREAD_PANIC_MSG);
@@ -723,7 +743,7 @@ impl<A> Request<A> {
             // No response after waking up means one of two things:
             // 1. The other end hung up.
             // 2. This was a spurious (early) wakeup (should go back to sleep).
-            super::ensure_connection_not_dropped(request)?;
+            super::ensure_connection_not_dropped(responder)?;
         }
     }
 
@@ -741,17 +761,17 @@ impl<A> Request<A> {
     /// A [ChannelError::ResponseAlreadyReceived] is returned if this request
     /// has already been responded to.
     pub fn check(&mut self) -> ChannelResult<Option<A>> {
-        let request = self
-            .0
-            .as_ref()
-            .ok_or(ChannelError::ResponseAlreadyReceived)?;
+        if let Some(response_result) = self.0.received_response() {
+            return response_result.map(Some);
+        }
+        let responder = self.0.responder().unwrap();
 
-        if let Some(response) = request.response.lock().expect(THREAD_PANIC_MSG).take() {
+        if let Some(response) = responder.response.lock().expect(THREAD_PANIC_MSG).take() {
             Ok(Some(response))
         } else {
             // If there's no response we need to make sure the other end hasn't
             // hung up.
-            super::ensure_connection_not_dropped(request)?;
+            super::ensure_connection_not_dropped(responder)?;
 
             Ok(None)
         }
@@ -773,12 +793,12 @@ impl<A> Request<A> {
     /// A [ChannelError::ResponseAlreadyReceived] is returned if this request
     /// has already been responded to.
     pub fn check_non_blocking(&mut self) -> ChannelResult<Option<A>> {
-        let request = self
-            .0
-            .as_ref()
-            .ok_or(ChannelError::ResponseAlreadyReceived)?;
+        if let Some(response_result) = self.0.received_response() {
+            return response_result.map(Some);
+        }
+        let responder = self.0.responder().unwrap();
 
-        match request.response.try_lock() {
+        match responder.response.try_lock() {
             Ok(mut response) => Ok(response.take()),
             Err(e) => match e {
                 TryLockError::WouldBlock => Ok(None),
@@ -788,25 +808,27 @@ impl<A> Request<A> {
     }
 
     /// Whether or not a response to this request has already been received.
-    pub fn response_received(&self) -> bool {
-        self.0.is_none()
+    pub const fn response_received(&self) -> bool {
+        matches!(self.0, RequestInner::ResponseReceived)
     }
 
-    /// Whether the other party still has their end of the connection alive, the
-    /// inverse of [Self::connection_closed].
+    /// Whether or not a response could still be received (the inverse of
+    /// [Self::connection_closed]).
     ///
     /// A [ChannelError::ResponseAlreadyReceived] is returned if this request
     /// has already been responded to.
     pub fn connection_open(&self) -> ChannelResult<bool> {
-        Ok(super::connection_not_dropped(
-            self.0
-                .as_ref()
-                .ok_or(ChannelError::ResponseAlreadyReceived)?,
-        ))
+        match &self.0 {
+            RequestInner::ResponseReceived => Err(ChannelError::ResponseAlreadyReceived),
+            RequestInner::ResponseInline(_) => Ok(true),
+            RequestInner::AwaitingResponse(responder) => {
+                Ok(super::connection_not_dropped(responder))
+            }
+        }
     }
 
-    /// Whether the other party has dropped their end of the connection, the
-    /// inverse of [Self::connection_open].
+    /// Whether or not a response can no longer be received (the inverse of
+    /// [Self::connection_open]).
     ///
     /// A [ChannelError::ResponseAlreadyReceived] is returned if this request
     /// has already been responded to.
@@ -828,13 +850,7 @@ impl<A> Request<A> {
 ///   not been dropped.
 pub fn new<Q, A>() -> (Server<Q, A>, Client<Q, A>) {
     let (inbox, outbox) = message_channel::new();
-    (
-        Server {
-            channel: inbox,
-            _marker: PhantomData,
-        },
-        Client { channel: outbox },
-    )
+    (Server { channel: inbox }, Client { channel: outbox })
 }
 
 /// Create a two-way message channel's [Server] and [Client] with space to store
@@ -853,19 +869,53 @@ pub fn new<Q, A>() -> (Server<Q, A>, Client<Q, A>) {
 ///   not been dropped.
 pub fn with_capacity<Q, A>(capacity: usize) -> (Server<Q, A>, Client<Q, A>) {
     let (inbox, outbox) = message_channel::with_capacity(capacity);
-    (
-        Server {
-            channel: inbox,
-            _marker: PhantomData,
-        },
-        Client { channel: outbox },
-    )
+    (Server { channel: inbox }, Client { channel: outbox })
 }
 
 #[derive(Debug)]
 struct Responder<A> {
     response: Mutex<Option<A>>,
     notifier: Condvar,
+}
+
+impl<A> Default for Responder<A> {
+    fn default() -> Self {
+        Self {
+            response: Mutex::new(None),
+            notifier: Condvar::default(),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum RequestInner<A> {
+    ResponseReceived,
+    AwaitingResponse(ConnN<Responder<A>>),
+    ResponseInline(A),
+}
+
+impl<A> RequestInner<A> {
+    /// Returns any inline response (replacing `self` with
+    /// [Self::ResponseReceived]) or an error if a response was already
+    /// received. [None] is returned if the response is still being awaited.
+    pub fn received_response(&mut self) -> Option<ChannelResult<A>> {
+        match self {
+            Self::ResponseReceived => Some(Err(ChannelError::ResponseAlreadyReceived)),
+            Self::AwaitingResponse(_) => None,
+            Self::ResponseInline(_) => match mem::replace(self, Self::ResponseReceived) {
+                Self::ResponseInline(response) => Some(Ok(response)),
+                _ => unreachable!(),
+            },
+        }
+    }
+
+    /// Get the inner [Responder] if this an [Self::AwaitingResponse] variant.
+    pub const fn responder(&self) -> Option<&ConnN<Responder<A>>> {
+        match &self {
+            RequestInner::AwaitingResponse(responder) => Some(responder),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
