@@ -432,7 +432,7 @@ fn apply_base_style(ctx: &Context) {
         //style.visuals.widgets.open.weak_bg_fill = Color32::PURPLE;
 
         //Override for all the text
-        style.visuals.override_text_color = Some(Color32::from_rgb(0xC2, 0xB8, 0x07)) // #C2B807
+        style.visuals.override_text_color = Some(Color32::from_rgb(0x51, 0xBF, 0xFD)) // #51BFFD
     });
 }
 
