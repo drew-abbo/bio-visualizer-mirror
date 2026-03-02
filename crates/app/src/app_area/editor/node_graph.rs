@@ -115,12 +115,12 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
         if let Some(def) = self.node_library.get_definition(node_name)
             && let Some(output_def) = def.node.outputs.get(pin.id.output)
         {
+            ui.add_space(10.0);
             ui.label(&output_def.name);
             let color = colors::output_kind_color(&output_def.kind);
             return PinInfo::circle().with_fill(color);
         }
-
->>>>>>> a665ac9 (commit now so I don't screw something up)
+        
         ui.label("output");
         PinInfo::circle()
     }

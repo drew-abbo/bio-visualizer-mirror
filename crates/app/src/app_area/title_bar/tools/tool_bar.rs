@@ -31,15 +31,20 @@ impl ToolBar {
             // Add vertical centering to match the window controls
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 // File menu with dropdown - larger text
-                ui.menu_button(egui::RichText::new("File").size(16.0), |ui| {
-                    for button in &mut self.file_buttons {
-                        if ui.button(button.label()).clicked()
-                            && let Some(action) = button.on_click(ui.ctx())
-                        {
-                            self.pending.push(action);
+                ui.menu_button(
+                    egui::RichText::new("File")
+                        .size(16.0)
+                        .color(egui::Color32::from_rgb(0xEB, 0x0C, 0xB7)),
+                    |ui| {
+                        for button in &mut self.file_buttons {
+                            if ui.button(button.label()).clicked()
+                                && let Some(action) = button.on_click(ui.ctx())
+                            {
+                                self.pending.push(action);
+                            }
                         }
-                    }
-                });
+                    },
+                );
             });
         });
     }
