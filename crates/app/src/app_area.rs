@@ -1,6 +1,8 @@
 mod editor;
 mod title_bar;
+mod app_save_context;
 
+use app_save_context::AppSaveContext;
 use editor::EditorArea;
 use util::eframe;
 use util::egui;
@@ -11,6 +13,7 @@ use util::egui;
 pub struct AppArea {
     title_bar: title_bar::TitleBarArea,
     editor_area: EditorArea,
+    app_save_context: AppSaveContext,
 }
 
 impl AppArea {
@@ -22,6 +25,7 @@ impl AppArea {
         Self {
             title_bar: title_bar::TitleBarArea::new(),
             editor_area: EditorArea::new(),
+            app_save_context: AppSaveContext::new(),
         }
     }
 
@@ -42,5 +46,9 @@ impl eframe::App for AppArea {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.show_top_bar(ctx);
         self.editor_area.show(ctx, frame);
+    }
+
+    fn save(&mut self, _storage: &mut dyn eframe::Storage) {
+        println!("Saving app state...");
     }
 }
