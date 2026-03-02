@@ -147,8 +147,7 @@ fn new_project_popup(ui: &mut Ui, state: &mut LayoutState<'_>) {
                 TextEdit::singleline(new_project_name_buffer)
                     .font(TextStyle::Heading)
                     .desired_width(f32::INFINITY)
-                    .background_color(Color32::from_rgb(0x02, 0x24, 0xC0))      // #022C40
-                    .margin(Margin::symmetric(15, 15))
+                    .background_color(Color32::from_rgb(0x02, 0x24, 0xC0))      // #022C40.margin(Margin::symmetric(15, 15))
                     .hint_text("Project name...")
                     .show(ui)
 
