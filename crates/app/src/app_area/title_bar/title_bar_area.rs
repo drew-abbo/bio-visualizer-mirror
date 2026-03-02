@@ -67,7 +67,7 @@ impl TitleBarArea {
             }
 
             // Right: window controls
-            let button_color = ui.visuals().text_color();
+            let button_color = egui::Color32::from_rgb(0xEB, 0x0C, 0xB7); // #EB0CB7
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
 
