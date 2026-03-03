@@ -837,6 +837,12 @@ impl<A> Request<A> {
     }
 }
 
+impl<A> From<A> for Request<A> {
+    fn from(response: A) -> Self {
+        Self::with_response(response)
+    }
+}
+
 /// Create a two-way message channel's [Server] and [Client].
 ///
 /// `Q` is the request type. `A` is the response type.
@@ -873,21 +879,6 @@ pub fn with_capacity<Q, A>(capacity: usize) -> (Server<Q, A>, Client<Q, A>) {
 }
 
 #[derive(Debug)]
-struct Responder<A> {
-    response: Mutex<Option<A>>,
-    notifier: Condvar,
-}
-
-impl<A> Default for Responder<A> {
-    fn default() -> Self {
-        Self {
-            response: Mutex::new(None),
-            notifier: Condvar::default(),
-        }
-    }
-}
-
-#[derive(Debug)]
 enum RequestInner<A> {
     ResponseReceived,
     AwaitingResponse(ConnN<Responder<A>>),
@@ -910,10 +901,26 @@ impl<A> RequestInner<A> {
     }
 
     /// Get the inner [Responder] if this an [Self::AwaitingResponse] variant.
+    #[inline(always)]
     pub const fn responder(&self) -> Option<&ConnN<Responder<A>>> {
         match &self {
             RequestInner::AwaitingResponse(responder) => Some(responder),
             _ => None,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Responder<A> {
+    response: Mutex<Option<A>>,
+    notifier: Condvar,
+}
+
+impl<A> Default for Responder<A> {
+    fn default() -> Self {
+        Self {
+            response: Mutex::new(None),
+            notifier: Condvar::default(),
         }
     }
 }
