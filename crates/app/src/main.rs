@@ -1,12 +1,16 @@
 mod app_area;
 mod components;
-
+mod args;
 use app_area::AppArea;
+use clap::Parser;
 use util::version;
 const APP_NAME: &str = version::APP_NAME;
 
 fn main() -> Result<(), util::eframe::Error> {
     env_logger::init();
+
+    let args = args::Args::parse();
+
     // Configure the native window
     // TODO
     // I think here we are going to want to import what is in the users settings
@@ -23,6 +27,6 @@ fn main() -> Result<(), util::eframe::Error> {
     util::eframe::run_native(
         APP_NAME,
         native_options,
-        Box::new(|cc| Ok(Box::new(AppArea::new(cc)))),
+        Box::new(|cc| Ok(Box::new(AppArea::new(cc, args.clone())))),
     )
 }

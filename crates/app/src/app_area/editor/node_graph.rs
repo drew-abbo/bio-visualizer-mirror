@@ -10,23 +10,44 @@ use egui_snarl::ui::{PinInfo, SnarlViewer};
 use egui_snarl::{InPin, NodeId as SnarlNodeId, OutPin, Snarl};
 use engine::node::{NodeLibrary, input_kind_to_output_kind};
 use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use util::egui;
 
 /// Data associated with each node in the snarl graph, including its definition and configured input values
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct NodeData {
     pub definition_name: String,
     /// Configured input values for this node (not including connected inputs)
     pub input_values: HashMap<String, InputValue>,
+
     /// Engine node ID if this node is currently in the engine graph
+    #[serde(skip)]
     pub engine_node_id: Option<EngineNodeId>,
 }
 
 /// The state of the node graph editor, including the snarl graph and its synchronization with the engine graph
+#[derive(Serialize, Deserialize, Clone)]
 pub struct NodeGraphState {
     pub snarl: Snarl<NodeData>,
+}
+
+/// Needed to hack this since [Snarl<T>] doesn't implement PartialEq.
+/// Project needs to be able to compare.
+impl PartialEq for NodeGraphState {
+    /// Compare two NodeGraphStates by serializing them to binary.
+    fn eq(&self, other: &Self) -> bool {
+        // Serialize both states to binary and compare the bytes
+        let self_binary = bincode::serialize(self).ok();
+        let other_binary = bincode::serialize(other).ok();
+
+        // If either serialization fails, consider them not equal
+        match (self_binary, other_binary) {
+            (Some(a), Some(b)) => a == b,
+            _ => false,
+        }
+    }
 }
 
 impl NodeGraphState {
@@ -34,6 +55,12 @@ impl NodeGraphState {
         Self {
             snarl: Snarl::new(),
         }
+    }
+}
+
+impl Default for NodeGraphState {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

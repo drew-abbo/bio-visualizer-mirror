@@ -9,6 +9,7 @@
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io;
+use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::result;
 use std::time::SystemTime;
@@ -108,12 +109,12 @@ pub trait ProjectHeader: Into<ProjectInfo> {
 /// - [SavedFile] is required so that the data can be saved and loaded to disk.
 /// - [Default] is required so that some data can be stored when the project is
 ///   first created.
-/// - [Clone] and [Eq] are required so that the last saved data can be cached.
+/// - [Clone] and [PartialEq] are required so that the last saved data can be cached.
 ///   This allows expensive serialization and I/O to be skipped when
 ///   [OpenProject::save] is without anything having changed.
-pub trait ProjectData: SavedFile + Default + Clone + Eq {}
+pub trait ProjectData: SavedFile + Default + Clone + PartialEq {}
 
-impl<T: Default + Clone + Eq + Serialize + DeserializeOwned> ProjectData for T {}
+impl<T: Default + Clone + PartialEq + Serialize + DeserializeOwned> ProjectData for T {}
 
 /// A project. The [ProjectHeader] trait can be used to get info about the
 /// project.
@@ -534,6 +535,16 @@ pub struct OpenProject<T: ProjectData> {
 }
 
 impl<T: ProjectData> OpenProject<T> {
+    /// Get a reference to the project data.
+    pub fn data(&self) -> &T {
+        &self.data
+    }
+
+    /// Get a mutable reference to the project data.
+    pub fn data_mut(&mut self) -> &mut T {
+        &mut self.data
+    }
+
     /// Saves the project, returning whether the data had to actually be written
     /// to disk.
     ///
@@ -569,6 +580,32 @@ impl<T: ProjectData> OpenProject<T> {
 
     fn header_mut(&mut self) -> &mut Project {
         self.header.as_mut().expect(HEADER_EXPECT_MSG)
+    }
+}
+
+impl<T: ProjectData> AsRef<T> for OpenProject<T> {
+    fn as_ref(&self) -> &T {
+        &self.data
+    }
+}
+
+impl<T: ProjectData> AsMut<T> for OpenProject<T> {
+    fn as_mut(&mut self) -> &mut T {
+        &mut self.data
+    }
+}
+
+impl<T: ProjectData> Deref for OpenProject<T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        &self.data
+    }
+}
+
+impl<T: ProjectData> DerefMut for OpenProject<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.data
     }
 }
 

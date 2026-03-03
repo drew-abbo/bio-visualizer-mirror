@@ -1,3 +1,4 @@
+use super::editor_state_context::EditorStateContext;
 use super::graph_executor_manager::GraphExecutorManager;
 use super::node_graph::{NodeGraphState, NodeGraphViewer};
 use super::output_controller::OutputController;
@@ -12,12 +13,14 @@ use util::egui;
 
 /// Manages all editor-related state: node graph, output display, and playback
 pub struct EditorArea {
-    node_graph: NodeGraphState,
+    /// Local node graph used when no project is open
+    local_node_graph: NodeGraphState,
     output_panel: OutputPanel,
     playback_controls: PlaybackControls,
     playback_state: PlaybackState,
     executor_manager: GraphExecutorManager,
     node_library: Arc<NodeLibrary>,
+    editor_state_context: EditorStateContext,
 }
 
 impl EditorArea {
@@ -31,13 +34,26 @@ impl EditorArea {
         };
 
         Self {
-            node_graph: NodeGraphState::new(),
+            local_node_graph: NodeGraphState::new(),
             output_panel: OutputPanel::new(),
             playback_controls: PlaybackControls::new(),
             playback_state: PlaybackState::new(),
             executor_manager: GraphExecutorManager::new(),
             node_library,
+            editor_state_context: EditorStateContext::new(),
         }
+    }
+
+    /// Get the active node graph (from project if open, otherwise local)
+    fn active_node_graph_mut(&mut self) -> &mut NodeGraphState {
+        self.editor_state_context
+            .node_graph_mut()
+            .unwrap_or(&mut self.local_node_graph)
+    }
+
+    /// Access to the editor state context for project operations
+    pub fn editor_state_context_mut(&mut self) -> &mut EditorStateContext {
+        &mut self.editor_state_context
     }
 }
 
@@ -52,9 +68,16 @@ impl EditorArea {
         self.show_output_window(ctx);
     }
 
+    pub fn save_state(&mut self) {
+        if let Err(e) = self.editor_state_context.save() {
+            util::debug_log_error!("Failed to save project: {}", e);
+        }
+    }
+
     fn show_node_graph(&mut self, ctx: &egui::Context) -> Vec<egui_snarl::NodeId> {
         let mut selected_nodes = Vec::new();
 
+        // First, render the UI
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(ctx, |ui| {
@@ -64,20 +87,35 @@ impl EditorArea {
                     .id(egui::Id::new("node_graph"))
                     .style(snarl_style::snarl_style());
 
-                snarl_widget.show(&mut self.node_graph.snarl, &mut viewer, ui);
+                let node_graph = self.active_node_graph_mut();
+                snarl_widget.show(&mut node_graph.snarl, &mut viewer, ui);
                 selected_nodes = snarl_widget.get_selected_nodes(ui);
-
-                // Sync every frame - the sync logic detects what actually changed
-                let graph_changed = self.node_graph.sync_to_engine(
-                    self.executor_manager.engine_graph_mut_no_flag(),
-                    &self.node_library,
-                );
-
-                // Only mark as changed if sync actually made changes
-                if graph_changed {
-                    self.executor_manager.mark_graph_changed();
-                }
             });
+
+        // Then sync to engine (after UI to avoid multiple borrows)
+        // Check if we have a project graph or use local graph
+        let has_project = self.editor_state_context.has_open_project();
+
+        let graph_changed = if has_project {
+            // Sync project graph to engine
+            let project_graph = self.editor_state_context.node_graph_mut().unwrap();
+            project_graph.sync_to_engine(
+                self.executor_manager.engine_graph_mut_no_flag(),
+                &self.node_library,
+            )
+        } else {
+            // Sync local graph to engine
+            self.local_node_graph.sync_to_engine(
+                self.executor_manager.engine_graph_mut_no_flag(),
+                &self.node_library,
+            )
+        };
+
+        // Only mark as changed if sync actually made changes
+        if graph_changed {
+            self.executor_manager.mark_graph_changed();
+            self.editor_state_context.mark_edited();
+        }
 
         selected_nodes
     }
@@ -106,8 +144,9 @@ impl EditorArea {
         };
 
         // Get the snarl node's associated engine node id
+        let node_graph = self.active_node_graph_mut();
         let selected_engine_node =
-            selected_snarl_node.and_then(|snarl_id| self.node_graph.snarl[snarl_id].engine_node_id);
+            selected_snarl_node.and_then(|snarl_id| node_graph.snarl[snarl_id].engine_node_id);
 
         OutputController::update(
             ctx,
