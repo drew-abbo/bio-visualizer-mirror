@@ -30,6 +30,8 @@
         }
     },
     "short_description": "Separates RGB channels for a lens distortion effect",
-    "long_description": "Creates chromatic aberration by offsetting the red and blue channels from the green channel, simulating the effect of a cheap lens where different wavelengths of light focus at different distances.",
+    "long_description": "Creates chromatic aberration by offsetting the red and blue channels from the green channel, simulating the effect of a cheap lens where different wavelengths of light focus at different distances.",  
+    "category": "Distortion",
+    "subcategories": [],    
     "search_keywords": ["chromatic", "aberration", "rgb", "split", "lens", "distortion", "glitch"]
 }

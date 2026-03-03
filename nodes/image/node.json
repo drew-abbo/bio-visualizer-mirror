@@ -17,5 +17,9 @@
   "executor": {
     "BuiltIn": "ImageSource"
   },
-  "short_description": "Loads an image from disk and outputs a frame"
+  "short_description": "Loads an image from disk and outputs a frame",
+  "long_description": "Reads a static image file from disk and provides it as a frame output.",
+  "category": "Input",
+  "subcategories": [],
+  "search_keywords": ["image", "load", "file", "source", "picture", "photo", "png", "jpg", "jpeg"]
 }

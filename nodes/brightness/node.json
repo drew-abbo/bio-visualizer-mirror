@@ -28,5 +28,9 @@
       "source": "shader.wgsl"
     }
   },
-  "short_description": "Adjusts the brightness of the input frame"
+  "short_description": "Adjusts the brightness of the input frame",
+  "long_description": "Multiplies the brightness of each pixel by a factor",
+  "category": "Color",
+  "subcategories": [],
+  "search_keywords": ["brightness", "exposure", "lighten", "darken", "luminosity", "multiply"]
 }
