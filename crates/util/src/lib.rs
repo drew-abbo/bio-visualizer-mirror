@@ -12,7 +12,6 @@ pub mod stop_signals;
 pub mod ui;
 pub mod uid;
 pub mod version;
-
 mod eprint_and_exit;
 
 pub use eframe;

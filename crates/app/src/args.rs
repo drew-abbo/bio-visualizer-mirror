@@ -4,7 +4,8 @@ use clap::Parser;
 #[command(about = "Communication with the main application.")]
 pub struct Args {
     /// The ProjectId of the project to open on startup (passed by the launcher).
-    #[arg(long, allow_hyphen_values = true)]
+    /// Optional in debug builds.
+    #[arg(long, allow_hyphen_values = true, default_value = "")]
     pub open_project: String,
 }
 

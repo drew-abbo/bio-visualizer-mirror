@@ -16,7 +16,6 @@ pub struct AppArea {
     title_bar: title_bar::TitleBarArea,
     editor_area: EditorArea,
     show_exit_confirmation: bool,
-    args: Args,
 }
 
 impl AppArea {
@@ -48,7 +47,6 @@ impl AppArea {
             title_bar: title_bar::TitleBarArea::new(),
             editor_area,
             show_exit_confirmation: false,
-            args,
         }
     }
 
@@ -87,7 +85,7 @@ impl eframe::App for AppArea {
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
                     if ui.button("Save and Exit").clicked() {
-                        self.editor_area.save_state();
+                        self.editor_area.save_state(false);
                         self.show_exit_confirmation = false;
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
@@ -106,8 +104,11 @@ impl eframe::App for AppArea {
         self.editor_area.show(ctx, frame);
     }
 
+    fn persist_egui_memory(&self) -> bool {
+        true
+    }
+
     fn on_exit(&mut self) {
-        // Auto-save on exit if changes exist and we didn't go through the confirmation dialog
         if !self.show_exit_confirmation {
             let has_unsaved_changes = self
                 .editor_area
@@ -115,8 +116,16 @@ impl eframe::App for AppArea {
                 .last_edit
                 .is_some();
             if has_unsaved_changes {
-                self.editor_area.save_state();
+                // Skip notification on exit to avoid reopening launcher
+                self.editor_area.save_state(true);
             }
         }
+
+        self.editor_area
+            .editor_state_context_mut()
+            .close_project()
+            .unwrap_or_else(|e| {
+                util::debug_log_error!("Failed to close project on exit: {}", e);
+            });
     }
 }

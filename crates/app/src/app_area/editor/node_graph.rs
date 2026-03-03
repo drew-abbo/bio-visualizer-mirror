@@ -39,8 +39,8 @@ impl PartialEq for NodeGraphState {
     /// Compare two NodeGraphStates by serializing them to binary.
     fn eq(&self, other: &Self) -> bool {
         // Serialize both states to binary and compare the bytes
-        let self_binary = bincode::serialize(self).ok();
-        let other_binary = bincode::serialize(other).ok();
+        let self_binary = postcard::to_allocvec(self).ok();
+        let other_binary = postcard::to_allocvec(other).ok();
 
         // If either serialization fails, consider them not equal
         match (self_binary, other_binary) {

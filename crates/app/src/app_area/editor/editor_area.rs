@@ -69,12 +69,14 @@ impl EditorArea {
         self.show_output_window(ctx);
     }
 
-    pub fn save_state(&mut self) {
+    pub fn save_state(&mut self, skip_notification: bool) {
         match self.editor_state_context.save() {
             Ok(true) => {
                 util::debug_log_info!("Project saved successfully");
-                // Notify launcher that the project was updated
-                launcher_comm::notify_project_updated();
+                // Notify launcher that the project was updated (unless we're exiting)
+                if !skip_notification {
+                    launcher_comm::notify_project_updated();
+                }
             }
             Ok(false) => {
                 util::debug_log_info!("No changes to save");
@@ -122,11 +124,24 @@ impl EditorArea {
             )
         };
 
-        // Only mark as changed if sync actually made changes
+        // Mark executor as changed if graph sync made changes
         if graph_changed {
             self.executor_manager.mark_graph_changed();
-            self.editor_state_context.mark_edited();
         }
+
+        // Check if node count changed and mark as edited if so
+        let current_node_count = if has_project {
+            self.editor_state_context
+                .node_graph_mut()
+                .unwrap()
+                .snarl
+                .node_ids()
+                .count()
+        } else {
+            self.local_node_graph.snarl.node_ids().count()
+        };
+        self.editor_state_context
+            .check_node_count_changed(current_node_count);
 
         selected_nodes
     }
