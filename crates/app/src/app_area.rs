@@ -1,7 +1,8 @@
-mod editor;
+pub mod editor;
 mod title_bar;
 
 use super::args::Args;
+use super::launcher_comm;
 use editor::{EditorArea, NodeGraphState};
 use util::eframe;
 use util::egui;
@@ -28,10 +29,19 @@ impl AppArea {
 
         // Load project if specified in args (launcher passes ProjectId as string)
         if !args.open_project.is_empty() {
-            let _ = ProjectId::try_from(args.open_project.clone())
+            match ProjectId::try_from(args.open_project.clone())
                 .and_then(Project::try_from)
                 .and_then(|p| p.open::<NodeGraphState>())
-                .map(|project| editor_area.editor_state_context_mut().set_project(project));
+            {
+                Ok(project) => {
+                    editor_area.editor_state_context_mut().set_project(project);
+                    util::debug_log_info!("Successfully opened project: {}", args.open_project);
+                }
+                Err(e) => {
+                    util::debug_log_error!("Failed to open project '{}': {}", args.open_project, e);
+                    launcher_comm::notify_project_open_failed();
+                }
+            }
         }
 
         Self {

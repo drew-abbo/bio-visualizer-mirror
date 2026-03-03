@@ -1,6 +1,8 @@
 mod app_area;
-mod components;
 mod args;
+mod components;
+mod launcher_comm;
+mod app_context;
 use app_area::AppArea;
 use clap::Parser;
 use util::version;
