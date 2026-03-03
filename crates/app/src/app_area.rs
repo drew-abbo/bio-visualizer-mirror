@@ -108,7 +108,7 @@ impl eframe::App for AppArea {
         true
     }
 
-    fn on_exit(&mut self) {
+    fn on_exit(&mut self, _gl: Option<&util::eframe::glow::Context>) {
         if !self.show_exit_confirmation {
             let has_unsaved_changes = self
                 .editor_area
