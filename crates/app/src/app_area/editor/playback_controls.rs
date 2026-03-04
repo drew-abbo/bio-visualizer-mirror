@@ -1,5 +1,6 @@
 use util::egui;
 
+/// Will get obliterated soon
 #[derive(Clone, Debug)]
 pub struct PlaybackControls {
     playing: bool,

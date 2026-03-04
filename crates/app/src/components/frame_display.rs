@@ -3,6 +3,7 @@ use media::frame::Uid;
 use util::eframe::wgpu;
 use util::egui;
 
+/// Don't know if this will have to change once the media things are done
 #[derive(Clone, Debug)]
 pub struct FrameDisplayConfig {
     pub max_size: egui::Vec2,

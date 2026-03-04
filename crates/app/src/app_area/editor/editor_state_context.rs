@@ -1,13 +1,15 @@
 use super::node_graph::NodeGraphState;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::time::SystemTime;
 use util::local_data::project::OpenProject;
 
 pub struct EditorStateContext {
-    pub last_edit: Option<SystemTime>,
+    last_edit: Option<SystemTime>,
     /// The currently open project containing the node graph state
     open_project: Option<OpenProject<NodeGraphState>>,
-    /// Track the last known node count to detect changes
-    last_node_count: usize,
+
+    last_saved_hash: Option<u64>,
 }
 
 impl EditorStateContext {
@@ -15,23 +17,31 @@ impl EditorStateContext {
         Self {
             last_edit: None,
             open_project: None,
-            last_node_count: 0,
+            last_saved_hash: None,
         }
     }
 
-    /// Set the open project (called when a project is opened)
+    pub fn compute_state_hash(state: &NodeGraphState) -> Option<u64> {
+        postcard::to_allocvec(state).ok().map(|bytes| {
+            let mut hasher = DefaultHasher::new();
+            bytes.hash(&mut hasher);
+            hasher.finish()
+        })
+    }
+
+    /// Set the open project
     pub fn set_project(&mut self, project: OpenProject<NodeGraphState>) {
-        // Initialize the node count from the loaded project
-        self.last_node_count = project.data().snarl.node_ids().count();
+        // Compute and store hash of the initial state
+        self.last_saved_hash = Self::compute_state_hash(project.data());
+        // Clear any previous unsaved changes flag
+        self.last_edit = None;
         self.open_project = Some(project);
     }
 
-    /// Get mutable access to the node graph state
     pub fn node_graph_mut(&mut self) -> Option<&mut NodeGraphState> {
         self.open_project.as_mut().map(|p| p.data_mut())
     }
 
-    /// Check if a project is currently open
     pub fn has_open_project(&self) -> bool {
         self.open_project.is_some()
     }
@@ -40,11 +50,16 @@ impl EditorStateContext {
         self.last_edit = Some(SystemTime::now());
     }
 
-    /// Check if the node count changed and mark as edited if so
-    pub fn check_node_count_changed(&mut self, current_node_count: usize) {
-        if current_node_count != self.last_node_count {
-            self.last_node_count = current_node_count;
-            self.mark_edited();
+    pub fn has_unsaved_changes(&self) -> bool {
+        self.last_edit.is_some()
+    }
+
+    /// Check if the graph state hash changed and mark as edited if so
+    pub fn check_hash_changed(&mut self, current_hash: u64) {
+        if let Some(last_hash) = self.last_saved_hash {
+            if current_hash != last_hash {
+                self.mark_edited();
+            }
         }
     }
 
@@ -54,16 +69,15 @@ impl EditorStateContext {
             return Err("No project is currently open".to_string());
         };
 
-        let saved = project
+        // Might be good to let the user know here with a popup
+        let result = project
             .save()
-            .map_err(|e| format!("Failed to save project: {}", e));
+            .map_err(|e| format!("Failed to save project: {}", e))?;
 
-        if saved? {
-            self.last_edit = None;
-            Ok(true)
-        } else {
-            Ok(false)
-        }
+        // Update the saved state hash and clear unsaved changes flag
+        self.last_saved_hash = Self::compute_state_hash(project.data());
+        self.last_edit = None;
+        Ok(result)
     }
 
     pub fn close_project(&mut self) -> Result<(), String> {

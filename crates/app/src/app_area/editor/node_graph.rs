@@ -19,7 +19,7 @@ use util::egui;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct NodeData {
     pub definition_name: String,
-    /// Configured input values for this node (not including connected inputs)
+    /// Configured input values for this node
     pub input_values: HashMap<String, InputValue>,
 
     /// Engine node ID if this node is currently in the engine graph
@@ -232,11 +232,11 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
     }
 
     fn drop_inputs(&mut self, _pin: &InPin, _snarl: &mut Snarl<NodeData>) {
-        // Allow dropping all input connections (default behavior)
+        // Allow dropping all input connections
     }
 
     fn drop_outputs(&mut self, _pin: &OutPin, _snarl: &mut Snarl<NodeData>) {
-        // Allow dropping all output connections (default behavior)
+        // Allow dropping all output connections
     }
 }
 

@@ -16,6 +16,8 @@ pub struct AppArea {
     title_bar: title_bar::TitleBarArea,
     editor_area: EditorArea,
     show_exit_confirmation: bool,
+    /// Flag to indicate we're exiting, prevents re-checking for changes
+    is_exiting: bool,
 }
 
 impl AppArea {
@@ -47,6 +49,7 @@ impl AppArea {
             title_bar: title_bar::TitleBarArea::new(),
             editor_area,
             show_exit_confirmation: false,
+            is_exiting: false,
         }
     }
 
@@ -67,14 +70,17 @@ impl eframe::App for AppArea {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         // Check if the user is trying to close the window
         if ctx.input(|i| i.viewport().close_requested()) {
-            let state_context = self.editor_area.editor_state_context_mut();
-            let has_unsaved_changes =
-                state_context.has_open_project() && state_context.last_edit.is_some();
+            // Only check for unsaved changes if we're not already exiting
+            if !self.is_exiting {
+                let state_context = self.editor_area.editor_state_context_mut();
+                let has_unsaved_changes =
+                    state_context.has_open_project() && state_context.has_unsaved_changes();
 
-            if has_unsaved_changes && !self.show_exit_confirmation {
-                // Prevent the close and show confirmation dialog
-                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                self.show_exit_confirmation = true;
+                if has_unsaved_changes {
+                    // Prevent the close and show confirmation dialog
+                    ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                    self.show_exit_confirmation = true;
+                }
             }
         }
 
@@ -85,11 +91,14 @@ impl eframe::App for AppArea {
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
                     if ui.button("Save and Exit").clicked() {
-                        self.editor_area.save_state(false);
+                        // Skip notification - launcher refreshes on reopen anyway
+                        self.editor_area.save_state(true);
+                        self.is_exiting = true;
                         self.show_exit_confirmation = false;
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                     if ui.button("Discard and Exit").clicked() {
+                        self.is_exiting = true;
                         self.show_exit_confirmation = false;
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
@@ -109,14 +118,14 @@ impl eframe::App for AppArea {
     }
 
     fn on_exit(&mut self, _gl: Option<&util::eframe::glow::Context>) {
-        if !self.show_exit_confirmation {
+        // Auto-save on unexpected exit, but don't notify launcher
+        // (notification only works if launcher is running, otherwise spawns unwanted window)
+        if !self.is_exiting {
             let has_unsaved_changes = self
                 .editor_area
                 .editor_state_context_mut()
-                .last_edit
-                .is_some();
+                .has_unsaved_changes();
             if has_unsaved_changes {
-                // Skip notification on exit to avoid reopening launcher
                 self.editor_area.save_state(true);
             }
         }

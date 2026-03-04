@@ -129,19 +129,15 @@ impl EditorArea {
             self.executor_manager.mark_graph_changed();
         }
 
-        // Check if node count changed and mark as edited if so
-        let current_node_count = if has_project {
-            self.editor_state_context
-                .node_graph_mut()
-                .unwrap()
-                .snarl
-                .node_ids()
-                .count()
-        } else {
-            self.local_node_graph.snarl.node_ids().count()
-        };
-        self.editor_state_context
-            .check_node_count_changed(current_node_count);
+        // Check if graph state changed (nodes added/removed/modified) and mark as edited if so
+        if has_project {
+            // Compute hash of current state
+            if let Some(current_state) = self.editor_state_context.node_graph_mut() {
+                if let Some(current_hash) = EditorStateContext::compute_state_hash(current_state) {
+                    self.editor_state_context.check_hash_changed(current_hash);
+                }
+            }
+        }
 
         selected_nodes
     }

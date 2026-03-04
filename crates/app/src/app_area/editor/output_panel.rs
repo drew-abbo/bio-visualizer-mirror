@@ -6,6 +6,7 @@ use util::egui;
 
 /// Displays output from a node graph
 /// This is for sure going to be changed in the near future
+/// To Be Refactored
 pub struct OutputPanel {
     frame_display: FrameDisplay,
     selected_node_id: Option<NodeId>,

@@ -10,6 +10,7 @@ use super::playback_state::PlaybackState;
 
 pub struct OutputController;
 
+/// To Be Refactored
 impl OutputController {
     #[allow(clippy::too_many_arguments)]
     pub fn update(

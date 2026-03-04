@@ -27,7 +27,6 @@ impl GraphExecutorManager {
         &self.engine_graph
     }
 
-    /// Get mutable access to the engine graph without automatically marking as changed
     /// Use this when you want to check or sync the graph but track changes manually
     pub fn engine_graph_mut_no_flag(&mut self) -> &mut NodeGraph {
         &mut self.engine_graph
