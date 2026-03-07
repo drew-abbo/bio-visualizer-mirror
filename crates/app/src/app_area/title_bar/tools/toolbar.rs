@@ -2,7 +2,7 @@ use util::egui;
 
 use super::command::Command;
 use super::save_button::SaveButton;
-use super::tool_bar_button::ToolBarButton;
+use super::toolbar_button::ToolBarButton;
 
 pub struct ToolBar {
     file_buttons: Vec<Box<dyn ToolBarButton>>,

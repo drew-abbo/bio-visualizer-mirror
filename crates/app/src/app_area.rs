@@ -69,7 +69,7 @@ impl AppArea {
     /// This is for things that are not in the app area but still need things in the app area.
     /// Like the save button needing access to the editor area to trigger saves.
     fn drain_commands(&mut self) {
-        let commands = self.title_bar.tool_bar_mut().drain_pending();
+        let commands = self.title_bar.toolbar_mut().drain_pending();
 
         for command in commands {
             match command {

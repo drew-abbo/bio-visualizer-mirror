@@ -1,7 +1,7 @@
 pub mod command;
 pub mod save_button;
-pub mod tool_bar_button;
+pub mod toolbar_button;
 
-mod tool_bar;
+mod toolbar;
 
-pub use tool_bar::ToolBar;
+pub use toolbar::ToolBar;

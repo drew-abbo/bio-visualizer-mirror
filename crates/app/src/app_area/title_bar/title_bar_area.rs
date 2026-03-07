@@ -3,7 +3,7 @@ use egui_phosphor::regular;
 use util::egui;
 
 pub struct TitleBarArea {
-    tool_bar: ToolBar,
+    toolbar: ToolBar,
     dragging: bool,
 }
 
@@ -12,7 +12,7 @@ pub struct TitleBarArea {
 impl TitleBarArea {
     pub fn new() -> Self {
         Self {
-            tool_bar: ToolBar::new(),
+            toolbar: ToolBar::new(),
             dragging: false,
         }
     }
@@ -26,7 +26,7 @@ impl TitleBarArea {
         ui.horizontal_centered(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
             ui.visuals_mut().button_frame = false; // Don't show frames for toolbar buttons
-            self.tool_bar.ui(ui);
+            self.toolbar.ui(ui);
 
             // Fill the middle space so controls stay at the far right.
             // Make the middle area a draggable spacer so clicks there start window drag
@@ -169,7 +169,7 @@ impl TitleBarArea {
         });
     }
 
-    pub fn tool_bar_mut(&mut self) -> &mut ToolBar {
-        &mut self.tool_bar
+    pub fn toolbar_mut(&mut self) -> &mut ToolBar {
+        &mut self.toolbar
     }
 }
