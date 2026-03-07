@@ -1,6 +1,6 @@
+use super::command::Command;
 use crate::app_area::title_bar::tools::tool_bar_button::ToolBarButton;
 use util::egui::Context;
-use super::command::Command;
 
 pub struct SaveButton;
 

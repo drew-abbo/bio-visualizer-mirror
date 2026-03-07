@@ -3,8 +3,8 @@ mod title_bar;
 
 use super::args::Args;
 use super::launcher_comm;
-use title_bar::Command;
 use editor::{EditorArea, NodeGraphState};
+use title_bar::Command;
 use util::eframe;
 use util::egui;
 use util::local_data::project::{Project, ProjectId};
@@ -66,6 +66,8 @@ impl AppArea {
             });
     }
 
+    /// This is for things that are not in the app area but still need things in the app area.
+    /// Like the save button needing access to the editor area to trigger saves.
     fn drain_commands(&mut self) {
         let commands = self.title_bar.tool_bar_mut().drain_pending();
 

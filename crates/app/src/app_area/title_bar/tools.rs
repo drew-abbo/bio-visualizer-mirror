@@ -1,6 +1,6 @@
 pub mod command;
-pub mod tool_bar_button;
 pub mod save_button;
+pub mod tool_bar_button;
 
 mod tool_bar;
 
