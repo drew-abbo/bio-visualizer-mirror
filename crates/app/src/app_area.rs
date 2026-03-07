@@ -68,7 +68,7 @@ impl AppArea {
 
     /// This is for things that are not in the app area but still need things in the app area.
     /// Like the save button needing access to the editor area to trigger saves.
-    fn drain_commands(&mut self) {
+    fn process_pending_commands(&mut self) {
         let commands = self.title_bar.toolbar_mut().drain_pending();
 
         for command in commands {
@@ -100,7 +100,7 @@ impl eframe::App for AppArea {
             }
         }
 
-        self.drain_commands();
+        self.process_pending_commands();
 
         // Show exit confirmation popup if requested
         if self.show_exit_confirmation {
