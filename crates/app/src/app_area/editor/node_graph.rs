@@ -204,6 +204,11 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
         let from_node = &snarl[from.id.node];
         let to_node = &snarl[to.id.node];
 
+        if from_node == to_node {
+            // Prevent self-connection
+            return;
+        }
+
         let Some(from_def) = self.node_library.get_definition(&from_node.definition_name) else {
             return;
         };
