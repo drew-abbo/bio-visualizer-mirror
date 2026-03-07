@@ -52,7 +52,7 @@ pub use uid::*;
 /// - All calls to [FrameBuffer::pixels_mut] with the same `self` parameter will
 ///   always return a reference to the same buffer with the same length (this
 ///   does not mean the contents of the buffer can't change).
-pub trait FrameBuffer: Any + Send + Sync + 'static {
+pub(crate) trait FrameBuffer: Any + Send + Sync + 'static {
     /// The dimensions of this frame.
     fn dimensions(&self) -> Dimensions;
 
@@ -60,13 +60,12 @@ pub trait FrameBuffer: Any + Send + Sync + 'static {
     fn pixels_mut(&mut self) -> &mut [Pixel];
 }
 
-/// The data that makes up a frame, storing a [FrameBuffer] trait object
-/// internally.
-///
-/// For performance reasons and to ensure that returned dimensions/slices are
-/// always the same, [Frame]s (which store [FrameBuffer] trait objects) will
-/// only ever call the [FrameBuffer::dimensions] and [FrameBuffer::pixels_mut]
-/// functions once, caching the results.
+// For performance reasons and to ensure that returned dimensions/slices are
+// always the same, `Frame`s (which store `dyn` trait objects internally) will
+// only ever call the `FrameBuffer::dimensions` and `FrameBuffer::pixels_mut`
+// functions once, caching the results.
+
+/// The data that makes up a frame.
 pub struct Frame {
     /// This is the cached value of calling [FrameBuffer::pixels_mut] on
     /// [Self::buffer].
@@ -94,7 +93,7 @@ pub struct Frame {
     uid: Uid,
 
     /// We never really use this field (the only time we use it is to return it
-    /// from the [Self::to_internal] function, which consumes `self`), but we
+    /// from the [Self::into_internal] function, which consumes `self`), but we
     /// need to hold onto it because we're referencing it through the
     /// [Self::pixels] field in a way that the Rust compiler just can't 100% see
     /// (look at [Self::from_parts] to see that, we're doing some evil work
@@ -111,7 +110,7 @@ impl Frame {
     ///
     /// If `buffer.dimensions() != buffer.pixels_mut().len()`, this function
     /// will panic.
-    pub fn from_buffer<B: FrameBuffer>(buffer: B) -> Self {
+    pub(crate) fn from_buffer<B: FrameBuffer>(buffer: B) -> Self {
         Self::from_internal(Box::new(buffer))
     }
 
@@ -120,7 +119,7 @@ impl Frame {
     ///
     /// If `buffer.dimensions() != buffer.pixels_mut().len()`, this function
     /// will panic.
-    pub fn from_internal(buffer: Box<dyn FrameBuffer>) -> Self {
+    pub(crate) fn from_internal(buffer: Box<dyn FrameBuffer>) -> Self {
         // CONTRACT: The provided UID is unique because it's brand new.
         Self::from_parts(buffer, Uid::generate_new())
     }
@@ -404,9 +403,7 @@ impl Frame {
     /// Also see [Self::rescale_nearest_neighbor], [Self::rescale_bilinear], and
     /// [Self::rescale_bicubic].
     ///
-    /// This will return a new [Frame], similar to how [Self::clone] does. The
-    /// new [Frame] may have a different internal type (a different internal
-    /// [FrameBuffer] implementation).
+    /// This will return a new [Frame], similar to how [Self::clone] does.
     pub fn rescale(&self, new_dimensions: Dimensions, rescale_method: RescaleMethod) -> Self {
         match rescale_method {
             RescaleMethod::NearestNeighbor => self.rescale_nearest_neighbor(new_dimensions),
@@ -426,9 +423,7 @@ impl Frame {
     /// Also see [Self::rescale], [Self::rescale_bilinear], and
     /// [Self::rescale_bicubic].
     ///
-    /// This will return a new [Frame], similar to how [Self::clone] does. The
-    /// new [Frame] may have a different internal type (a different internal
-    /// [FrameBuffer] implementation).
+    /// This will return a new [Frame], similar to how [Self::clone] does.
     pub fn rescale_nearest_neighbor(&self, new_dimensions: Dimensions) -> Self {
         let scale_x = self.dimensions().width() as f64 / new_dimensions.width() as f64;
         let scale_y = self.dimensions().height() as f64 / new_dimensions.height() as f64;
@@ -453,9 +448,7 @@ impl Frame {
     /// Also see [Self::rescale], [Self::rescale_nearest_neighbor], and
     /// [Self::rescale_bicubic].
     ///
-    /// This will return a new [Frame], similar to how [Self::clone] does. The
-    /// new [Frame] may have a different internal type (a different internal
-    /// [FrameBuffer] implementation).
+    /// This will return a new [Frame], similar to how [Self::clone] does.
     pub fn rescale_bilinear(&self, new_dimensions: Dimensions) -> Self {
         let scale_x = self.dimensions().width() as f64 / new_dimensions.width() as f64;
         let scale_y = self.dimensions().height() as f64 / new_dimensions.height() as f64;
@@ -503,9 +496,7 @@ impl Frame {
     /// Also see [Self::rescale], [Self::rescale_nearest_neighbor], and
     /// [Self::rescale_bilinear].
     ///
-    /// This will return a new [Frame], similar to how [Self::clone] does. The
-    /// new [Frame] may have a different internal type (a different internal
-    /// [FrameBuffer] implementation).
+    /// This will return a new [Frame], similar to how [Self::clone] does.
     pub fn rescale_bicubic(&self, new_dimensions: Dimensions) -> Self {
         /// Catmull-Rom spline weight function.
         fn cubic_weight(t: f64) -> f64 {
@@ -558,16 +549,16 @@ impl Frame {
     ///
     /// If the concrete type of the internal [FrameBuffer] is not of type `B`,
     /// this function will return an [Err] which will store the reconstructed
-    /// [Frame] (the [Uid] will not have changed). See [Self::to_internal] if
+    /// [Frame] (the [Uid] will not have changed). See [Self::into_internal] if
     /// you just want the internal [Box]ed [FrameBuffer].
     ///
     /// If you just need access to the [FrameBuffer] temporarily but will end up
     /// reconstructing another [Frame] with it, see [Self::use_buffer] or
     /// [Self::swap_internal]
-    pub fn to_buffer<B: FrameBuffer>(self) -> Result<B, Frame> {
+    pub(crate) fn into_buffer<B: FrameBuffer>(self) -> Result<B, Frame> {
         let original_uid = self.uid();
 
-        match (self.to_internal() as Box<dyn Any>).downcast::<B>() {
+        match (self.into_internal() as Box<dyn Any>).downcast::<B>() {
             Ok(buffer) => Ok(*buffer),
 
             Err(boxed_any) => Err(
@@ -590,16 +581,16 @@ impl Frame {
     /// If the concrete type of the internal [FrameBuffer] is not of type `B`,
     /// this function will return an [Err] which will store the reconstructed
     /// [Frame] (the [Uid] will not have changed). See [Self::swap_internal] or
-    /// [Self::to_internal] if you just want access to the internal
+    /// [Self::into_internal] if you just want access to the internal
     /// [FrameBuffer].
-    pub fn use_buffer<B, F>(self, f: F) -> Result<Self, Self>
+    pub(crate) fn use_buffer<B, F>(self, f: F) -> Result<Self, Self>
     where
         B: FrameBuffer,
         F: FnOnce(&mut B),
     {
         let original_uid = self.uid();
 
-        self.to_buffer::<B>().map(|mut buffer| {
+        self.into_buffer::<B>().map(|mut buffer| {
             f(&mut buffer);
 
             // CONTRACT: The provided UID is from a frame that no longer exists,
@@ -614,8 +605,8 @@ impl Frame {
     /// If you just need access to the [FrameBuffer] temporarily but will end up
     /// reconstructing another [Frame] with it, see [Self::use_buffer] or
     /// [Self::swap_internal]. If you know the concrete type of the internal
-    /// [FrameBuffer], you may want to use [Self::to_buffer].
-    pub fn to_internal(self) -> Box<dyn FrameBuffer> {
+    /// [FrameBuffer], you may want to use [Self::into_buffer].
+    pub(crate) fn into_internal(self) -> Box<dyn FrameBuffer> {
         // SAFETY: If we have a `self` reference, that means there are no live
         // references to `pixels` and the only reference to `self.buffer` is
         // `pixels`. Since `pixels` is a raw pointer, dropping it (which we're
@@ -639,13 +630,13 @@ impl Frame {
     ///
     /// If you know the concrete type of the internal [FrameBuffer], you may
     /// want to use [Self::use_buffer]. If you just want to extract the internal
-    /// [FrameBuffer], see [Self::to_internal] or [Self::to_buffer].
-    pub fn swap_internal<F>(self, f: F) -> Self
+    /// [FrameBuffer], see [Self::into_internal] or [Self::into_buffer].
+    pub(crate) fn swap_internal<F>(self, f: F) -> Self
     where
         F: FnOnce(Box<dyn FrameBuffer>) -> Box<dyn FrameBuffer>,
     {
         let uid = self.uid();
-        let buffer = f(self.to_internal());
+        let buffer = f(self.into_internal());
 
         // CONTRACT: The provided UID is from a frame that no longer exists, so
         // it is unique.
@@ -792,7 +783,7 @@ impl Frame {
         //
         // 1. We do not read/write using this reference after we drop the buffer
         //    that owns the data. We either own it until we consume `self` in
-        //    `to_internal` and return without there being any reads/writes to
+        //    `into_internal` and return without there being any reads/writes to
         //    `pixels` or we drop normally and it gets dropped after `pixels`
         //    (because fields are dropped in definition order).
         // 2. No methods will return a reference to this data with a lifetime
@@ -803,7 +794,7 @@ impl Frame {
         //    (we're not pointing to anything that could ever be on the stack,
         //    moving this object won't move the buffer we're pointing at).
         // 4. The `pixels` field is the only way we ever read/write to this
-        //    data, except for returning from the `to_internal` function (a
+        //    data, except for returning from the `into_internal` function (a
         //    function that consumes `self`, so nothing external can even access
         //    the `pixels` field from the start of that function).
         // 5. Since `pixels` is a raw pointer and not a reference, Rust drops
@@ -868,12 +859,7 @@ impl Debug for Frame {
     }
 }
 
-/// Note that cloning a [Frame] may result in the new frame having a different
-/// internal type (a different internal [FrameBuffer] implementation).
 impl Clone for Frame {
-    /// Note that cloning a [Frame] may result in the new frame having a
-    /// different internal type (a different internal [FrameBuffer]
-    /// implementation).
     fn clone(&self) -> Self {
         // More unsafe :/ but *way* faster than initializing all pixels to a
         // solid color and then using a loop to change them.
@@ -950,21 +936,15 @@ impl IndexMut<usize> for Frame {
 }
 
 /// What method to use to [rescale](Frame::rescale) a [Frame].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RescaleMethod {
     /// The fastest algorithm, low quality.
     NearestNeighbor,
     /// A good balance of speed and quality.
+    #[default]
     Bilinear,
     /// The slowest algorithm, highest quality.
     Bicubic,
-}
-
-/// The default method is [Bilinear](RescaleMethod::Bilinear).
-impl Default for RescaleMethod {
-    fn default() -> Self {
-        Self::Bilinear
-    }
 }
 
 /// Indicates that a slice was invalid for creating a frame.

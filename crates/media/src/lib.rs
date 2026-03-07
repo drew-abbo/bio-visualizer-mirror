@@ -4,5 +4,4 @@ pub mod fps;
 pub mod frame;
 pub mod playback_stream;
 
-#[doc(inline)]
-pub use fps::Fps;
+mod ffmpeg_tools;

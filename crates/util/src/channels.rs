@@ -25,6 +25,26 @@ pub enum ChannelError {
     ResponseAlreadyReceived,
 }
 
+impl ChannelError {
+    /// Whether this error is a [Self::ConnectionDropped] variant.
+    #[inline(always)]
+    pub fn is_connection_dropped_error(&self) -> bool {
+        matches!(self, Self::ConnectionDropped)
+    }
+
+    /// Whether this error is a [Self::Timeout] variant.
+    #[inline(always)]
+    pub fn is_timeout_error(&self) -> bool {
+        matches!(self, Self::Timeout { .. })
+    }
+
+    /// Whether this error is a [Self::ResponseAlreadyReceived] variant.
+    #[inline(always)]
+    pub fn is_response_already_received_error(&self) -> bool {
+        matches!(self, Self::ResponseAlreadyReceived)
+    }
+}
+
 const THREAD_PANIC_MSG: &str = "Another thread panicked while holding a resource this one needs.";
 
 #[inline(always)]
