@@ -55,5 +55,7 @@
     },
     "short_description": "Offsets each RGB channel independently for a glitch effect",
     "long_description": "Creates a color separation effect by offsetting the red, green, and blue channels by different amounts. Positive values shift right, negative values shift left. Great for VHS glitch effects and retro aesthetics.",
+    "category": "Distortion",
+    "subcategories": [],
     "search_keywords": ["rgb", "delay", "offset", "glitch", "vhs", "retro", "channel", "separation"]
 }

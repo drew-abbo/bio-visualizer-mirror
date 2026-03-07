@@ -64,6 +64,7 @@
     },
     "short_description": "Rotates the frame around a center point",
     "long_description": "Rotates the input frame by a specified angle around a center point. Angle is in radians (0 to 2π = full rotation). Default center is 0.5, 0.5 (middle of frame). Useful for spin effects, animated rotations, and off-center spins.",
-    "sub_folders": ["Transform"],
+    "category": "Transform",
+    "subcategories": [],
     "search_keywords": ["rotate", "spin", "turn", "rotation", "angle", "transform", "twist"]
 }

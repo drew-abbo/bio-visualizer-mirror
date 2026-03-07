@@ -27,9 +27,93 @@ impl Default for NodeLibrary {
     }
 }
 
+/// Represents a subcategory within a category
+#[derive(Debug, Clone)]
+pub struct SubcategoryInfo {
+    pub name: String,
+    pub nodes: Vec<String>,
+}
+
+/// Represents organized information about a category
+/// This provides a hierarchical view for UI folder displays
+#[derive(Debug, Clone)]
+pub struct CategoryInfo {
+    pub name: String,
+    
+    /// Optional subcategories within this category
+    /// Each subcategory contains its own list of nodes
+    /// Empty if no nodes in this category use subcategories
+    pub subcategories: Vec<SubcategoryInfo>,
+    
+    /// Nodes that belong directly to this category
+    /// not assigned to any subcategory
+    pub direct_nodes: Vec<String>,
+}
+
 impl NodeLibrary {
+    /// Get a node definition by name
     pub fn get_definition(&self, name: &str) -> Option<&NodeDefinition> {
         self.definitions.get(name)
+    }
+    /// Get comprehensive category information for the entire library
+    /// This is useful for UI components that need to build category menus/folders
+    /// 
+    /// Returns a hierarchical structure:
+    /// - Categories contain subcategories (if any nodes use them)
+    /// - Categories contain direct_nodes (nodes not in any subcategory)
+    /// 
+    /// Example for UI:
+    /// ```
+    /// Color/
+    ///   ├─ Brightness
+    ///   └─ Invert
+    /// Distortion/
+    ///   ├─ Glitch/          (subcategory, if used)
+    ///   │  └─ RGB Delay
+    ///   └─ Chromatic Aberration  (direct node)
+    /// ```
+    pub fn get_all_category_info(&self) -> Vec<CategoryInfo> {
+        let categories = self.get_all_categories();
+        
+        categories
+            .into_iter()
+            .map(|category| {
+                // Get all subcategories used in this category
+                let subcategory_names = self.get_category_subcategories(&category);
+                
+                // Build SubcategoryInfo for each subcategory
+                let subcategories: Vec<SubcategoryInfo> = subcategory_names
+                    .into_iter()
+                    .map(|subcat_name| {
+                        let nodes: Vec<String> = self
+                            .get_subcategory_nodes(&category, &subcat_name)
+                            .into_iter()
+                            .map(|def| def.node.name.clone())
+                            .collect();
+                        
+                        SubcategoryInfo {
+                            name: subcat_name,
+                            nodes,
+                        }
+                    })
+                    .collect();
+                
+                // Get nodes that don't belong to any subcategory
+                let direct_nodes: Vec<String> = self
+                    .definitions
+                    .values()
+                    .filter(|def| def.node.category == category)
+                    .filter(|def| def.node.subcategories.is_empty())
+                    .map(|def| def.node.name.clone())
+                    .collect();
+
+                CategoryInfo {
+                    name: category,
+                    subcategories,
+                    direct_nodes,
+                }
+            })
+            .collect()
     }
 
     /// Load all nodes from the prebuilt nodes folder and the users nodes folder.
@@ -52,6 +136,40 @@ impl NodeLibrary {
         }
 
         Ok(library)
+    }
+
+    fn get_all_categories(&self) -> Vec<String> {
+        let mut categories: Vec<String> = self
+            .definitions
+            .values()
+            .map(|def| def.node.category.clone())
+            .filter(|cat| !cat.is_empty())
+            .collect();
+
+        categories.sort();
+        categories.dedup();
+        categories
+    }
+
+    fn get_subcategory_nodes(&self, category: &str, subcategory: &str) -> Vec<&NodeDefinition> {
+        self.definitions
+            .values()
+            .filter(|def| def.node.category == category)
+            .filter(|def| def.node.subcategories.contains(&subcategory.to_string()))
+            .collect()
+    }
+
+    fn get_category_subcategories(&self, category: &str) -> Vec<String> {
+        let mut subcategories: Vec<String> = self
+            .definitions
+            .values()
+            .filter(|def| def.node.category == category)
+            .flat_map(|def| def.node.subcategories.iter().cloned())
+            .collect();
+
+        subcategories.sort();
+        subcategories.dedup();
+        subcategories
     }
 
     /// Load all node definitions from the nodes/ folder
@@ -184,11 +302,6 @@ impl NodeLibrary {
         })
     }
 
-    /// Get a node definition by name
-    pub fn get(&self, name: &str) -> Option<&NodeDefinition> {
-        self.definitions.get(name)
-    }
-
     /// Get all node definitions
     pub fn definitions(&self) -> &HashMap<String, NodeDefinition> {
         &self.definitions
@@ -197,14 +310,6 @@ impl NodeLibrary {
     /// Get all node names
     pub fn node_names(&self) -> Vec<String> {
         self.definitions.keys().cloned().collect()
-    }
-
-    /// Filter nodes by subfolder (for UI organization)
-    pub fn nodes_in_subfolder(&self, subfolder: &str) -> Vec<&NodeDefinition> {
-        self.definitions
-            .values()
-            .filter(|def| def.node.sub_folders.contains(&subfolder.to_string()))
-            .collect()
     }
 
     /// Search nodes by keyword

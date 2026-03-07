@@ -83,6 +83,7 @@
     },
     "short_description": "Warps the input image using a displacement map",
     "long_description": "Displaces pixels based on a displacement map texture. The red and green channels of the displacement map control horizontal and vertical offset. Use with noise patterns for organic distortion, or animated maps for dynamic warping effects. Perfect for heat waves, water refraction, and abstract distortions.",
-    "sub_folders": ["Distortion"],
+    "category": "Distortion",
+    "subcategories": [],
     "search_keywords": ["displacement", "warp", "distort", "distortion", "offset", "map", "refraction", "wave", "ripple", "bend"]
 }

@@ -25,9 +25,13 @@ pub struct EngineNode {
     #[serde(default)]
     pub long_description: String,
 
-    /// Sub-folders (in the UI) that this node should appear under
+    /// Category / Folder this node belongs under
     #[serde(default)]
-    pub sub_folders: Vec<String>,
+    pub category: String,
+
+    /// Sub-categories this node belongs under
+    #[serde(default)]
+    pub subcategories: Vec<String>,
 
     /// Keywords used to help find this node when searching
     #[serde(default)]
@@ -41,6 +45,11 @@ pub struct NodeInput {
 
     /// The kind of input
     pub kind: NodeInputKind,
+
+    /// Show Pin
+    /// Default to true because that is the most common case
+    #[serde(default = "default_show_pin")]
+    pub show_pin: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -50,6 +59,10 @@ pub struct NodeOutput {
 
     /// The kind of output
     pub kind: NodeOutputKind,
+
+    /// Show Pin
+    #[serde(default = "default_show_pin")]
+    pub show_pin: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -173,4 +186,8 @@ fn default_step_f32() -> f32 {
 }
 fn default_ui_lines() -> u64 {
     1
+}
+
+fn default_show_pin() -> bool {
+    true
 }

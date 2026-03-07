@@ -5,7 +5,8 @@
       "name": "Path",
       "kind": {
         "File": {}
-      }
+      },
+      "show_pin": false
     },
     {
       "name": "Playback Rate",
@@ -39,5 +40,7 @@
   },
   "short_description": "Loads frames from a video file at specified time",
   "long_description": "Opens a video file and seeks to the specified time (in seconds). Outputs the frame at that time along with video metadata like FPS and duration. The producer is cached so multiple nodes can reference the same video efficiently.",
+  "category": "Input",
+  "subcategories": [],
   "search_keywords": ["video", "load", "file", "source", "timeline", "playback"]
 }
