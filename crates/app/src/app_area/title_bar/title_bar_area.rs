@@ -168,4 +168,8 @@ impl TitleBarArea {
             });
         });
     }
+
+    pub fn tool_bar_mut(&mut self) -> &mut ToolBar {
+        &mut self.tool_bar
+    }
 }

@@ -47,29 +47,6 @@ fn get_launcher_path() -> Result<std::path::PathBuf, std::io::Error> {
     Ok(exe_dir.join(launcher_name))
 }
 
-/// Notify the launcher that a project was updated and needs rescanning.
-///
-/// This is useful after saving project data.
-pub fn notify_project_updated() {
-    if let Err(e) = try_notify_project_updated() {
-        util::debug_log_error!("Failed to notify launcher of project update: {e}");
-    }
-}
-
-fn try_notify_project_updated() -> Result<(), std::io::Error> {
-    let launcher_path = get_launcher_path()?;
-
-    Command::new(launcher_path)
-        .arg("--rescan-projects")
-        .arg("--no-focus")
-        .spawn()
-        .inspect_err(|e| {
-            util::debug_log_error!("Failed to spawn launcher for notification: {e}");
-        })?;
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -106,13 +83,6 @@ mod tests {
         // This test verifies the function handles errors gracefully
         // It may fail to spawn if launcher doesn't exist, but shouldn't panic
         notify_project_open_failed();
-    }
-
-    #[test]
-    fn test_notify_project_updated_does_not_panic() {
-        // This test verifies the function handles errors gracefully
-        // It may fail to spawn if launcher doesn't exist, but shouldn't panic
-        notify_project_updated();
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use util::egui;
 
+use super::save_button::SaveButton;
 use super::command::Command;
-use super::import_button::LoadVideoFile;
 use super::tool_bar_button::ToolBarButton;
 
 pub struct ToolBar {
@@ -12,13 +12,17 @@ pub struct ToolBar {
 impl ToolBar {
     pub fn new() -> Self {
         Self {
-            file_buttons: vec![Box::new(LoadVideoFile)],
+            file_buttons: vec![Box::new(SaveButton)],
             pending: Vec::new(),
         }
     }
 }
 
 impl ToolBar {
+    pub fn drain_pending(&mut self) -> Vec<Command> {
+        self.pending.drain(..).collect()
+    }
+
     #[allow(dead_code)]
     fn add_pending(&mut self, command: Command) {
         self.pending.push(command);

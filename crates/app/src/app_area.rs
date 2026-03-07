@@ -3,6 +3,7 @@ mod title_bar;
 
 use super::args::Args;
 use super::launcher_comm;
+use title_bar::Command;
 use editor::{EditorArea, NodeGraphState};
 use util::eframe;
 use util::egui;
@@ -64,6 +65,19 @@ impl AppArea {
                 self.title_bar.ui(ui);
             });
     }
+
+    fn drain_commands(&mut self) {
+        let commands = self.title_bar.tool_bar_mut().drain_pending();
+
+        for command in commands {
+            match command {
+                Command::SaveProject => {
+                    util::debug_log_info!("Saving project");
+                    self.editor_area.save_state();
+                }
+            }
+        }
+    }
 }
 
 impl eframe::App for AppArea {
@@ -84,6 +98,8 @@ impl eframe::App for AppArea {
             }
         }
 
+        self.drain_commands();
+
         // Show exit confirmation popup if requested
         if self.show_exit_confirmation {
             popup_window(ctx, "Unsaved Changes", |ui| {
@@ -91,8 +107,7 @@ impl eframe::App for AppArea {
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
                     if ui.button("Save and Exit").clicked() {
-                        // Skip notification - launcher refreshes on reopen anyway
-                        self.editor_area.save_state(true);
+                        self.editor_area.save_state();
                         self.is_exiting = true;
                         self.show_exit_confirmation = false;
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -118,15 +133,14 @@ impl eframe::App for AppArea {
     }
 
     fn on_exit(&mut self, _gl: Option<&util::eframe::glow::Context>) {
-        // Auto-save on unexpected exit, but don't notify launcher
-        // (notification only works if launcher is running, otherwise spawns unwanted window)
+        // Auto-save on unexpected exit
         if !self.is_exiting {
             let has_unsaved_changes = self
                 .editor_area
                 .editor_state_context_mut()
                 .has_unsaved_changes();
             if has_unsaved_changes {
-                self.editor_area.save_state(true);
+                self.editor_area.save_state();
             }
         }
 

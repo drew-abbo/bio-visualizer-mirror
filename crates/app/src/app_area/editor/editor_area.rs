@@ -6,7 +6,6 @@ use super::output_panel::OutputPanel;
 use super::playback_controls::PlaybackControls;
 use super::playback_state::PlaybackState;
 use super::snarl_style;
-use crate::launcher_comm;
 use engine::node::NodeLibrary;
 use std::sync::Arc;
 use util::eframe;
@@ -69,14 +68,10 @@ impl EditorArea {
         self.show_output_window(ctx);
     }
 
-    pub fn save_state(&mut self, skip_notification: bool) {
+    pub fn save_state(&mut self) {
         match self.editor_state_context.save() {
             Ok(true) => {
                 util::debug_log_info!("Project saved successfully");
-                // Notify launcher that the project was updated (unless we're exiting)
-                if !skip_notification {
-                    launcher_comm::notify_project_updated();
-                }
             }
             Ok(false) => {
                 util::debug_log_info!("No changes to save");
