@@ -7,6 +7,7 @@ pub mod debug_log;
 pub mod drop_join_thread;
 pub mod fuzzy_search;
 pub mod local_data;
+pub mod rolling_avg;
 pub mod saved_file;
 pub mod stop_signals;
 pub mod ui;

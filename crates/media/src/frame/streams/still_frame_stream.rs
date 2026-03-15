@@ -2,33 +2,45 @@
 
 use std::borrow::Cow;
 use std::collections::VecDeque;
-use std::convert::Infallible;
 
-use util::channels::ChannelError;
-use util::channels::message_channel::{self, Inbox, Outbox};
-use util::channels::request_channel::{self, Client, ReqRes, Server};
+use util::channels::message_channel::{self, Inbox};
+use util::channels::request_channel::{self, Client};
 use util::drop_join_thread::{self, DropJoinHandle};
 
-use super::{FrameStream, FrameStreamError};
+use super::{FrameStream, FrameStreamError, StreamGenerator};
 use crate::fps::Fps;
 use crate::frame::{Dimensions, Frame, RescaleMethod};
-use crate::playback_stream::{BufferingSuggestor, PlaybackStream, SeekablePlaybackStream};
+use crate::playback_stream::{PlaybackStream, SeekablePlaybackStream};
 
 /// A [FrameStream] of the same frame over and over again.
 ///
+/// # Example
+///
 /// ```
 /// use media::fps::Fps;
-/// use media::frame::{Dimensions, Frame, Pixel, streams::StillFrameStream};
+/// use media::frame::{Dimensions, Frame, Pixel, RescaleMethod};
+/// use media::frame::streams::{FrameStream, StillFrameStream};
 /// use media::playback_stream::PlaybackStream;
 ///
-/// let base_frame = Frame::from_fill(Dimensions::new(1920, 1080).unwrap(), Pixel::BLUE);
+/// let base_frame = Frame::from_fill((1920, 1080).into(), Pixel::BLUE);
+/// let target_fps = Fps::from_int(60).unwrap();
 ///
-/// let mut stream = StillFrameStream::new(base_frame.clone(), Fps::from_int(60).unwrap());
+/// let mut stream = StillFrameStream::new(base_frame.clone(), target_fps);
 ///
-/// for _ in 0..100 {
+/// for _ in 0..50 {
 ///     let new_frame = stream.fetch().unwrap();
-///     assert_eq!(base_frame.dimensions(), new_frame.dimensions());
-///     assert_eq!(base_frame.pixels(), new_frame.pixels());
+///     assert_eq!(new_frame.dimensions(), base_frame.dimensions());
+///     assert_eq!(new_frame.pixels(), base_frame.pixels());
+///     stream.recycle(new_frame);
+/// }
+///
+/// let new_dimensions = Dimensions::new(1280, 720).unwrap();
+/// stream.set_dimensions(new_dimensions, RescaleMethod::fastest());
+///
+/// for _ in 0..50 {
+///     let new_frame = stream.fetch().unwrap();
+///     assert_eq!(new_frame.dimensions(), new_dimensions);
+///     stream.recycle(new_frame);
 /// }
 /// ```
 #[derive(Debug)]
@@ -64,7 +76,7 @@ impl StillFrameStream {
         let (frame_inbox, frame_outbox) = message_channel::new::<Frame>();
         let (worker_server, worker_client) = request_channel::new::<WorkerRequest, ()>();
         let worker = drop_join_thread::spawn(move || {
-            _ = Worker::new(&frame, frame_outbox, worker_server, target_fps).run();
+            Worker::new(&frame, target_fps).run(frame_outbox, worker_server);
         });
 
         Self {
@@ -78,10 +90,28 @@ impl StillFrameStream {
             _worker: worker,
         }
     }
+
+    fn worker_alert(&self, msg: WorkerRequest) {
+        self.worker_client.alert(msg).expect(EXPECT_WORKER);
+    }
+
+    fn worker_request_and_wait(&self, msg: WorkerRequest) {
+        let mut req = self.worker_client.request(msg).expect(EXPECT_WORKER);
+
+        // Interrupt worker if it's waiting for us to pull from the queue.
+        self.frame_inbox.block_sender().expect(EXPECT_WORKER);
+
+        // Wait for the queue to be fixed.
+        req.wait().expect(EXPECT_WORKER);
+
+        self.frame_inbox.unblock_sender().expect(EXPECT_WORKER);
+    }
 }
 
 impl PlaybackStream<Frame, FrameStreamError> for StillFrameStream {
     fn fetch(&mut self) -> Result<Frame, FrameStreamError> {
+        debug_assert!(self.frame_inbox.is_send_blocked() != Ok(true));
+
         Ok(self.frame_inbox.wait().expect(EXPECT_WORKER))
     }
 
@@ -90,10 +120,7 @@ impl PlaybackStream<Frame, FrameStreamError> for StillFrameStream {
             return;
         }
 
-        self.worker_client
-            .alert(WorkerRequest::SetTargetFps(new_target_fps))
-            .expect(EXPECT_WORKER);
-
+        self.worker_alert(WorkerRequest::SetTargetFps(new_target_fps));
         self.target_fps = new_target_fps;
     }
 
@@ -117,9 +144,7 @@ impl PlaybackStream<Frame, FrameStreamError> for StillFrameStream {
     }
 
     fn recycle(&mut self, frame: Frame) {
-        self.worker_client
-            .alert(WorkerRequest::Recycle(frame))
-            .expect(EXPECT_WORKER);
+        self.worker_alert(WorkerRequest::Recycle(Some(frame)));
     }
 }
 
@@ -135,17 +160,12 @@ impl FrameStream for StillFrameStream {
             return;
         }
 
-        self.worker_client
-            .request(WorkerRequest::SetDimensions(new_dimensions, rescale_method))
-            .expect(EXPECT_WORKER)
-            .wait() // Wait for queue to be fixed.
-            .expect(EXPECT_WORKER);
-
+        self.worker_request_and_wait(WorkerRequest::SetDimensions(new_dimensions, rescale_method));
         self.dimensions = new_dimensions;
     }
 
     fn rescale_method(&self) -> Option<RescaleMethod> {
-        (self.dimensions != self.native_dimensions).then(|| self.rescale_method)
+        (self.dimensions != self.native_dimensions).then_some(self.rescale_method)
     }
 
     fn native_dimensions(&self) -> Dimensions {
@@ -158,118 +178,29 @@ const EXPECT_WORKER: &str = "The worker should be connected.";
 #[derive(Debug)]
 enum WorkerRequest {
     SetTargetFps(Fps),
-    Recycle(Frame),
+    Recycle(Option<Frame>),
     SetDimensions(Dimensions, RescaleMethod),
 }
 
 #[derive(Debug)]
 struct Worker<'a> {
-    // Client communication:
-    frame_outbox: Outbox<Frame>,
-    worker_server: Server<WorkerRequest, ()>,
-
-    // Frame generation:
     base_frame: &'a Frame,
     rescaled_base_frame: Cow<'a, Frame>,
-    buffering_suggestor: BufferingSuggestor,
-    buffering_suggestion: usize,
     recycled_frames: Vec<Frame>,
+    target_fps: Fps,
 }
 
-impl<'a> Worker<'a> {
-    pub fn new(
-        base_frame: &'a Frame,
-        frame_outbox: Outbox<Frame>,
-        worker_server: Server<WorkerRequest, ()>,
-        starting_target_fps: Fps,
-    ) -> Self {
-        let rescaled_base_frame = Cow::Borrowed(base_frame);
+impl<'a> StreamGenerator for Worker<'a> {
+    type Data = Frame;
+    type Request = WorkerRequest;
+    type Response = ();
+    type QueueInvalidNote = ();
 
-        let buffering_suggestor = BufferingSuggestor::new(starting_target_fps);
-        let buffering_suggestion = buffering_suggestor.buffering_suggestion();
-
-        let recycled_frames = Vec::with_capacity(buffering_suggestion);
-
-        Self {
-            base_frame,
-            rescaled_base_frame,
-            frame_outbox,
-            worker_server,
-            buffering_suggestor,
-            buffering_suggestion,
-            recycled_frames,
-        }
+    fn target_fps(&self) -> Fps {
+        self.target_fps
     }
 
-    pub fn run(mut self) -> Result<Infallible, ChannelError> {
-        loop {
-            let (elapsed_time, result) = BufferingSuggestor::run_timed(|| {
-                self.handle_requests()?;
-
-                let new_frame = self.new_rescaled_base_frame_clone();
-                self.frame_outbox
-                    .send_bounded(new_frame, self.buffering_suggestion)?;
-
-                Ok(())
-            });
-            _ = result?;
-
-            self.buffering_suggestor.add_time_sample(elapsed_time);
-            self.buffering_suggestion = self.buffering_suggestor.buffering_suggestion();
-        }
-    }
-
-    fn handle_requests(&mut self) -> Result<(), ChannelError> {
-        let mut handle_request = |req: WorkerRequest| match req {
-            WorkerRequest::SetTargetFps(target_fps) => {
-                self.buffering_suggestor.set_dest_fps(target_fps);
-            }
-
-            WorkerRequest::Recycle(recycled_frame) => {
-                if recycled_frame.dimensions() == self.rescaled_base_frame.dimensions() {
-                    self.recycled_frames.push(recycled_frame);
-                }
-            }
-
-            WorkerRequest::SetDimensions(new_dimensions, rescale_method) => {
-                debug_assert!(
-                    new_dimensions != self.rescaled_base_frame.dimensions(),
-                    "This should be caught before being sent."
-                );
-
-                self.rescaled_base_frame = if new_dimensions != self.base_frame.dimensions() {
-                    Cow::Owned(self.base_frame.rescale(new_dimensions, rescale_method))
-                } else {
-                    Cow::Borrowed(self.base_frame)
-                };
-
-                // Because we changed the dimensions, all of our cached frames
-                // are invalid.
-                self.frame_outbox
-                    .with_queue_in_place(|frame_queue| frame_queue.clear());
-            }
-        };
-
-        let for_each_request =
-            |worker_requests: &mut VecDeque<ReqRes<WorkerRequest, ()>>| -> Result<(), ChannelError> {
-                for (req, res) in worker_requests.drain(..) {
-                    handle_request(req);
-
-                    if let Some(res) = res {
-                        res.respond(())?;
-                    }
-                }
-                Ok(())
-            };
-
-        self.worker_server
-            .check_in_place(for_each_request)?
-            .unwrap_or(Ok(()))?;
-
-        Ok(())
-    }
-
-    fn new_rescaled_base_frame_clone(&mut self) -> Frame {
+    fn new_data(&mut self, _in_flight: usize) -> Self::Data {
         while let Some(mut recycled_frame) = self.recycled_frames.pop() {
             match recycled_frame.fill_from_frame(self.rescaled_base_frame.as_ref()) {
                 Ok(_) => return recycled_frame,
@@ -277,5 +208,53 @@ impl<'a> Worker<'a> {
             }
         }
         self.rescaled_base_frame.as_ref().clone()
+    }
+
+    fn handle_request(&mut self, req: &mut Self::Request) -> Option<Self::QueueInvalidNote> {
+        let mut queue_is_invalid = false;
+
+        match req {
+            WorkerRequest::SetTargetFps(target_fps) => self.target_fps = *target_fps,
+
+            WorkerRequest::Recycle(recycled_frame) => self
+                .recycled_frames
+                .push(recycled_frame.take().expect("A frame was sent")),
+
+            WorkerRequest::SetDimensions(new_dimensions, rescale_method) => {
+                self.rescaled_base_frame = if *new_dimensions != self.base_frame.dimensions() {
+                    Cow::Owned(self.base_frame.rescale(*new_dimensions, *rescale_method))
+                } else {
+                    Cow::Borrowed(self.base_frame)
+                };
+
+                queue_is_invalid = true;
+            }
+        }
+
+        queue_is_invalid.then_some(())
+    }
+
+    fn handle_invalid_queue(
+        &mut self,
+        queue: &mut VecDeque<Self::Data>,
+        _req: &mut Self::Request,
+        _queue_invalid_note: Self::QueueInvalidNote,
+    ) {
+        queue.clear();
+    }
+
+    fn create_response_for_request(&mut self, _req: Self::Request) -> Self::Response {}
+}
+
+impl<'a> Worker<'a> {
+    pub fn new(base_frame: &'a Frame, target_fps: Fps) -> Self {
+        let recycled_frames = Vec::with_capacity(16);
+        let rescaled_base_frame = Cow::Borrowed(base_frame);
+        Self {
+            base_frame,
+            rescaled_base_frame,
+            recycled_frames,
+            target_fps,
+        }
     }
 }

@@ -62,7 +62,8 @@ impl<A> Drop for ResponseHandle<A> {
     }
 }
 
-/// A handle to use to await a response to a request (usually from a [Server]).
+/// A handle to use to await a response to a request (usually from a
+/// [Server](super::Server), but not always).
 ///
 /// Also see [ResponseHandle].
 #[derive(Debug)]
@@ -140,9 +141,9 @@ impl<A> Request<A> {
 
     /// Waits for a response from the server for up to `timeout` time.
     ///
-    /// After `timeout` time, a [ChannelError::Timeout] error is returned. Note
-    /// that this function's execution may take slightly longer than `timeout`
-    /// time.
+    /// After `timeout` time, a [ChannelError::WaitTimeout] error is returned.
+    /// Note that this function's execution may take slightly longer than
+    /// `timeout` time.
     ///
     /// For a version without a maximum waiting time, see [Self::wait]. If you
     /// just want to check without waiting, see [Self::check].
@@ -182,7 +183,7 @@ impl<A> Request<A> {
             match response.take() {
                 Some(response) => return Ok(response),
                 None if wait_result.timed_out() => {
-                    return Err(ChannelError::Timeout { timeout });
+                    return Err(ChannelError::WaitTimeout { timeout });
                 }
                 None => {}
             }

@@ -1,6 +1,7 @@
 //! Exports all kinds of [FrameStream]s ([PlaybackStream]s of [Frame]s).
 
-use std::error::Error;
+mod stream_generator;
+use stream_generator::StreamGenerator;
 
 use ffmpeg_next as ffmpeg;
 
@@ -53,11 +54,11 @@ pub trait FrameStream: PlaybackStream<Frame, FrameStreamError> {
 
 /// Indicates something went wrong with [FrameStream] (a [PlaybackStream] of
 /// [Frame]s).
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Clone)]
 #[error(transparent)]
 pub struct FrameStreamError(#[from] FrameStreamErrorInner);
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Clone)]
 enum FrameStreamErrorInner {
     #[error("Video Error: {0}")]
     VideoError(#[from] ffmpeg::Error),

@@ -1,29 +1,31 @@
 //! Exports [VideoFrameStream].
 
-use std::convert::Infallible;
+mod resampled_ffmpeg_video;
+
+use std::collections::VecDeque;
 use std::num::NonZeroUsize;
 use std::ops::{Bound, RangeBounds, RangeInclusive};
 use std::path::Path;
 use std::time::Duration;
 
-use util::channels::ChannelError;
-use util::channels::message_channel::{self, Inbox, Outbox};
-use util::channels::request_channel::{self, Client, Request, Server};
+use util::channels::message_channel::{self, Inbox};
+use util::channels::request_channel::{self, Client, Request};
 use util::drop_join_thread::{self, DropJoinHandle};
 
-use super::{FrameStream, FrameStreamError};
-use crate::ffmpeg_tools::ffmpeg_video::{FFmpegVideo, FFmpegVideoFrame};
-use crate::fps::{self, Fps, Resampler};
+use super::{FrameStream, FrameStreamError, StreamGenerator};
+use crate::ffmpeg_tools::FFmpegResult;
+use crate::ffmpeg_tools::ffmpeg_video::{self, FFmpegVideo, FFmpegVideoFrame};
+use crate::fps::{self, Fps};
 use crate::frame::{Dimensions, Frame, RescaleMethod};
-use crate::playback_stream::{BufferingSuggestor, PlaybackStream, SeekablePlaybackStream};
+use crate::playback_stream::{PlaybackStream, SeekablePlaybackStream};
+use resampled_ffmpeg_video::ResampledFFmpegVideo;
 
 /// A builder for creating [VideoFrameStream]s. See [VideoFrameStream::builder].
 #[derive(Debug, Clone, Copy)]
-pub struct VideoFrameStreamBuilder<'a> {
-    video_file_path: &'a Path,
+pub struct VideoFrameStreamBuilder {
     target_fps: Option<Fps>,
     paused: bool,
-    clip: (usize, usize),
+    clip: Clip,
     playhead: usize,
     will_loop: bool,
     playback_speed: Fps,
@@ -31,32 +33,10 @@ pub struct VideoFrameStreamBuilder<'a> {
     fetch_timeout: Option<Duration>,
 }
 
-impl<'a> VideoFrameStreamBuilder<'a> {
-    /// Set the path of the video file to load.
-    #[must_use]
-    #[inline(always)]
-    pub fn video_file_path(
-        mut self,
-        video_file_path: &'a impl AsRef<Path>,
-    ) -> VideoFrameStreamBuilder<'a> {
-        self.video_file_path = video_file_path.as_ref();
-        self
-    }
-
-    /// A const version of [Self::video_file_path].
-    #[must_use]
-    #[inline(always)]
-    pub const fn video_file_path_const(
-        mut self,
-        video_file_path: &'a Path,
-    ) -> VideoFrameStreamBuilder<'a> {
-        self.video_file_path = video_file_path;
-        self
-    }
-
+impl VideoFrameStreamBuilder {
     /// Set the target frame rate (the stream will be resampled to this [Fps]).
     /// If unset the stream will have the video's native frame rate.
-    #[must_use]
+    #[must_use = "Builder methods take `Self` by value."]
     #[inline(always)]
     pub const fn fps(mut self, target_fps: Fps) -> Self {
         self.target_fps = Some(target_fps);
@@ -64,7 +44,7 @@ impl<'a> VideoFrameStreamBuilder<'a> {
     }
 
     /// Set whether or not the stream starts paused. The default is `false`.
-    #[must_use]
+    #[must_use = "Builder methods take `Self` by value."]
     #[inline(always)]
     pub const fn paused(mut self, paused: bool) -> Self {
         self.paused = paused;
@@ -77,29 +57,18 @@ impl<'a> VideoFrameStreamBuilder<'a> {
     ///
     /// See [SeekablePlaybackStream::clip] and
     /// [SeekablePlaybackStream::set_clip].
-    #[must_use]
+    #[must_use = "Builder methods take `Self` by value."]
     #[inline(always)]
     pub fn clip(mut self, playback_range: impl RangeBounds<usize>) -> Self {
-        let start = match playback_range.start_bound() {
-            Bound::Included(n) => *n,
-            Bound::Excluded(n) => (*n).checked_add(1).unwrap_or(usize::MAX),
-            Bound::Unbounded => 0,
-        };
-        let end = match playback_range.end_bound() {
-            Bound::Included(n) => *n,
-            Bound::Excluded(n) => (*n).checked_sub(1).unwrap_or(0),
-            Bound::Unbounded => usize::MAX,
-        };
-
-        self.clip = (start, end);
+        self.clip = Clip::from_range(playback_range);
         self
     }
 
     /// A const version of [Self::clip].
-    #[must_use]
+    #[must_use = "Builder methods take `Self` by value."]
     #[inline(always)]
     pub const fn clip_const(mut self, playback_range: RangeInclusive<usize>) -> Self {
-        self.clip = (*playback_range.start(), *playback_range.end());
+        self.clip = Clip::new(playback_range);
         self
     }
 
@@ -109,7 +78,7 @@ impl<'a> VideoFrameStreamBuilder<'a> {
     ///
     /// See [SeekablePlaybackStream::playhead] and
     /// [SeekablePlaybackStream::seek_playhead].
-    #[must_use]
+    #[must_use = "Builder methods take `Self` by value."]
     #[inline(always)]
     pub const fn playhead(mut self, playhead: usize) -> Self {
         self.playhead = playhead;
@@ -120,7 +89,7 @@ impl<'a> VideoFrameStreamBuilder<'a> {
     ///
     /// See [SeekablePlaybackStream::will_loop] and
     /// [SeekablePlaybackStream::set_loop].
-    #[must_use]
+    #[must_use = "Builder methods take `Self` by value."]
     #[inline(always)]
     pub const fn set_loop(mut self, will_loop: bool) -> Self {
         self.will_loop = will_loop;
@@ -128,7 +97,7 @@ impl<'a> VideoFrameStreamBuilder<'a> {
     }
 
     /// Set the multipler that changes the playback speed.
-    #[must_use]
+    #[must_use = "Builder methods take `Self` by value."]
     #[inline(always)]
     pub const fn playback_speed(mut self, multipler: Fps) -> Self {
         self.playback_speed = multipler;
@@ -141,7 +110,7 @@ impl<'a> VideoFrameStreamBuilder<'a> {
     /// An error can be returned if the float fails to approximate a positive
     /// rational (see [Fps::from_float_raw]). In this case, the returned builder
     /// will not have had its playback speed set.
-    #[must_use]
+    #[must_use = "Builder methods take `Self` by value."]
     #[inline(always)]
     pub const fn playback_speed_float(self, multipler: f64) -> Result<Self, Self> {
         match Fps::from_float_raw(multipler) {
@@ -157,7 +126,7 @@ impl<'a> VideoFrameStreamBuilder<'a> {
     ///
     /// See [FrameStream::dimensions], [FrameStream::set_dimensions], and
     /// [FrameStream::native_dimensions].
-    #[must_use]
+    #[must_use = "Builder methods take `Self` by value."]
     #[inline(always)]
     pub const fn rescale(mut self, dimensions: Dimensions, rescale_method: RescaleMethod) -> Self {
         self.rescale = Some((dimensions, rescale_method));
@@ -168,7 +137,7 @@ impl<'a> VideoFrameStreamBuilder<'a> {
     ///
     /// See [VideoFrameStream::fetch_timeout] and
     /// [VideoFrameStream::fetch_timeout_mut].
-    #[must_use]
+    #[must_use = "Builder methods take `Self` by value."]
     #[inline(always)]
     pub const fn fetch_timeout(mut self, timeout: Duration) -> Self {
         self.fetch_timeout = Some(timeout);
@@ -177,19 +146,21 @@ impl<'a> VideoFrameStreamBuilder<'a> {
 
     /// Create a [VideoFrameStream].
     #[inline(always)]
-    pub fn build(self) -> Request<Result<VideoFrameStream, FrameStreamError>> {
-        VideoFrameStream::from_builder(self)
+    pub fn build(
+        self,
+        video_file_path: &impl AsRef<Path>,
+    ) -> Request<Result<VideoFrameStream, FrameStreamError>> {
+        VideoFrameStream::from_builder(self, video_file_path.as_ref())
     }
 
     // This function should remain private. Construction should be done with
     // `VideoFrameStream::builder`.
     #[inline(always)]
-    fn new(video_file_path: &'a Path) -> Self {
+    const fn new() -> Self {
         Self {
-            video_file_path,
             target_fps: None,
             paused: false,
-            clip: (0, usize::MAX),
+            clip: Clip::new(0..=usize::MAX),
             playhead: 0,
             will_loop: false,
             playback_speed: fps::consts::FPS_1,
@@ -204,14 +175,14 @@ impl<'a> VideoFrameStreamBuilder<'a> {
 pub struct VideoFrameStream {
     // Worker Communication:
     frame_inbox: Inbox<Result<(Frame, PlaybackState), FrameStreamError>>,
-    worker_client: Client<WorkerRequest, ()>,
+    worker_client: Client<WorkerRequest, PlaybackState>,
 
     // Shared State:
     target_fps: Fps,
     paused: bool,
     dimensions: Dimensions,
     rescale_method: RescaleMethod,
-    clip: RangeInclusive<usize>,
+    clip: Clip,
     playhead: usize,
     will_loop: bool,
     playback_speed: Fps,
@@ -232,8 +203,8 @@ impl VideoFrameStream {
     /// Get a [builder](VideoFrameStreamBuilder) for creating a
     /// [VideoFrameStream].
     #[inline(always)]
-    pub fn builder(video_file_path: &impl AsRef<Path>) -> VideoFrameStreamBuilder<'_> {
-        VideoFrameStreamBuilder::new(video_file_path.as_ref())
+    pub fn builder() -> VideoFrameStreamBuilder {
+        VideoFrameStreamBuilder::new()
     }
 
     /// The dimensions of frames this stream can produce without rescaling.
@@ -252,89 +223,74 @@ impl VideoFrameStream {
         self.fetch_timeout
     }
 
-    /// A *mutable* reference to how long we'll wait before giving up on
-    /// fetching a frame. [None] means we'll wait forever.
-    pub fn fetch_timeout_mut(&mut self) -> &mut Option<Duration> {
-        &mut self.fetch_timeout
+    /// Set how long we'll wait before giving up on fetching a frame. [None]
+    /// means we'll wait forever.
+    pub fn set_fetch_timeout(&mut self, new_fetch_timeout: Option<Duration>) {
+        self.fetch_timeout = new_fetch_timeout;
     }
 
     // This function should remain private. Construction should be done with
     // `VideoFrameStreamBuilder::build`.
-    fn from_builder(builder: VideoFrameStreamBuilder) -> Request<Result<Self, FrameStreamError>> {
-        let VideoFrameStreamBuilder {
-            video_file_path,
-            target_fps,
-            paused,
-            clip,
-            playhead,
-            will_loop,
-            playback_speed,
-            rescale,
-            fetch_timeout,
-        } = builder;
-
+    fn from_builder(
+        builder: VideoFrameStreamBuilder,
+        video_file_path: &Path,
+    ) -> Request<Result<Self, FrameStreamError>> {
         FFmpegVideo::new_mapped(
             video_file_path,
-            rescale,
-            paused,
+            builder.rescale,
+            builder.paused,
             move |ffmpeg_video| -> Result<Self, FrameStreamError> {
-                let ffmpeg_video = ffmpeg_video?;
-
-                let clip = fix_clip(clip.0..=clip.1, ffmpeg_video.duration_non_zero());
-
-                let target_fps = target_fps.unwrap_or(ffmpeg_video.src_fps());
-                let (dimensions, rescale_method) =
-                    rescale.unwrap_or((ffmpeg_video.src_dimensions(), RescaleMethod::default()));
-                let native_dimensions = ffmpeg_video.src_dimensions();
-                let native_fps = ffmpeg_video.src_fps();
-                let unclipped_duration = ffmpeg_video.duration_non_zero();
+                let ffmpeg_video = ResampledFFmpegVideo::new(ffmpeg_video?, builder);
 
                 let (frame_inbox, frame_outbox) = message_channel::new();
                 let (worker_server, worker_client) = request_channel::new();
 
-                let worker = drop_join_thread::spawn(move || {
-                    _ = Worker::new(WorkerSetup {
-                        ffmpeg_video,
-                        frame_outbox,
-                        worker_server,
-                        target_fps,
-                        paused,
-                        dimensions,
-                        rescale_method,
-                        clip,
-                        will_loop,
-                        playback_speed,
-                    })
-                    .run();
-                });
-
-                let mut ret = Self {
+                Ok(Self {
                     frame_inbox,
                     worker_client,
-                    target_fps,
-                    paused,
-                    dimensions,
-                    rescale_method,
-                    clip: 0..=(unclipped_duration.get() - 1),
-                    playhead: 0,
-                    will_loop,
-                    playback_speed,
-                    fetch_timeout,
-                    native_dimensions,
-                    native_fps,
-                    unclipped_duration,
-                    _worker: worker,
-                };
+                    target_fps: ffmpeg_video.target_fps(),
+                    paused: ffmpeg_video.paused(),
+                    dimensions: ffmpeg_video.dest_dimensions(),
+                    rescale_method: ffmpeg_video.rescale_method().unwrap_or_default(),
+                    clip: ffmpeg_video.clip(),
+                    playhead: ffmpeg_video.playhead(),
+                    will_loop: ffmpeg_video.will_loop(),
+                    playback_speed: ffmpeg_video.playback_speed(),
+                    native_dimensions: ffmpeg_video.src_dimensions(),
+                    native_fps: ffmpeg_video.src_fps(),
+                    unclipped_duration: ffmpeg_video.resampled_duration_non_zero(),
+                    fetch_timeout: builder.fetch_timeout,
 
-                ret.seek_playhead(playhead)?;
-
-                ret.worker_client
-                    .alert(WorkerRequest::StartSignal)
-                    .expect(EXPECT_WORKER);
-
-                Ok(ret)
+                    _worker: drop_join_thread::spawn(move || {
+                        Worker::new(ffmpeg_video).run(frame_outbox, worker_server);
+                    }),
+                })
             },
         )
+    }
+
+    fn apply_state(&mut self, new_state: PlaybackState) {
+        self.playhead = new_state.playhead;
+        self.paused = new_state.paused;
+    }
+
+    fn worker_alert(&self, msg: WorkerRequest) {
+        self.worker_client.alert(msg).expect(EXPECT_WORKER);
+    }
+
+    #[must_use]
+    fn worker_request_and_wait(&self, msg: WorkerRequest) -> PlaybackState {
+        let mut req = self.worker_client.request(msg).expect(EXPECT_WORKER);
+
+        // Interrupt worker if it's waiting for us to pull from the queue.
+        self.frame_inbox.block_sender().expect(EXPECT_WORKER);
+
+        // Wait for the queue to be fixed.
+        let ret = req.wait().expect(EXPECT_WORKER);
+
+        self.frame_inbox.unblock_sender().expect(EXPECT_WORKER);
+
+        ret
     }
 }
 
@@ -342,7 +298,7 @@ impl PlaybackStream<Frame, FrameStreamError> for VideoFrameStream {
     fn fetch(&mut self) -> Result<Frame, FrameStreamError> {
         let (frame, new_state) = match self.fetch_timeout {
             Some(timeout) => match self.frame_inbox.wait_timeout(timeout) {
-                Err(e) if e.is_timeout_error() => return Err(e.into()),
+                Err(e) if e.is_any_timeout_error() => return Err(e.into()),
                 wait_result => wait_result,
             },
 
@@ -350,8 +306,7 @@ impl PlaybackStream<Frame, FrameStreamError> for VideoFrameStream {
         }
         .expect(EXPECT_WORKER)?;
 
-        self.playhead = new_state.playhead;
-        self.paused = new_state.paused;
+        self.apply_state(new_state);
         Ok(frame)
     }
 
@@ -360,13 +315,9 @@ impl PlaybackStream<Frame, FrameStreamError> for VideoFrameStream {
             return;
         }
 
-        self.worker_client
-            .request(WorkerRequest::SetTargetFps(new_target_fps))
-            .expect(EXPECT_WORKER)
-            .wait() // Wait for queue to be fixed.
-            .expect(EXPECT_WORKER);
-
+        let new_state = self.worker_request_and_wait(WorkerRequest::SetTargetFps(new_target_fps));
         self.target_fps = new_target_fps;
+        self.apply_state(new_state);
     }
 
     fn target_fps(&self) -> Fps {
@@ -378,18 +329,11 @@ impl PlaybackStream<Frame, FrameStreamError> for VideoFrameStream {
             return new_paused;
         }
 
-        // We can't unpause if we're at the end of the video and not looping.
-        if self.playhead == *self.clip.end() && !self.will_loop {
-            return true;
-        }
+        let new_state = self.worker_request_and_wait(WorkerRequest::SetPaused(new_paused));
+        self.paused = new_paused;
+        self.apply_state(new_state);
 
-        self.worker_client
-            .request(WorkerRequest::SetPaused(new_paused))
-            .expect(EXPECT_WORKER)
-            .wait() // Wait for queue to be fixed.
-            .expect(EXPECT_WORKER);
-
-        new_paused
+        self.paused
     }
 
     fn is_paused(&self) -> bool {
@@ -403,9 +347,7 @@ impl PlaybackStream<Frame, FrameStreamError> for VideoFrameStream {
     }
 
     fn recycle(&mut self, frame: Frame) {
-        self.worker_client
-            .alert(WorkerRequest::Recycle(frame))
-            .expect(EXPECT_WORKER)
+        self.worker_alert(WorkerRequest::Recycle(Some(frame)));
     }
 }
 
@@ -421,17 +363,15 @@ impl FrameStream for VideoFrameStream {
             return;
         }
 
-        self.worker_client
-            .request(WorkerRequest::SetDimensions(new_dimensions, rescale_method))
-            .expect(EXPECT_WORKER)
-            .wait() // Wait for queue to be fixed.
-            .expect(EXPECT_WORKER);
-
+        let new_state = self
+            .worker_request_and_wait(WorkerRequest::SetDimensions(new_dimensions, rescale_method));
         self.dimensions = new_dimensions;
+
+        self.apply_state(new_state);
     }
 
     fn rescale_method(&self) -> Option<RescaleMethod> {
-        (self.dimensions != self.native_dimensions).then(|| self.rescale_method)
+        (self.dimensions != self.native_dimensions).then_some(self.rescale_method)
     }
 
     fn native_dimensions(&self) -> Dimensions {
@@ -441,26 +381,20 @@ impl FrameStream for VideoFrameStream {
 
 impl SeekablePlaybackStream<Frame, FrameStreamError> for VideoFrameStream {
     fn clip(&self) -> RangeInclusive<usize> {
-        self.clip.clone()
+        self.clip.into()
     }
 
-    fn set_clip(&mut self, playback_range: RangeInclusive<usize>) -> RangeInclusive<usize> {
-        // This doesn't ensure the playhead stays within range!
-        // Maybe we do that in the fetch function?
-        todo!();
-
-        if playback_range == self.clip {
-            return playback_range;
+    fn set_clip(&mut self, clip: RangeInclusive<usize>) -> RangeInclusive<usize> {
+        let clip = Clip::new(clip).fix(self.unclipped_duration);
+        if clip == self.clip {
+            return clip.into();
         }
 
-        self.worker_client
-            .request(WorkerRequest::SetClip(playback_range.clone()))
-            .expect(EXPECT_WORKER)
-            .wait() // Wait for queue to be fixed.
-            .expect(EXPECT_WORKER);
+        let new_state = self.worker_request_and_wait(WorkerRequest::SetClip(clip));
+        self.clip = clip;
+        self.apply_state(new_state);
 
-        self.clip = playback_range.clone();
-        playback_range
+        clip.into()
     }
 
     fn unclipped_stream_duration_non_zero(&self) -> NonZeroUsize {
@@ -472,24 +406,16 @@ impl SeekablePlaybackStream<Frame, FrameStreamError> for VideoFrameStream {
     }
 
     fn seek_playhead(&mut self, new_playhead: usize) -> Result<usize, FrameStreamError> {
-        let new_playhead = new_playhead.clamp(*self.clip.start(), *self.clip.end());
+        let new_playhead = new_playhead.clamp(self.clip.start, self.clip.end);
 
         if new_playhead == self.playhead {
             return Ok(new_playhead);
         }
 
-        self.worker_client
-            .request(WorkerRequest::SeekPlayhead(new_playhead))
-            .expect(EXPECT_WORKER)
-            .wait() // Wait for queue to be fixed.
-            .expect(EXPECT_WORKER);
-
-        // If we're at the end we're always paused.
-        if new_playhead == *self.clip.end() {
-            self.paused = true;
-        }
-
+        let new_state = self.worker_request_and_wait(WorkerRequest::SeekPlayhead(new_playhead));
         self.playhead = new_playhead;
+        self.apply_state(new_state);
+
         Ok(new_playhead)
     }
 
@@ -502,13 +428,9 @@ impl SeekablePlaybackStream<Frame, FrameStreamError> for VideoFrameStream {
             return;
         }
 
-        self.worker_client
-            .request(WorkerRequest::SetLoop(will_loop))
-            .expect(EXPECT_WORKER)
-            .wait() // Wait for queue to be fixed.
-            .expect(EXPECT_WORKER);
-
+        let new_state = self.worker_request_and_wait(WorkerRequest::SetLoop(will_loop));
         self.will_loop = will_loop;
+        self.apply_state(new_state);
     }
 
     fn playback_speed(&self) -> Fps {
@@ -520,13 +442,10 @@ impl SeekablePlaybackStream<Frame, FrameStreamError> for VideoFrameStream {
             return;
         }
 
-        self.worker_client
-            .request(WorkerRequest::SetPlaybackSpeed(new_playback_speed))
-            .expect(EXPECT_WORKER)
-            .wait() // Wait for queue to be fixed.
-            .expect(EXPECT_WORKER);
-
+        let new_state =
+            self.worker_request_and_wait(WorkerRequest::SetPlaybackSpeed(new_playback_speed));
         self.playback_speed = new_playback_speed;
+        self.apply_state(new_state);
     }
 }
 
@@ -538,174 +457,316 @@ struct PlaybackState {
     pub paused: bool,
 }
 
+impl PlaybackState {
+    /// Takes a snapshot of the [ResampledFFmpegVideo] and returns its state.
+    pub fn snapshot(ffmpeg_video: &ResampledFFmpegVideo) -> Self {
+        Self {
+            playhead: ffmpeg_video.playhead(),
+            paused: ffmpeg_video.paused(),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+struct Clip {
+    pub start: usize,
+    pub end: usize,
+}
+
+impl Clip {
+    #[inline(always)]
+    pub const fn new(range: RangeInclusive<usize>) -> Self {
+        Self {
+            start: *range.start(),
+            end: *range.end(),
+        }
+    }
+
+    #[inline(always)]
+    pub fn from_range(range: impl RangeBounds<usize>) -> Self {
+        let start = match range.start_bound() {
+            Bound::Included(n) => *n,
+            Bound::Excluded(n) => (*n).saturating_add(1),
+            Bound::Unbounded => 0,
+        };
+        let end = match range.end_bound() {
+            Bound::Included(n) => *n,
+            Bound::Excluded(n) => (*n).saturating_sub(1),
+            Bound::Unbounded => usize::MAX,
+        };
+
+        Self { start, end }
+    }
+
+    #[inline(always)]
+    pub const fn contains(&self, playhead: usize) -> bool {
+        playhead >= self.start && playhead <= self.end
+    }
+
+    #[inline(always)]
+    pub const fn fix_in_place(&mut self, unclipped_duration: NonZeroUsize) {
+        *self = self.fix(unclipped_duration);
+    }
+
+    #[must_use]
+    pub const fn fix(&self, unclipped_duration: NonZeroUsize) -> Self {
+        let unclipped_duration = unclipped_duration.get();
+        let mut new_clip = *self;
+
+        if new_clip.start >= unclipped_duration {
+            new_clip.start = unclipped_duration - 1;
+        }
+
+        if new_clip.start > new_clip.end {
+            new_clip.end = new_clip.start;
+        } else if new_clip.end >= unclipped_duration {
+            new_clip.end = unclipped_duration - 1;
+        }
+
+        new_clip
+    }
+}
+
+impl From<RangeInclusive<usize>> for Clip {
+    #[inline(always)]
+    fn from(range: RangeInclusive<usize>) -> Self {
+        Self::new(range)
+    }
+}
+
+impl From<Clip> for RangeInclusive<usize> {
+    #[inline(always)]
+    fn from(clip: Clip) -> Self {
+        clip.start..=clip.end
+    }
+}
+
 #[derive(Debug)]
 enum WorkerRequest {
-    StartSignal,
     SetTargetFps(Fps),
     SetPaused(bool),
-    Recycle(Frame),
+    Recycle(Option<Frame>),
     SetDimensions(Dimensions, RescaleMethod),
-    SetClip(RangeInclusive<usize>),
+    SetClip(Clip),
     SeekPlayhead(usize),
     SetLoop(bool),
     SetPlaybackSpeed(Fps),
 }
 
-#[derive(Debug)]
-struct WorkerSetup {
-    pub ffmpeg_video: FFmpegVideo,
-    pub frame_outbox: Outbox<Result<(Frame, PlaybackState), FrameStreamError>>,
-    pub worker_server: Server<WorkerRequest, ()>,
-    pub target_fps: Fps,
-    pub paused: bool,
-    pub dimensions: Dimensions,
-    pub rescale_method: RescaleMethod,
-    pub clip: RangeInclusive<usize>,
-    pub will_loop: bool,
-    pub playback_speed: Fps,
-}
-
-#[derive(Debug)]
 struct Worker {
-    // Client communication:
-    frame_outbox: Outbox<Result<(Frame, PlaybackState), FrameStreamError>>,
-    worker_server: Server<WorkerRequest, ()>,
-
-    // Frame generation:
-    ffmpeg_video: FFmpegVideo,
-    buffering_suggestor: BufferingSuggestor,
-    buffering_suggestion: usize,
-    recycled_frames: Vec<Frame>,
-    received_start_signal: bool,
-
-    // Shared state:
-    target_fps: Fps,
-    dimensions: Dimensions,
+    ffmpeg_video: ResampledFFmpegVideo,
+    recycled_frames: Vec<FFmpegVideoFrame>,
+    state_history: VecDeque<PlaybackState>,
+    frames_to_rescale: VecDeque<FFmpegVideoFrame>,
     rescale_method: RescaleMethod,
-    clip: RangeInclusive<usize>,
-    will_loop: bool,
-    playback_speed: Fps,
-    client_playhead: usize,
-    client_paused: bool,
-
-    // Local state:
-    fps_resampler: Resampler,
-    ahead_of_client_by: usize,
-    paused_for: usize,
-    frames_since_loop: usize,
+    err_state: Option<FrameStreamError>,
 }
 
 impl Worker {
-    pub fn new(worker_setup: WorkerSetup) -> Self {
-        let WorkerSetup {
-            ffmpeg_video,
-            frame_outbox,
-            worker_server,
-            target_fps,
-            paused,
-            dimensions,
-            rescale_method,
-            clip,
-            will_loop,
-            playback_speed,
-        } = worker_setup;
+    /// Create a new [Worker].
+    pub fn new(ffmpeg_video: ResampledFFmpegVideo) -> Self {
+        let recycled_frames = Vec::with_capacity(16);
 
-        let buffering_suggestor = BufferingSuggestor::new(target_fps);
-        let buffering_suggestion = buffering_suggestor.buffering_suggestion();
+        let mut state_history = VecDeque::with_capacity(16);
+        state_history.push_back(PlaybackState::snapshot(&ffmpeg_video));
 
-        let recycled_frames = Vec::with_capacity(buffering_suggestion);
-
-        let fps_resampler = Resampler::new(ffmpeg_video.src_fps() * playback_speed, target_fps);
+        let rescale_method = ffmpeg_video.rescale_method().unwrap_or_default();
 
         Self {
-            frame_outbox,
-            worker_server,
             ffmpeg_video,
-            buffering_suggestor,
-            buffering_suggestion,
             recycled_frames,
-            received_start_signal: false,
-            target_fps,
-            dimensions,
+            state_history,
+            frames_to_rescale: VecDeque::default(),
             rescale_method,
-            clip,
-            will_loop,
-            playback_speed,
-            client_playhead: 0,
-            client_paused: paused,
-            fps_resampler,
-            ahead_of_client_by: 0,
-            paused_for: 0,
-            frames_since_loop: 0,
+            err_state: None,
         }
     }
 
-    pub fn run(mut self) -> Result<Infallible, ChannelError> {
-        loop {
-            let (elapsed_time, result) = BufferingSuggestor::run_timed(|| {
-                self.handle_requests()?;
-
-                let new_frame_and_state = self.next_frame();
-                self.frame_outbox
-                    .send_bounded(new_frame_and_state, self.buffering_suggestion)?;
-
-                Ok(())
-            });
-            _ = result?;
-
-            self.buffering_suggestor.add_time_sample(elapsed_time);
-            self.buffering_suggestion = self.buffering_suggestor.buffering_suggestion();
+    fn write_next_frame(&mut self) -> FFmpegResult<FFmpegVideoFrame> {
+        // If we're able to just rescale a frame we've already generated...
+        if let Some(frame_to_rescale) = self.frames_to_rescale.pop_front() {
+            self.ffmpeg_video.step();
+            return ffmpeg_video::rescale_ffmpeg_frame(
+                frame_to_rescale,
+                self.ffmpeg_video.dest_dimensions(),
+                self.rescale_method,
+            );
         }
+
+        let recycled_frame = self.recycled_frames.pop();
+        self.ffmpeg_video.write_next(recycled_frame)
     }
 
-    fn handle_requests(&mut self) -> Result<(), ChannelError> {
-        todo!()
-    }
-
-    fn next_frame(&mut self) -> Result<(Frame, PlaybackState), FrameStreamError> {
-        let recycled_frame = loop {
-            let Some(frame) = self.recycled_frames.pop() else {
-                break None;
-            };
-            if let Ok(ffmpeg_frame) = frame.into_buffer::<FFmpegVideoFrame>() {
-                break Some(ffmpeg_frame);
-            }
-        };
-
-        // Handle skipping frames. Figure out the next frame we want...
-        // This includes looping & pausing.
-        // Aren't we able to go 1 past the end of the actual playhead? Fuck...
-        todo!();
-
-        let new_frame = self.ffmpeg_video.write_next(recycled_frame)?;
-
-        todo!()
-    }
-
-    fn rollback(&mut self) -> Result<(), FrameStreamError> {
-        // Rollback `self.ahead_of_client_by` frames. We may be rolling back
-        // past loops, past pause/unpause actions, ect...
-        todo!()
+    fn get_client_state(&self) -> PlaybackState {
+        *self
+            .state_history
+            .front()
+            .expect("The oldest state should be present.")
     }
 }
 
-const fn fix_clip(
-    clip: RangeInclusive<usize>,
-    unclipped_duration: NonZeroUsize,
-) -> RangeInclusive<usize> {
-    let mut start = *clip.start();
-    let mut end = *clip.end();
+impl StreamGenerator for Worker {
+    type Data = Result<(Frame, PlaybackState), FrameStreamError>;
+    type Request = WorkerRequest;
+    type Response = PlaybackState;
+    type QueueInvalidNote = ();
 
-    if start >= unclipped_duration.get() {
-        start = unclipped_duration.get();
-    }
-    if end >= unclipped_duration.get() {
-        end = unclipped_duration.get();
+    fn target_fps(&self) -> Fps {
+        self.ffmpeg_video.target_fps()
     }
 
-    if start > end {
-        end = start;
+    fn new_data(&mut self, in_flight: usize) -> Self::Data {
+        if let Some(e) = &self.err_state {
+            return Err(e.clone());
+        }
+
+        let frame = match self.write_next_frame() {
+            Ok(buffer) => Frame::from_buffer(buffer),
+            Err(e) => {
+                let e = FrameStreamError::from(e);
+                self.err_state = Some(e.clone());
+                return Err(e);
+            }
+        };
+
+        while self.state_history.len() > in_flight + 1 {
+            self.state_history.pop_back();
+        }
+
+        let state = PlaybackState::snapshot(&self.ffmpeg_video);
+        self.state_history.push_back(state);
+
+        Ok((frame, state))
     }
 
-    start..=end
+    fn handle_request(&mut self, req: &mut Self::Request) -> Option<Self::QueueInvalidNote> {
+        if self.err_state.is_some() {
+            return None;
+        }
+
+        match req {
+            WorkerRequest::Recycle(recycled_frame) => {
+                let recycled_frame = recycled_frame.take().expect("A frame was sent");
+                if let Ok(buffer) = recycled_frame.into_buffer::<FFmpegVideoFrame>() {
+                    self.recycled_frames.push(buffer);
+                }
+
+                // We don't need to update the queue for this.
+                None
+            }
+
+            // If we need to update the queue, we'll handle the request in
+            // `Self::handle_invalid_queue` when we can actually see the queue.
+            WorkerRequest::SetDimensions(_, _) => Some(()),
+            WorkerRequest::SetTargetFps(_) => Some(()),
+            WorkerRequest::SetPaused(_) => Some(()),
+            WorkerRequest::SetClip(_) => Some(()),
+            WorkerRequest::SeekPlayhead(_) => Some(()),
+            WorkerRequest::SetLoop(_) => Some(()),
+            WorkerRequest::SetPlaybackSpeed(_) => Some(()),
+        }
+    }
+
+    fn handle_invalid_queue(
+        &mut self,
+        queue: &mut VecDeque<Self::Data>,
+        req: &mut Self::Request,
+        _queue_invalid_note: Self::QueueInvalidNote,
+    ) {
+        assert!(queue.len() + 1 == self.state_history.len());
+        let client_state = self.get_client_state();
+
+        // Rewind to where the client is.
+        self.ffmpeg_video.seek_playhead(client_state.playhead);
+        self.ffmpeg_video.set_paused(client_state.paused);
+
+        let mut invalidate_all_items = false;
+
+        match req {
+            // We shouldn't be in this function if this was the request.
+            WorkerRequest::Recycle(_) => unreachable!(),
+
+            // If we're changing the dimensions we can just move the frames with
+            // the bad resolution out of the queue and into a cache. We'll pull
+            // from this when we're generating frames instead of reading from
+            // the video.
+            WorkerRequest::SetDimensions(dimensions, rescale_method) => {
+                if let Err(e) = self.ffmpeg_video.set_rescale(*dimensions, *rescale_method) {
+                    self.err_state = Some(e.into());
+                    return;
+                }
+
+                for frame in queue
+                    .drain(..)
+                    .rev()
+                    .filter_map(|frame_result| frame_result.ok())
+                    .map(|(frame, _)| frame.into_buffer().expect("ffmpeg-based buffer"))
+                {
+                    self.frames_to_rescale.push_front(frame);
+                }
+
+                self.rescale_method = *rescale_method;
+
+                return;
+            }
+
+            // These completely change the timing of the video so we'll just
+            // clear the whole queue to avoid dealing with that.
+            WorkerRequest::SetTargetFps(target_fps) => {
+                self.ffmpeg_video.set_target_fps(*target_fps);
+                invalidate_all_items = true;
+            }
+            WorkerRequest::SetPlaybackSpeed(playback_speed) => {
+                self.ffmpeg_video.set_playback_speed(*playback_speed);
+                invalidate_all_items = true;
+            }
+
+            WorkerRequest::SetPaused(paused) => _ = self.ffmpeg_video.set_paused(*paused),
+            WorkerRequest::SetClip(clip) => _ = self.ffmpeg_video.set_clip(*clip),
+            WorkerRequest::SeekPlayhead(playhead) => _ = self.ffmpeg_video.seek_playhead(*playhead),
+            WorkerRequest::SetLoop(will_loop) => self.ffmpeg_video.set_will_loop(*will_loop),
+        }
+
+        if invalidate_all_items {
+            queue.clear();
+            self.state_history.truncate(1);
+            self.frames_to_rescale.clear();
+            return;
+        }
+
+        let mut last_match_state = client_state;
+
+        // We'll simulate playing back the video with the new settings until we
+        // find a mismatched state. The queue is valid up until that point.
+        for (matching_item_count, queue_state) in queue
+            .iter_mut()
+            .map_while(|frame_result| frame_result.as_mut().ok())
+            .map(|(_, state)| state)
+            .enumerate()
+        {
+            self.ffmpeg_video.step();
+            let expected_state = PlaybackState::snapshot(&self.ffmpeg_video);
+
+            // Found spot where the queue becomes invalid
+            if queue_state.playhead != expected_state.playhead {
+                queue.truncate(matching_item_count);
+                self.state_history.truncate(matching_item_count + 1);
+                self.frames_to_rescale.truncate(matching_item_count);
+                break;
+            }
+
+            // If the playhead matches but the paused state doesn't we can still
+            // keep the frame (we just have to change the playhead).
+            queue_state.paused = expected_state.paused;
+
+            last_match_state = expected_state;
+        }
+
+        self.ffmpeg_video.seek_playhead(last_match_state.playhead);
+        self.ffmpeg_video.set_paused(last_match_state.paused);
+    }
+
+    fn create_response_for_request(&mut self, _req: Self::Request) -> Self::Response {
+        self.get_client_state()
+    }
 }

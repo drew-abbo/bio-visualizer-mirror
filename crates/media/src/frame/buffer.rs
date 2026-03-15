@@ -574,38 +574,11 @@ impl Frame {
         }
     }
 
-    /// Turn this [Frame] into the concrete [FrameBuffer] type `B` that's being
-    /// stored internally, call `f` on it, and reconstruct a new [Frame] with
-    /// the same [Uid] as the original.
-    ///
-    /// If the concrete type of the internal [FrameBuffer] is not of type `B`,
-    /// this function will return an [Err] which will store the reconstructed
-    /// [Frame] (the [Uid] will not have changed). See [Self::swap_internal] or
-    /// [Self::into_internal] if you just want access to the internal
-    /// [FrameBuffer].
-    pub(crate) fn use_buffer<B, F>(self, f: F) -> Result<Self, Self>
-    where
-        B: FrameBuffer,
-        F: FnOnce(&mut B),
-    {
-        let original_uid = self.uid();
-
-        self.into_buffer::<B>().map(|mut buffer| {
-            f(&mut buffer);
-
-            // CONTRACT: The provided UID is from a frame that no longer exists,
-            // so it is unique.
-            Frame::from_parts(Box::new(buffer), original_uid)
-        })
-    }
-
     /// Turn this [Frame] into the [Box]ed [FrameBuffer] being stored
     /// internally.
     ///
-    /// If you just need access to the [FrameBuffer] temporarily but will end up
-    /// reconstructing another [Frame] with it, see [Self::use_buffer] or
-    /// [Self::swap_internal]. If you know the concrete type of the internal
-    /// [FrameBuffer], you may want to use [Self::into_buffer].
+    /// If you know the concrete type of the internal [FrameBuffer], you may
+    /// want to use [Self::into_buffer].
     pub(crate) fn into_internal(self) -> Box<dyn FrameBuffer> {
         // SAFETY: If we have a `self` reference, that means there are no live
         // references to `pixels` and the only reference to `self.buffer` is
@@ -613,34 +586,6 @@ impl Frame {
         // doing at the end of the scope) cannot cause any reads/writes to
         // `buffer`.
         self.buffer
-    }
-
-    /// Turn this [Frame] into the [Box]ed [FrameBuffer] being stored
-    /// internally, call `f` on it, and reconstruct a new [Frame] with whatever
-    /// [Box]ed [FrameBuffer] `f` returned and the same [Uid] as the original.
-    ///
-    /// This function is useful for downcasting to a concrete type, doing some
-    /// operation, and then reconstructing the [Frame] without changing the
-    /// [FrameBuffer]. Its benefit is that it allows you to skip [Uid]
-    /// generation (which is a non-trivial process).
-    ///
-    /// Nothing about the [FrameBuffer] that `f` returns has to be the same as
-    /// the [FrameBuffer] that was passed in (e.g. dimensions can change,
-    /// contents can change, even the concrete [FrameBuffer] type can change).
-    ///
-    /// If you know the concrete type of the internal [FrameBuffer], you may
-    /// want to use [Self::use_buffer]. If you just want to extract the internal
-    /// [FrameBuffer], see [Self::into_internal] or [Self::into_buffer].
-    pub(crate) fn swap_internal<F>(self, f: F) -> Self
-    where
-        F: FnOnce(Box<dyn FrameBuffer>) -> Box<dyn FrameBuffer>,
-    {
-        let uid = self.uid();
-        let buffer = f(self.into_internal());
-
-        // CONTRACT: The provided UID is from a frame that no longer exists, so
-        // it is unique.
-        Self::from_parts(buffer, uid)
     }
 
     /// Create a frame without checking that the `pixels` slice length and
@@ -945,6 +890,18 @@ pub enum RescaleMethod {
     Bilinear,
     /// The slowest algorithm, highest quality.
     Bicubic,
+}
+
+impl RescaleMethod {
+    /// The highest quality rescale method.
+    pub const fn best() -> Self {
+        Self::Bicubic
+    }
+
+    /// The fastest rescale method.
+    pub const fn fastest() -> Self {
+        Self::NearestNeighbor
+    }
 }
 
 /// Indicates that a slice was invalid for creating a frame.

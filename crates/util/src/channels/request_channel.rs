@@ -60,9 +60,9 @@ impl<Q, A> Server<Q, A> {
 
     /// Waits for a request from the client for up to `timeout` time.
     ///
-    /// After `timeout` time, a [ChannelError::Timeout] error is returned. Note
-    /// that this function's execution may take slightly longer than `timeout`
-    /// time.
+    /// After `timeout` time, a [ChannelError::WaitTimeout] error is returned.
+    /// Note that this function's execution may take slightly longer than
+    /// `timeout` time.
     ///
     /// A [ChannelError::ConnectionDropped] error is returned if the other end
     /// of the connection was dropped and there are no more items in the queue.
@@ -162,9 +162,9 @@ impl<Q, A> Server<Q, A> {
     /// Waits for a request from the client for up to `timeout` time, returning
     /// all requests if multiple have built up.
     ///
-    /// After `timeout` time, a [ChannelError::Timeout] error is returned. Note
-    /// that this function's execution may take slightly longer than `timeout`
-    /// time.
+    /// After `timeout` time, a [ChannelError::WaitTimeout] error is returned.
+    /// Note that this function's execution may take slightly longer than
+    /// `timeout` time.
     ///
     /// The returned [VecDeque] is guaranteed to have at least 1 element.
     ///
@@ -275,9 +275,9 @@ impl<Q, A> Server<Q, A> {
     /// Waits for a request from the outbox for up to `timeout` time, giving
     /// in-place access to all requests if multiple have built up.
     ///
-    /// After `timeout` time, a [ChannelError::Timeout] error is returned. Note
-    /// that this function's execution may take slightly longer than `timeout`
-    /// time.
+    /// After `timeout` time, a [ChannelError::WaitTimeout] error is returned.
+    /// Note that this function's execution may take slightly longer than
+    /// `timeout` time.
     ///
     /// No messages can be sent while `f` is executing.
     ///
@@ -372,6 +372,43 @@ impl<Q, A> Server<Q, A> {
         self.channel.check_non_blocking_in_place(f)
     }
 
+    /// Block requests from being sent until [Self::unblock_sender] is called.
+    /// When send-blocked, the [Client] will get [ChannelError::SendBlocked]
+    /// errors when trying to send messages.
+    ///
+    /// Also see [Self::unblock_sender], [Self::set_send_blocked], and
+    /// [Self::is_send_blocked].
+    pub fn block_sender(&self) -> ChannelResult<()> {
+        self.channel.block_sender()
+    }
+
+    /// Unblocks requests from being sent.
+    ///
+    /// Also see [Self::block_sender], [Self::set_send_blocked], and
+    /// [Self::is_send_blocked].
+    pub fn unblock_sender(&self) -> ChannelResult<()> {
+        self.channel.unblock_sender()
+    }
+
+    /// Blocks or requests messages from being sent.
+    ///
+    /// Also see [Self::block_sender], [Self::unblock_sender], and
+    /// [Self::is_send_blocked].
+    pub fn set_send_blocked(&self, send_blocked: bool) -> ChannelResult<()> {
+        self.channel.set_send_blocked(send_blocked)
+    }
+
+    /// Whether or not the channel is [send-blocked](Server::block_sender).
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped.
+    ///
+    /// Also see [Self::block_sender], [Self::unblock_sender], and
+    /// [Self::set_send_blocked].
+    pub fn is_send_blocked(&self) -> ChannelResult<bool> {
+        self.channel.is_send_blocked()
+    }
+
     /// Whether the other party still has their end of the connection alive, the
     /// inverse of [Self::connection_closed].
     pub fn connection_open(&self) -> bool {
@@ -388,7 +425,8 @@ impl<Q, A> Server<Q, A> {
     ///
     /// No requests can be sent while `f` is executing.
     ///
-    /// There are no checks for whether or not the connection has been dropped.
+    /// There are no checks for if the connection has been dropped or if sending
+    /// is blocked.
     pub fn with_queue_in_place<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&mut VecDeque<ReqRes<Q, A>>) -> R,
@@ -410,11 +448,13 @@ impl<Q, A> Client<Q, A> {
     /// Send a request to the server.
     ///
     /// A [ChannelError::ConnectionDropped] error is returned if the other end
-    /// of the connection was dropped.
+    /// of the connection was dropped. [ChannelError::SendBlocked] is returned
+    /// if the channel is [send-blocked](Server::block_sender).
     ///
     /// Also see [Self::request_bounded] and [Self::request_bounded].
-    pub fn request(&self, request: Q) -> ChannelResult<Request<A>> {
+    pub fn request(&self, request: Q) -> ChannelResult<Request<A>, Q> {
         Self::send_template(self, request, |channel, msg| channel.send(msg))
+            .map_err(|e| e.map_to_req())
     }
 
     /// Send a request to the server only once there are less than
@@ -423,27 +463,34 @@ impl<Q, A> Client<Q, A> {
     /// If `max_in_flight` is `0`, `1` will be used instead.
     ///
     /// A [ChannelError::ConnectionDropped] error is returned if the other end
-    /// of the connection was dropped.
+    /// of the connection was dropped. [ChannelError::SendBlocked] is returned
+    /// if the channel is [send-blocked](Server::block_sender) at any point.
     ///
     /// Also see [Self::request] and [Self::request_bounded_timeout].
-    pub fn request_bounded(&self, request: Q, max_in_flight: usize) -> ChannelResult<Request<A>> {
+    pub fn request_bounded(
+        &self,
+        request: Q,
+        max_in_flight: usize,
+    ) -> ChannelResult<Request<A>, Q> {
         Self::send_template(self, request, |channel, msg| {
             channel.send_bounded(msg, max_in_flight)
         })
+        .map_err(|e| e.map_to_req())
     }
 
     /// Sends a request to the inbox only once there are less than
     /// `max_in_flight` requests [in flight](Self::messages_in_flight) (waiting
     /// for up to `timeout` time).
     ///
-    /// After `timeout` time, a [ChannelError::Timeout] error is returned. Note
-    /// that this function's execution may take slightly longer than `timeout`
-    /// time.
+    /// After `timeout` time, a [ChannelError::SendTimeout] error is returned.
+    /// Note that this function's execution may take slightly longer than
+    /// `timeout` time.
     ///
     /// If `max_in_flight` is `0`, `1` will be used instead.
     ///
     /// A [ChannelError::ConnectionDropped] error is returned if the other end
-    /// of the connection was dropped.
+    /// of the connection was dropped. [ChannelError::SendBlocked] is returned
+    /// if the channel is [send-blocked](Server::block_sender) at any point.
     ///
     /// Also see [Self::request] and [Self::request_bounded].
     pub fn request_bounded_timeout(
@@ -451,20 +498,24 @@ impl<Q, A> Client<Q, A> {
         request: Q,
         max_in_flight: usize,
         timeout: Duration,
-    ) -> ChannelResult<Request<A>> {
+    ) -> ChannelResult<Request<A>, Q> {
         Self::send_template(self, request, |channel, msg| {
-            channel.send_bounded_timeout(msg, max_in_flight, timeout)
+            channel
+                .send_bounded_timeout(msg, max_in_flight, timeout)
+                .map_err(|e| e.map_to_req())
         })
     }
 
     /// Send a message to the server that it does not need to reply to.
     ///
     /// A [ChannelError::ConnectionDropped] error is returned if the other end
-    /// of the connection was dropped.
+    /// of the connection was dropped. [ChannelError::SendBlocked] is returned
+    /// if the channel is [send-blocked](Server::block_sender).
     ///
     /// Also see [Self::alert_bounded] and [Self::alert_bounded_timeout].
-    pub fn alert(&self, request: Q) -> ChannelResult<()> {
+    pub fn alert(&self, request: Q) -> ChannelResult<(), Q> {
         self.alert_template(request, |channel, msg| channel.send(msg))
+            .map_err(|e| e.map_to_req())
     }
 
     /// Send a message to the server that it does not need to reply to once
@@ -474,13 +525,15 @@ impl<Q, A> Client<Q, A> {
     /// If `max_in_flight` is `0`, `1` will be used instead.
     ///
     /// A [ChannelError::ConnectionDropped] error is returned if the other end
-    /// of the connection was dropped.
+    /// of the connection was dropped. [ChannelError::SendBlocked] is returned
+    /// if the channel is [send-blocked](Server::block_sender) at any point.
     ///
     /// Also see [Self::alert] and [Self::alert_bounded_timeout].
-    pub fn alert_bounded(&self, request: Q, max_in_flight: usize) -> ChannelResult<()> {
+    pub fn alert_bounded(&self, request: Q, max_in_flight: usize) -> ChannelResult<(), Q> {
         Self::alert_template(self, request, |channel, msg| {
             channel.send_bounded(msg, max_in_flight)
         })
+        .map_err(|e| e.map_to_req())
     }
 
     /// Send a message to the server that it does not need to reply to once
@@ -488,14 +541,15 @@ impl<Q, A> Client<Q, A> {
     /// [in flight](Self::messages_in_flight) (waiting for up to `timeout`
     /// time).
     ///
-    /// After `timeout` time, a [ChannelError::Timeout] error is returned. Note
-    /// that this function's execution may take slightly longer than `timeout`
-    /// time.
+    /// After `timeout` time, a [ChannelError::SendTimeout] error is returned.
+    /// Note that this function's execution may take slightly longer than
+    /// `timeout` time.
     ///
     /// If `max_in_flight` is `0`, `1` will be used instead.
     ///
     /// A [ChannelError::ConnectionDropped] error is returned if the other end
-    /// of the connection was dropped.
+    /// of the connection was dropped. [ChannelError::SendBlocked] is returned
+    /// if the channel is [send-blocked](Server::block_sender) at any point.
     ///
     /// Also see [Self::alert] and [Self::alert_bounded].
     pub fn alert_bounded_timeout(
@@ -503,9 +557,11 @@ impl<Q, A> Client<Q, A> {
         request: Q,
         max_in_flight: usize,
         timeout: Duration,
-    ) -> ChannelResult<()> {
+    ) -> ChannelResult<(), Q> {
         Self::alert_template(self, request, |channel, msg| {
-            channel.send_bounded_timeout(msg, max_in_flight, timeout)
+            channel
+                .send_bounded_timeout(msg, max_in_flight, timeout)
+                .map_err(|e| e.map_to_req())
         })
     }
 
@@ -516,6 +572,38 @@ impl<Q, A> Client<Q, A> {
     /// of the connection was dropped.
     pub fn messages_in_flight(&self) -> ChannelResult<usize> {
         self.channel.messages_in_flight()
+    }
+
+    /// Whether or not the channel is [send-blocked](Server::block_sender),
+    /// meaning it will return [ChannelError::SendBlocked] on send attempts
+    /// until the [Server] unblocks it.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped.
+    pub fn is_send_blocked(&self) -> ChannelResult<bool> {
+        self.channel.is_send_blocked()
+    }
+
+    /// Wait for the channel to be [send-blocked](Server::block_sender) if it's
+    /// blocked.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped.
+    pub fn wait_for_send_unblocked(&self) -> ChannelResult<()> {
+        self.channel.wait_for_send_unblocked()
+    }
+
+    /// Wait for the channel to be [send-blocked](Server::block_sender) if it's
+    /// blocked.
+    ///
+    /// After `timeout` time, a [ChannelError::WaitTimeout] error is returned.
+    /// Note that this function's execution may take slightly longer than
+    /// `timeout` time.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped.
+    pub fn wait_for_send_unblocked_timeout(&self, timeout: Duration) -> ChannelResult<()> {
+        self.channel.wait_for_send_unblocked_timeout(timeout)
     }
 
     /// Whether the other party still has their end of the connection alive, the
@@ -534,7 +622,8 @@ impl<Q, A> Client<Q, A> {
     ///
     /// No requests can be received while `f` is executing.
     ///
-    /// There are no checks for whether or not the connection has been dropped.
+    /// There are no checks for if the connection has been dropped or if sending
+    /// is blocked.
     pub fn with_queue_in_place<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&mut VecDeque<ReqRes<Q, A>>) -> R,
@@ -543,9 +632,9 @@ impl<Q, A> Client<Q, A> {
     }
 
     #[inline]
-    fn send_template<F, R>(&self, request: Q, sender: F) -> ChannelResult<Request<A>>
+    fn send_template<F, R, M>(&self, request: Q, sender: F) -> ChannelResult<Request<A>, M>
     where
-        F: FnOnce(&message_channel::Outbox<ReqRes<Q, A>>, ReqRes<Q, A>) -> ChannelResult<R>,
+        F: FnOnce(&message_channel::Outbox<ReqRes<Q, A>>, ReqRes<Q, A>) -> ChannelResult<R, M>,
     {
         let (req, res) = Request::new();
         sender(&self.channel, (request, Some(res)))?;
@@ -553,9 +642,9 @@ impl<Q, A> Client<Q, A> {
     }
 
     #[inline]
-    fn alert_template<F, R>(&self, request: Q, sender: F) -> ChannelResult<()>
+    fn alert_template<F, R, M>(&self, request: Q, sender: F) -> ChannelResult<(), M>
     where
-        F: FnOnce(&message_channel::Outbox<ReqRes<Q, A>>, ReqRes<Q, A>) -> ChannelResult<R>,
+        F: FnOnce(&message_channel::Outbox<ReqRes<Q, A>>, ReqRes<Q, A>) -> ChannelResult<R, M>,
     {
         sender(&self.channel, (request, None)).map(|_| ())
     }
@@ -646,7 +735,7 @@ mod tests {
         let timeout = Duration::from_millis(500);
         assert!(matches!(
             server.wait_timeout(timeout),
-            Err(ChannelError::Timeout { .. })
+            Err(ChannelError::WaitTimeout { .. })
         ));
 
         thread.join().unwrap();

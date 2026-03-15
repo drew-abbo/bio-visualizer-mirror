@@ -103,6 +103,11 @@ impl BufferingSuggestor {
         self.consumer_interval = dest_fps.inverse().as_float();
     }
 
+    /// The amount of time expected between fetches.
+    pub fn consumer_interval(&self) -> Duration {
+        Duration::from_secs_f64(self.consumer_interval)
+    }
+
     /// Times `f` and returns how long it took.
     #[inline(always)]
     pub fn run_timed<F, R>(f: F) -> (Duration, R)

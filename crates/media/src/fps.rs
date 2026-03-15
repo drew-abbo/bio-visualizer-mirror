@@ -370,6 +370,7 @@ impl Mul<Fps> for Fps {
 impl Div<Fps> for Fps {
     type Output = Fps;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn div(self, rhs: Fps) -> Fps {
         self * rhs.inverse()
     }
@@ -553,9 +554,9 @@ pub enum FpsError {
 /// resampled data from `S` `dest` times per second.
 ///
 /// If you won't be using the same `src` and `dest` values over and over (i.e.
-/// you'll only make a few calls to [Self::resample] before dropping or calling
-/// [Self::reconfigure]) it's likely more performant to use the freestanding
-/// [resample] function.
+/// you'll only make a few calls to [Self::resample]/[Self::duration] before
+/// dropping it's likely more performant to use the freestanding
+/// [resample]/[resample_back]/[resample_duration] functions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Resampler {
     src_per_dest_num: NonZeroU64,
@@ -567,8 +568,7 @@ impl Resampler {
     ///
     /// If you won't be using the same `src` and `dest` values over and over
     /// (i.e. you'll only make a few calls to [Self::resample] before dropping
-    /// or calling [Self::reconfigure]) it's likely more performant to use the
-    /// freestanding [resample] function.
+    /// it's likely more performant to use the freestanding [resample] function.
     pub const fn new(src: Fps, dest: Fps) -> Self {
         let src_per_dest_num = src.num() as u64 * dest.den() as u64;
         let src_per_dest_den = src.den() as u64 * dest.num() as u64;
@@ -584,20 +584,57 @@ impl Resampler {
         }
     }
 
-    /// This is functionally equivalent to a call to [resample] with the `src`
-    /// and `dest` the arguments used with [Self::new].
-    pub const fn resample(&self, dest_idx: usize) -> usize {
-        ((dest_idx as u64 * self.src_per_dest_num.get()) / self.src_per_dest_den.get()) as usize
+    /// A [Resampler] for when no resampling is needed.
+    #[inline]
+    pub const fn no_op() -> Self {
+        Self {
+            src_per_dest_num: NonZeroU64::MIN,
+            src_per_dest_den: NonZeroU64::MIN,
+        }
     }
 
-    /// Change the `src` and `dest` frame rates.
+    /// This is functionally equivalent to a call to [resample] with the `src`
+    /// and `dest` the arguments used with [Self::new].
+    #[inline]
+    pub const fn resample(&self, dest_idx: usize) -> usize {
+        let num = self.src_per_dest_num.get();
+        let den = self.src_per_dest_den.get();
+        ((dest_idx as u64 * num) / den) as usize
+    }
+
+    /// This is functionally equivalent to a call to [resample_back] with the
+    /// `src` and `dest` the arguments used with [Self::new].
+    #[inline]
+    pub const fn resample_back(&self, src_idx: usize) -> usize {
+        let num = self.src_per_dest_num.get();
+        let den = self.src_per_dest_den.get();
+        (src_idx as u64 * den).div_ceil(num) as usize
+    }
+
+    /// This is functionally equivalent to a call to [resample_duration] with
+    /// the `src` and `dest` the arguments used with [Self::new].
     ///
-    /// If you won't be using the same `src` and `dest` values over and over
-    /// (i.e. you'll only make a few calls to [Self::resample] before dropping
-    /// or calling [Self::reconfigure]) it's likely more performant to use the
-    /// freestanding [resample] function.
-    pub const fn reconfigure(&mut self, src: Fps, dest: Fps) {
-        *self = Self::new(src, dest);
+    /// This function *can* return 0.
+    #[inline]
+    pub const fn duration(&self, src_duration: usize) -> usize {
+        let num = self.src_per_dest_num.get();
+        let den = self.src_per_dest_den.get();
+        ((src_duration as u64 * den) / num) as usize
+    }
+
+    /// Translates a `dest` index from another resampler into a `dest` index for
+    /// this resampler.
+    #[inline]
+    pub const fn translate_old_dest_idx(
+        &self,
+        old_resampler: Resampler,
+        old_dest_idx: usize,
+    ) -> usize {
+        let old_num = old_resampler.src_per_dest_num.get();
+        let old_den = old_resampler.src_per_dest_den.get();
+        let new_num = self.src_per_dest_num.get();
+        let new_den = self.src_per_dest_den.get();
+        ((old_dest_idx as u64 * old_num * new_den) / (old_den * new_num)) as usize
     }
 }
 
@@ -607,7 +644,9 @@ impl Resampler {
 /// resampled data from `S` `dest` times per second.
 ///
 /// If you'll be calling this function with the same `src` and `dest` value over
-/// and over, it's likely more performant to use the [Resampler] struct.
+/// and over, it's likely more performant to use the [Resampler] struct. Also
+/// see [resample_back] and [resample_duration].
+#[inline]
 pub const fn resample(dest_idx: usize, src: Fps, dest: Fps) -> usize {
     let src_per_dest = (
         src.num() as u128 * dest.den() as u128,
@@ -615,6 +654,35 @@ pub const fn resample(dest_idx: usize, src: Fps, dest: Fps) -> usize {
     );
     let src_idx = (dest_idx as u128 * src_per_dest.0) / src_per_dest.1;
     src_idx as usize
+}
+
+/// The inverse of [resample]. This function returns the first valid index in
+/// `D` given an index in `S`.
+#[inline]
+pub const fn resample_back(src_idx: usize, src: Fps, dest: Fps) -> usize {
+    let src_per_dest = (
+        src.num() as u128 * dest.den() as u128,
+        src.den() as u128 * dest.num() as u128,
+    );
+    let dest_idx = (src_idx as u128 * src_per_dest.1).div_ceil(src_per_dest.0);
+    dest_idx as usize
+}
+
+/// Given a resampled stream of data (see [resample]), this function determines
+/// the duration of the `dest` stream given the duraton of the `src` stream.
+///
+/// If you'll be calling this function with the same `src` and `dest` value over
+/// and over, it's likely more performant to use the [Resampler] struct.
+///
+/// This function *can* return 0.
+#[inline]
+pub const fn resample_duration(src_duration: usize, src: Fps, dest: Fps) -> usize {
+    let dest_per_src = (
+        dest.num() as u128 * src.den() as u128,
+        dest.den() as u128 * src.num() as u128,
+    );
+    let dest_duration = (src_duration as u128 * dest_per_src.0) / dest_per_src.1;
+    dest_duration as usize
 }
 
 const fn float_to_frac(x: f64, max_den: u32, tolerance: f64) -> Option<(u32, u32)> {
