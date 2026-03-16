@@ -66,11 +66,23 @@ impl Default for NodeGraphState {
 
 pub struct NodeGraphViewer {
     node_library: Arc<NodeLibrary>,
+    pending_errors: Vec<String>,
 }
 
 impl NodeGraphViewer {
     pub fn new(node_library: Arc<NodeLibrary>) -> Self {
-        Self { node_library }
+        Self {
+            node_library,
+            pending_errors: Vec::new(),
+        }
+    }
+
+    pub fn take_pending_errors(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.pending_errors)
+    }
+
+    fn push_error(&mut self, msg: impl Into<String>) {
+        self.pending_errors.push(msg.into());
     }
 }
 
@@ -106,7 +118,28 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
         if let Some(def) = self.node_library.get_definition(&node_name)
             && let Some(input_def) = def.node.inputs.get(pin.id.input)
         {
+            let mut missing_file_error = None;
             ui.label(&input_def.name);
+
+            // If the definition is file check to make sure the file exists
+            if let engine::node::NodeInputKind::File { .. } = input_def.kind {
+                if let Some(InputValue::File(path)) =
+                    snarl[pin.id.node].input_values.get(&input_def.name)
+                {
+                    if !std::path::Path::new(path).exists() {
+                        let missing_path = path.clone();
+                        let input_name = input_def.name.clone();
+                        // clear the file input
+                        snarl[pin.id.node].input_values.remove(&input_def.name);
+                        missing_file_error = Some(format!(
+                            "Missing file for '{}' on '{}': {}",
+                            input_name,
+                            node_name,
+                            missing_path.display()
+                        ));
+                    }
+                }
+            }
 
             // Show input configuration UI if no connection
             if pin.remotes.is_empty() {
@@ -125,6 +158,11 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
             }
 
             let color = colors::input_kind_color(&input_def.kind);
+
+            if let Some(error) = missing_file_error {
+                self.push_error(error);
+            }
+
             return PinInfo::circle().with_fill(color);
         }
 
@@ -204,10 +242,14 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
         let from_node = &snarl[from.id.node];
         let to_node = &snarl[to.id.node];
 
-        if from_node == to_node {
+        if from.id.node == to.id.node {
             // Prevent self-connection
+            self.push_error("A node cannot be connected to itself.");
             return;
         }
+
+        // TODO
+        // Check for cycles in the graph
 
         let Some(from_def) = self.node_library.get_definition(&from_node.definition_name) else {
             return;
@@ -229,19 +271,28 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
 
         // Only allow connection if types match
         if output_kind != &expected_output_kind {
+            self.push_error(format!(
+                "Cannot connect '{}' to '{}': incompatible pin types.",
+                from_output.name, to_input.name
+            ));
             return;
         }
+
+        // Enforce one incoming connection per input pin.
+        // Snarl allows multiple wires per input by default, so we replace
+        // existing input wires before connecting the new source.
+        snarl.drop_inputs(to.id);
 
         // Types match - create the connection
         snarl.connect(from.id, to.id);
     }
 
-    fn drop_inputs(&mut self, _pin: &InPin, _snarl: &mut Snarl<NodeData>) {
-        // Allow dropping all input connections
+    fn drop_inputs(&mut self, pin: &InPin, snarl: &mut Snarl<NodeData>) {
+        snarl.drop_inputs(pin.id);
     }
 
-    fn drop_outputs(&mut self, _pin: &OutPin, _snarl: &mut Snarl<NodeData>) {
-        // Allow dropping all output connections
+    fn drop_outputs(&mut self, pin: &OutPin, snarl: &mut Snarl<NodeData>) {
+        snarl.drop_outputs(pin.id);
     }
 }
 

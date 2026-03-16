@@ -7,14 +7,17 @@ use super::playback_controls::PlaybackControls;
 use super::playback_state::PlaybackState;
 use super::snarl_style;
 use engine::node::NodeLibrary;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use util::eframe;
 use util::egui;
+use util::ui::ErrorPopup;
 
 /// Manages all editor-related state: node graph, output display, and playback
 pub struct EditorArea {
     /// Local node graph used when no project is open
     local_node_graph: NodeGraphState,
+    error_popup_queue: VecDeque<String>,
     output_panel: OutputPanel,
     playback_controls: PlaybackControls,
     playback_state: PlaybackState,
@@ -35,6 +38,7 @@ impl EditorArea {
 
         Self {
             local_node_graph: NodeGraphState::new(),
+            error_popup_queue: VecDeque::default(),
             output_panel: OutputPanel::new(),
             playback_controls: PlaybackControls::new(),
             playback_state: PlaybackState::new(),
@@ -66,6 +70,7 @@ impl EditorArea {
         let selected_snarl_node = self.update_output_selection(&selected_nodes);
         self.update_output_from_graph(ctx, frame, selected_snarl_node);
         self.show_output_window(ctx);
+        self.show_any_error_popups(ctx);
     }
 
     pub fn save_state(&mut self) {
@@ -84,6 +89,7 @@ impl EditorArea {
 
     fn show_node_graph(&mut self, ctx: &egui::Context) -> Vec<egui_snarl::NodeId> {
         let mut selected_nodes = Vec::new();
+        let mut pending_errors = Vec::new();
 
         // First, render the UI
         egui::CentralPanel::default()
@@ -98,7 +104,12 @@ impl EditorArea {
                 let node_graph = self.active_node_graph_mut();
                 snarl_widget.show(&mut node_graph.snarl, &mut viewer, ui);
                 selected_nodes = snarl_widget.get_selected_nodes(ui);
+                pending_errors = viewer.take_pending_errors();
             });
+
+        for error in pending_errors {
+            self.error_popup_queue.push_back(error);
+        }
 
         // Then sync to engine (after UI to avoid multiple borrows)
         // Check if we have a project graph or use local graph
@@ -190,5 +201,11 @@ impl EditorArea {
                 // Output panel content
                 self.output_panel.render_content(ui);
             });
+    }
+}
+
+impl ErrorPopup<String> for EditorArea {
+    fn error_queue_mut(&mut self) -> &mut VecDeque<String> {
+        &mut self.error_popup_queue
     }
 }
