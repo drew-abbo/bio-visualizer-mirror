@@ -29,7 +29,7 @@ pub trait PlaybackStream<T, E>: Any + 'static {
     /// the data source produced data targeting a playback frame rate of `120.0`
     /// [FPS](Fps), then this function could return new data every call, but
     /// should skip/merge every second data point from the source. See
-    /// [fps::resample](crate::fps::resample) for help implementing this.
+    /// [fps::resample] for help implementing this.
     ///
     /// When the stream is [paused](Self::pause), it should return a neutral
     /// data point until it's [un-paused](Self::play) (e.g. a repeat of the last

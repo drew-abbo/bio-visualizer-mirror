@@ -137,7 +137,7 @@ impl Fps {
     /// Constructs an [Fps] object from an integer. Also see [Self::from_frac].
     pub const fn from_int(fps: u32) -> Result<Self, FpsError> {
         let Some(num) = NonZeroU32::new(fps) else {
-            return Err(FpsError::ZeroNum);
+            return Err(FpsError::NonPositiveNum);
         };
         let den = const { NonZeroU32::new(1).unwrap() };
         Ok(Self { num, den })
@@ -153,10 +153,10 @@ impl Fps {
     /// see [Self::from_int]
     pub const fn from_frac(num: u32, den: u32) -> Result<Self, FpsError> {
         let Some(num) = NonZeroU32::new(num) else {
-            return Err(FpsError::ZeroNum);
+            return Err(FpsError::NonPositiveNum);
         };
         let Some(den) = NonZeroU32::new(den) else {
-            return Err(FpsError::ZeroDen);
+            return Err(FpsError::NonPositiveDen);
         };
 
         Ok(Self::from_non_zero_frac(num, den))
@@ -183,10 +183,10 @@ impl Fps {
         debug_assert!(gcd!(num, den) == 1);
 
         let Some(num) = NonZeroU32::new(num) else {
-            return Err(FpsError::ZeroNum);
+            return Err(FpsError::NonPositiveNum);
         };
         let Some(den) = NonZeroU32::new(den) else {
-            return Err(FpsError::ZeroDen);
+            return Err(FpsError::NonPositiveDen);
         };
 
         Ok(Self { num, den })
@@ -513,11 +513,11 @@ impl From<Fps> for f32 {
 pub enum FpsError {
     /// A frame rate cannot be created with a non-positive numerator.
     #[error("A frame rate cannot be created with a non-positive numerator.")]
-    ZeroNum,
+    NonPositiveNum,
 
     /// A frame rate cannot be created with a non-positive denominator.
     #[error("A frame rate cannot be created with a non-positive denominator.")]
-    ZeroDen,
+    NonPositiveDen,
 
     /// A frame rate cannot be created from an non-positive float.
     #[error("A frame rate cannot be created from an non-positive float.")]

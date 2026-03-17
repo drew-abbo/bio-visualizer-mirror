@@ -2,6 +2,8 @@
 
 pub mod ffmpeg_video;
 
+mod impls;
+
 use ffmpeg_next as ffmpeg;
 
 pub type FFmpegResult<T> = Result<T, ffmpeg::Error>;

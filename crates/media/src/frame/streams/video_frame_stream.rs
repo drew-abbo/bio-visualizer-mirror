@@ -136,7 +136,7 @@ impl VideoFrameStreamBuilder {
     /// How long to wait before giving up when fetching a frame.
     ///
     /// See [VideoFrameStream::fetch_timeout] and
-    /// [VideoFrameStream::fetch_timeout_mut].
+    /// [VideoFrameStream::set_fetch_timeout].
     #[must_use = "Builder methods take `Self` by value."]
     #[inline(always)]
     pub const fn fetch_timeout(mut self, timeout: Duration) -> Self {

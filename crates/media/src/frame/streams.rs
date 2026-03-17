@@ -12,10 +12,10 @@ use crate::frame::Frame;
 use crate::playback_stream::PlaybackStream;
 
 mod still_frame_stream;
-pub use still_frame_stream::StillFrameStream;
+pub use still_frame_stream::*;
 
 mod video_frame_stream;
-pub use video_frame_stream::VideoFrameStream;
+pub use video_frame_stream::*;
 
 /// A [PlaybackStream] of [Frame]s.
 pub trait FrameStream: PlaybackStream<Frame, FrameStreamError> {

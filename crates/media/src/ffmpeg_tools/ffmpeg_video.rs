@@ -1,5 +1,8 @@
 //! Exports [FFmpegVideo].
 
+mod inner;
+use inner::*;
+
 use std::collections::HashMap;
 use std::fmt::{self, Debug};
 use std::num::NonZeroUsize;
@@ -7,21 +10,17 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use std::sync::Mutex;
 use std::time::SystemTime;
-use std::{any, mem, thread};
+use std::{any, thread};
 
-use util::channels::request_channel::Request;
-
-use ffmpeg::codec::Context as FFmpegCodecContext;
-use ffmpeg::codec::decoder::Video as FFmpegVideoDecoder;
 use ffmpeg::format::Pixel as FFmpegPixelFormat;
-use ffmpeg::format::context::Input as FFmpegInputFormatContext;
-use ffmpeg::media::Type as FFmpegMediaType;
 use ffmpeg::software::scaling::Context as FFmpegScalingContext;
 use ffmpeg::software::scaling::flag::Flags as FFmpegScalingFlags;
 use ffmpeg_next as ffmpeg;
 
+use util::channels::request_channel::Request;
+
 use super::FFmpegResult;
-use crate::fps::{Fps, FpsError};
+use crate::fps::Fps;
 use crate::frame::{Dimensions, FrameBuffer, Pixel, RescaleMethod};
 
 pub type FFmpegVideoFrame = ffmpeg::frame::Video;
@@ -53,6 +52,10 @@ impl FrameBuffer for FFmpegVideoFrame {
     }
 }
 
+/// The [decoder pixel format](FFmpegVideoDecoder::format) that all
+/// [FFmpeg video frames](FFmpegVideoFrame) should be using.
+const TARGET_PIXEL_FORMAT: FFmpegPixelFormat = FFmpegPixelFormat::RGBA;
+
 /// A video (courtesy for FFmpeg).
 ///
 /// If any method returns an error, the object should be discarded. Its behavior
@@ -66,10 +69,6 @@ pub struct FFmpegVideo {
 }
 
 impl FFmpegVideo {
-    /// The [decoder pixel format](FFmpegVideoDecoder::format) that all
-    /// [FFmpeg video frames](FFmpegVideoFrame) should be using.
-    pub const TARGET_PIXEL_FORMAT: FFmpegPixelFormat = FFmpegPixelFormat::RGBA;
-
     /// Open a video file with FFmpeg.
     ///
     /// The first time opening a video that doesn't specify its duration (in
@@ -156,21 +155,18 @@ impl FFmpegVideo {
             return if let Some(last_frame) = self.last_frame.take() {
                 Ok(last_frame)
             } else {
-                let mut dest_frame = recycled_frame.unwrap_or_else(FFmpegVideoFrame::empty);
-                self.inner
-                    .write_next_frame_in_stream(&mut dest_frame)
-                    .map(|_| dest_frame)
+                self.inner.next_frame(recycled_frame)
             };
         }
 
         if let Some(ref last_frame) = self.last_frame {
             if let Some(mut recycled_frame) = recycled_frame
-                && recycled_frame.format() == Self::TARGET_PIXEL_FORMAT
-                && recycled_frame.width() == self.inner.src_dimensions.width()
-                && recycled_frame.height() == self.inner.src_dimensions.height()
+                && recycled_frame.format() == TARGET_PIXEL_FORMAT
+                && recycled_frame.width() == self.inner.src_dimensions().width()
+                && recycled_frame.height() == self.inner.src_dimensions().height()
             {
                 // SAFETY: This can silently fail and cause U.B. if the frames
-                // don't have the same pixel format or dimensions (ffmpeg-next
+                // don't have the same pixel format or dimensions (`ffmpeg-next`
                 // sucks). We just checked though so it's fine.
                 recycled_frame.clone_from(last_frame);
                 Ok(recycled_frame)
@@ -178,11 +174,9 @@ impl FFmpegVideo {
                 Ok(last_frame.clone())
             }
         } else {
-            let mut dest_frame = recycled_frame.unwrap_or_else(FFmpegVideoFrame::empty);
-
-            self.inner.write_next_frame_in_stream(&mut dest_frame)?;
-            self.last_frame = Some(dest_frame.clone());
-            Ok(dest_frame)
+            let new_frame = self.inner.next_frame(recycled_frame)?;
+            self.last_frame = Some(new_frame.clone());
+            Ok(new_frame)
         }
     }
 
@@ -203,24 +197,20 @@ impl FFmpegVideo {
             return Ok(());
         }
 
-        self.last_frame = None;
-        let old_playhead = mem::replace(&mut self.playhead, new_playhead);
-
         // No frames can be fetched from after the stream is over so if we're
         // seeking to the end we can skip the real work.
         if new_playhead == self.duration() {
             return Ok(());
         }
 
-        // If we're only a few frames away from the frame we're seeking to we'll
-        // just walk there instead of seeking.
-        if let Some(frames_to_go) = new_playhead.checked_sub(old_playhead)
-            && self.should_walk_instead_of_seek(frames_to_go)
-        {
-            return self.inner.skip_frames(frames_to_go);
+        if self.should_walk_instead_of_seek(new_playhead) {
+            self.inner.skip_frames(new_playhead - self.playhead)?;
+        } else {
+            self.inner.seek_playhead(new_playhead)?;
         }
-
-        self.inner.seek_playhead(new_playhead)
+        self.last_frame = None;
+        self.playhead = new_playhead;
+        Ok(())
     }
 
     /// The index of the next frame that will be written.
@@ -245,19 +235,19 @@ impl FFmpegVideo {
 
     /// The intended (native) [Fps] playback speed of this video.
     pub const fn src_fps(&self) -> Fps {
-        self.inner.src_fps
+        self.inner.src_fps()
     }
 
     /// The intended (native) dimensions of the frames in this video.
     pub const fn src_dimensions(&self) -> Dimensions {
-        self.inner.src_dimensions
+        self.inner.src_dimensions()
     }
 
     /// The dimensions of the frames that will be produced.
     pub const fn dest_dimensions(&self) -> Dimensions {
         match self.rescale() {
             Some((dest_dimensions, _)) => dest_dimensions,
-            None => self.inner.src_dimensions,
+            None => self.inner.src_dimensions(),
         }
     }
 
@@ -326,23 +316,39 @@ impl FFmpegVideo {
         Ok(())
     }
 
-    /// A best guess as to whether it's cheaper to decode `n` frames forward
-    /// instead of seeking `n` frames forward.
-    fn should_walk_instead_of_seek(&self, n: usize) -> bool {
-        const DEFAULT_BETWEEN_GUESS: usize = 32;
+    /// A best guess as to whether it's cheaper to decode frames forward to get
+    /// to `new_playhead` instead of seeking.
+    fn should_walk_instead_of_seek(&self, new_playhead: usize) -> bool {
+        // We can't seek by frame backwards.
+        let Some(frames_to_go) = new_playhead.checked_sub(self.playhead) else {
+            return false;
+        };
 
+        // If it's just 1 frame we'll always just walk there.
+        if frames_to_go <= 1 {
+            return true;
+        }
+
+        // If the stream can seek by frame just seek.
+        if self.inner.seek_by_frame_supported() == Some(true) {
+            return false;
+        }
+
+        const DEFAULT_FRAMES_BETWEEN_KEYFRAMES_GUESS: usize = 32;
         let frames_between_keyframes = self
             .inner
-            .max_frames_between_keyframes
-            .map_or_else(|| DEFAULT_BETWEEN_GUESS, NonZeroUsize::get);
+            .max_frames_between_keyframes()
+            .map_or_else(|| DEFAULT_FRAMES_BETWEEN_KEYFRAMES_GUESS, NonZeroUsize::get);
 
         let frames_until_keyframe = frames_between_keyframes
             - self
                 .inner
-                .frames_since_keyframe
+                .frames_since_keyframe()
                 .map_or_else(|| 0, NonZeroUsize::get);
 
-        n <= frames_until_keyframe
+        // We should walk if we're thinking the next keyframe will be after
+        // where we're seeking to.
+        frames_to_go <= frames_until_keyframe
     }
 }
 
@@ -357,6 +363,119 @@ impl Debug for FFmpegVideo {
     }
 }
 
+struct FrameScaler {
+    scaler: FFmpegScalingContext,
+
+    #[cfg(debug_assertions)]
+    src_format: FFmpegPixelFormat,
+    #[cfg(debug_assertions)]
+    src_dimensions: Dimensions,
+
+    dest_dimensions: Dimensions,
+    rescale_method: RescaleMethod,
+}
+
+impl FrameScaler {
+    /// Create a new [FrameScaler].
+    pub fn new(
+        src_format: FFmpegPixelFormat,
+        src_dimensions: Dimensions,
+        dest_dimensions: Dimensions,
+        rescale_method: RescaleMethod,
+    ) -> FFmpegResult<Self> {
+        let scaling_flags = if src_dimensions == dest_dimensions {
+            FFmpegScalingFlags::empty()
+        } else {
+            match rescale_method {
+                RescaleMethod::NearestNeighbor => FFmpegScalingFlags::POINT,
+                RescaleMethod::Bilinear => FFmpegScalingFlags::BILINEAR,
+                RescaleMethod::Bicubic => FFmpegScalingFlags::BICUBIC,
+            }
+        };
+
+        let scaler = FFmpegScalingContext::get(
+            // Src:
+            src_format,
+            src_dimensions.width(),
+            src_dimensions.height(),
+            // Dest:
+            TARGET_PIXEL_FORMAT,
+            dest_dimensions.width(),
+            dest_dimensions.height(),
+            // Rescale method:
+            scaling_flags,
+        )?;
+
+        Ok(Self {
+            scaler,
+
+            #[cfg(debug_assertions)]
+            src_format,
+            #[cfg(debug_assertions)]
+            src_dimensions,
+
+            dest_dimensions,
+            rescale_method,
+        })
+    }
+
+    /// Like [Self::new] but [None] is returned if no reformatting is needed.
+    pub fn new_if_needed(
+        src_format: FFmpegPixelFormat,
+        src_dimensions: Dimensions,
+        dest_dimensions: Dimensions,
+        rescale_method: RescaleMethod,
+    ) -> FFmpegResult<Option<Self>> {
+        if src_format == TARGET_PIXEL_FORMAT && src_dimensions == dest_dimensions {
+            Ok(None)
+        } else {
+            Self::new(src_format, src_dimensions, dest_dimensions, rescale_method).map(Some)
+        }
+    }
+
+    /// Rescale `src` onto `dest`.
+    pub fn rescale(
+        &mut self,
+        src: &FFmpegVideoFrame,
+        dest: &mut FFmpegVideoFrame,
+    ) -> FFmpegResult<()> {
+        #[cfg(debug_assertions)]
+        {
+            debug_assert_eq!(src.format(), self.src_format);
+            debug_assert_eq!(
+                Dimensions::new(src.width(), src.height()),
+                Some(self.src_dimensions)
+            );
+        }
+
+        debug_assert_eq!(dest.format(), TARGET_PIXEL_FORMAT);
+        debug_assert_eq!(
+            Dimensions::new(dest.width(), dest.height()),
+            Some(self.dest_dimensions)
+        );
+
+        self.scaler.run(src, dest)
+    }
+
+    /// This rescaler's [Dimensions].
+    pub const fn dest_dimensions(&self) -> Dimensions {
+        self.dest_dimensions
+    }
+
+    /// This rescaler's [RescaleMethod].
+    pub const fn rescale_method(&self) -> RescaleMethod {
+        self.rescale_method
+    }
+}
+
+// SAFETY: The `ffmpeg::software::scaling::Context` type (aliased
+// `FFmpegScalingContext` here) which we're storing in `FrameScaler` *is* safe
+// to send/share between threads. The library authors likely just didn't think
+// to mark it. I opened an issue about it here:
+// <https://github.com/zmwangx/rust-ffmpeg/issues/252>
+unsafe impl Send for FrameScaler {}
+unsafe impl Sync for FrameScaler {}
+
 /// Rescale a frame ([FFmpegVideoFrame]) to a new size.
 pub fn rescale_ffmpeg_frame(
     frame: FFmpegVideoFrame,
@@ -367,7 +486,7 @@ pub fn rescale_ffmpeg_frame(
         return Ok(frame);
     }
 
-    let mut scaler = make_scaler(
+    let mut scaler = FrameScaler::new(
         frame.format(),
         frame.dimensions(),
         new_dimensions,
@@ -375,426 +494,8 @@ pub fn rescale_ffmpeg_frame(
     )?;
 
     let mut rescaled_frame = FFmpegVideoFrame::empty();
-    scaler.run(&frame, &mut rescaled_frame)?;
+    scaler.rescale(&frame, &mut rescaled_frame)?;
     Ok(rescaled_frame)
-}
-
-/// A basic FFmpeg video stream that can write formatted and resized frames from
-/// a stream in order and can be seeked. See [FFmpegVideo].
-struct FFmpegVideoInner {
-    // Frame Generation:
-    input_context: FFmpegInputFormatContext,
-    decoder: FFmpegVideoDecoder,
-    reformatter: FrameReformatter,
-    draining: bool,
-
-    // Optimization:
-    frames_since_keyframe: Option<NonZeroUsize>,
-    max_frames_between_keyframes: Option<NonZeroUsize>,
-
-    // Src Info (Final):
-    target_stream_index: usize,
-    src_fps: Fps,
-    src_dimensions: Dimensions,
-}
-
-impl<'a> FFmpegVideoInner {
-    /// Create an [FFmpegVideo] with everything but the duration.
-    pub fn new(path: &'a Path, rescale: Option<(Dimensions, RescaleMethod)>) -> FFmpegResult<Self> {
-        // This object is a handle to the file we opened. Right now, this is
-        // just the kind of container (e.g. MP4, MKV) and FFmpeg has none of the
-        // actual video/audio data yet (only the file's metadata).
-        let input_context = ffmpeg::format::input(path)?;
-
-        // Video containers can have multiple video streams. This picks the one
-        // FFmpeg thinks is the best.
-        let best_video_stream = input_context
-            .streams()
-            .best(FFmpegMediaType::Video)
-            .ok_or(ffmpeg::Error::StreamNotFound)?;
-
-        // When we're going through packets later, we'll need to make sure to
-        // ignore all packets that aren't from the video stream we care about.
-        // To do that, we'll save the video stream's index.
-        let target_stream_index = best_video_stream.index();
-
-        // This gathers the information we'll need for decoding our video
-        // stream (e.g. bitrate, resolution, frames per second). We need this to
-        // create a decoder.
-        let decoder_context = FFmpegCodecContext::from_parameters(best_video_stream.parameters())?;
-
-        // This is the actual object we can use to decode our video streams into
-        // frames. It also provides more information about the video.
-        let decoder = decoder_context.decoder().video()?;
-
-        const BAD_STATS_ERR: ffmpeg::Error = ffmpeg::Error::InvalidData;
-
-        // The stream should have constant frame spacing. If it doesn't we might
-        // be able to detect that early here.
-        if best_video_stream.avg_frame_rate() != best_video_stream.rate() {
-            return Err(BAD_STATS_ERR);
-        }
-
-        let src_fps: Fps = best_video_stream
-            .avg_frame_rate()
-            .try_into()
-            .or(Err(BAD_STATS_ERR))?;
-
-        let src_dimensions =
-            Dimensions::new(decoder.width(), decoder.height()).ok_or(BAD_STATS_ERR)?;
-
-        let (dest_dimensions, rescale_method) =
-            rescale.unwrap_or((src_dimensions, RescaleMethod::default()));
-
-        let reformatter = FrameReformatter::new(&decoder, dest_dimensions, rescale_method)?;
-
-        Ok(Self {
-            input_context,
-            decoder,
-            reformatter,
-            draining: false,
-            frames_since_keyframe: None,
-            max_frames_between_keyframes: None,
-            target_stream_index,
-            src_fps,
-            src_dimensions,
-        })
-    }
-
-    /// Writes the next frame in the stream to `dest_frame`.
-    fn write_next_frame_in_stream(
-        &mut self,
-        dest_frame: &mut FFmpegVideoFrame,
-    ) -> FFmpegResult<()> {
-        // Internally, the `packets` iterator mutates our `input_context`, not
-        // its own internal state. This means we can cheaply re-create the
-        // packets iterator each time we want to grab a new packet.
-        let mut packets = self
-            .input_context
-            .packets()
-            .filter_map(|(packet_stream, packet)| {
-                // Skip packets that aren't for our stream.
-                (packet_stream.index() == self.target_stream_index).then_some(packet)
-            });
-
-        loop {
-            // Try to write a new reformatted frame to the output buffer.
-            let decode_result = self.reformatter.reformat(dest_frame, |dest_frame| {
-                // https://ffmpeg.org/doxygen/8.0/group__lavc__decoding.html#ga11e6542c4e66d3028668788a1a74217c
-                self.decoder.receive_frame(dest_frame)?;
-                Ok(dest_frame.is_key())
-            });
-
-            let decode_err = match decode_result {
-                Ok(is_keyframe) => {
-                    self.track_new_frame_is_keyframe(is_keyframe);
-
-                    // We wrote a frame to the output buffer, we're done.
-                    return Ok(());
-                }
-
-                Err(e) => e,
-            };
-
-            // `EAGAIN` means we haven't sent enough packets for a frame yet. If
-            // that happens, we have to load some packets and keep going.
-            if decode_err != ffmpeg::error::EAGAIN.into() {
-                // Something must be wrong w/ the file or the object's state.
-                return Err(decode_err);
-            }
-
-            // If we're draining it means we're already out of packets to send.
-            if self.draining {
-                return Err(ffmpeg::Error::Eof);
-            }
-
-            if let Some(packet) = packets.next() {
-                // Send the next packet to the decoder and try again.
-                self.decoder.send_packet(&packet)?;
-            } else {
-                // If we're out of packets we'll tell the decoder to drain what
-                // it has.
-                self.decoder.send_eof()?;
-                self.draining = true;
-            }
-        }
-    }
-
-    /// See [FFmpegVideo::seek_playhead].
-    pub fn seek_playhead(&mut self, new_playhead: usize) -> FFmpegResult<()> {
-        // FFmpeg seeks by timestamp, not by frame. This is going to be a pain.
-
-        self.frames_since_keyframe = None;
-
-        // For now we'll just handle the seek to 0 case.
-        if new_playhead == 0 {
-            self.input_context.seek(0, ..)?;
-            self.decoder.flush();
-            return Ok(());
-        }
-
-        todo!()
-    }
-
-    /// See [FFmpegVideo::rescale].
-    pub const fn rescale(&self) -> Option<(Dimensions, RescaleMethod)> {
-        match self.reformatter.rescale_method {
-            Some(rescale_method) => Some((self.reformatter.dest_dimensions, rescale_method)),
-            None => None,
-        }
-    }
-
-    /// See [FFmpegVideo::set_rescale].
-    pub fn set_rescale(
-        &mut self,
-        dest_dimensions: Dimensions,
-        rescale_method: RescaleMethod,
-    ) -> FFmpegResult<()> {
-        let reformatter = &mut self.reformatter;
-
-        let same_dest_dimensions = reformatter.dest_dimensions == dest_dimensions;
-        let same_rescale_method = reformatter.rescale_method == Some(rescale_method);
-        let rescale_needed = self.src_dimensions != dest_dimensions;
-
-        if same_dest_dimensions && (same_rescale_method || !rescale_needed) {
-            return Ok(());
-        }
-
-        *reformatter = FrameReformatter::new(&self.decoder, dest_dimensions, rescale_method)?;
-        Ok(())
-    }
-
-    /// The frame count if it is known (in the metadata).
-    pub fn known_frame_count(&self) -> Option<NonZeroUsize> {
-        // The frame count is an optional field that some containers provide.
-        // Not all video formats provide it though.
-        match self
-            .input_context
-            .stream(self.target_stream_index)
-            .expect("target stream should be present")
-            .frames()
-        {
-            ..=0 => None,
-            frames => Some(NonZeroUsize::new(frames as usize).unwrap()),
-        }
-    }
-
-    /// Continually skips the next frame while `continue_predicate` returns
-    /// `true` (or until the stream's end is found). The number of frames
-    /// skipped is returned.
-    ///
-    /// `continue_predicate` is called after every each frame is decoded. The
-    /// number of the frames decoded so far is passed as an argument. If the
-    /// predicate returns `false`, the function will immediately exit.
-    ///
-    /// [ffmpeg::Error::Eof] is returned if no frames could be skipped.
-    pub fn skip_frames_while<F>(&mut self, mut continue_predicate: F) -> FFmpegResult<NonZeroUsize>
-    where
-        F: FnMut(NonZeroUsize) -> bool,
-    {
-        // SAFETY: We won't use any frames the dummy reformatter gives us.
-        let dummy_reformatter = unsafe { FrameReformatter::with_no_formatting() };
-        let mut original_reformatter = mem::replace(&mut self.reformatter, dummy_reformatter);
-
-        // We'll reuse the original reformatter's intermediate buffer for this
-        // if it has one (lets us skip an allocation if the reformatter has been
-        // used before).
-        let dest_frame = match original_reformatter.intermediate_buffer() {
-            Some(intermediate_buffer) => intermediate_buffer,
-            None => &mut FFmpegVideoFrame::empty(),
-        };
-
-        let mut frame_count: usize = 0;
-
-        loop {
-            match self.write_next_frame_in_stream(dest_frame) {
-                Ok(_) => frame_count += 1,
-                Err(ffmpeg::Error::Eof) => break,
-                Err(e) => return Err(e),
-            }
-
-            let non_zero_frame_count = frame_count.try_into().expect("Just incremented");
-            if !continue_predicate(non_zero_frame_count) {
-                let _ = mem::replace(&mut self.reformatter, original_reformatter);
-                return Ok(non_zero_frame_count);
-            }
-        }
-
-        // We'll call a frame count of 0 an EOF error.
-        let non_zero_frame_count = frame_count.try_into().map_err(|_| ffmpeg::Error::Eof)?;
-
-        let _ = mem::replace(&mut self.reformatter, original_reformatter);
-        Ok(non_zero_frame_count)
-    }
-
-    /// Skips the next `n` frames.
-    pub fn skip_frames(&mut self, n: usize) -> FFmpegResult<()> {
-        if n == 0 {
-            return Ok(());
-        }
-
-        let skipped = self.skip_frames_while(|skipped| skipped.get() < n)?.get();
-        if skipped < n {
-            return Err(ffmpeg::Error::Eof);
-        }
-        Ok(())
-    }
-
-    fn track_new_frame_is_keyframe(&mut self, new_frame_is_keyframe: bool) {
-        if new_frame_is_keyframe {
-            if let Some(frames_since_keyframe) = self.frames_since_keyframe {
-                self.max_frames_between_keyframes = match self.max_frames_between_keyframes {
-                    Some(max) => Some(max.max(frames_since_keyframe)),
-                    None => Some(frames_since_keyframe),
-                };
-            }
-
-            self.frames_since_keyframe = Some(NonZeroUsize::MIN);
-            return;
-        }
-
-        if let Some(frames_since_keyframe) = &mut self.frames_since_keyframe {
-            // SAFETY: n + 1 where n > 0 is never 0.
-            *frames_since_keyframe =
-                unsafe { NonZeroUsize::new_unchecked(frames_since_keyframe.get() + 1) };
-        }
-    }
-}
-
-/// Used to rescale and reformat video frames.
-struct FrameReformatter {
-    inner: Option<FrameReformatterInner>,
-    dest_dimensions: Dimensions,
-    rescale_method: Option<RescaleMethod>,
-}
-
-impl FrameReformatter {
-    /// Create a [FrameReformatter].
-    pub fn new(
-        decoder: &FFmpegVideoDecoder,
-        dest_dimensions: Dimensions,
-        rescale_method: RescaleMethod,
-    ) -> FFmpegResult<Self> {
-        let src_dimensions = Dimensions::new(decoder.width(), decoder.height())
-            .expect("Decoder dimensions are non-zero.");
-
-        let dimensions_match = src_dimensions == dest_dimensions;
-        let formats_match = decoder.format() == FFmpegVideo::TARGET_PIXEL_FORMAT;
-
-        // If the dimensions and pixel format both don't need to change, we
-        // won't need to do any reformatting.
-        if dimensions_match && formats_match {
-            return Ok(Self {
-                inner: None,
-                dest_dimensions,
-                rescale_method: None,
-            });
-        }
-
-        let scaler = make_scaler(
-            decoder.format(),
-            src_dimensions,
-            dest_dimensions,
-            rescale_method,
-        )?;
-
-        Ok(Self {
-            inner: Some(FrameReformatterInner {
-                scaler,
-                intermediate_buffer: FFmpegVideoFrame::empty(),
-            }),
-            dest_dimensions,
-            rescale_method: (!dimensions_match).then_some(rescale_method),
-        })
-    }
-
-    /// If formating needs to happen, apply the `f` operation to an intermediate
-    /// buffer and copy that buffer to an RGBA buffer `dest_frame`. If
-    /// formatting doesn't need to happen `f` will just be applied directly to
-    /// `dest_frame`.
-    ///
-    /// `dest_frame` should be RGBA and have the the same dest dimensions as was
-    /// passed to the formatter. If it doesn't you'll end up with memory
-    /// reallocations.
-    pub fn reformat<F, R>(&mut self, dest_frame: &mut FFmpegVideoFrame, f: F) -> FFmpegResult<R>
-    where
-        F: FnOnce(&mut FFmpegVideoFrame) -> FFmpegResult<R>,
-    {
-        let Some(inner) = &mut self.inner else {
-            return f(dest_frame);
-        };
-
-        let ret = f(&mut inner.intermediate_buffer)?;
-        inner.scaler.run(&inner.intermediate_buffer, dest_frame)?;
-        Ok(ret)
-    }
-
-    /// Get mutable access to the intermediate buffer stored by this reformatter
-    /// (if it has one).
-    pub const fn intermediate_buffer(&mut self) -> Option<&mut FFmpegVideoFrame> {
-        match &mut self.inner {
-            Some(inner) => Some(&mut inner.intermediate_buffer),
-            None => None,
-        }
-    }
-
-    /// Create a reformatter that does no formatting ever. The result of
-    /// [Self::reformat] may not have the right pixel format or dimensions.
-    ///
-    /// # Safety
-    ///
-    /// Do not assume anything about the format or dimensions of what gets
-    /// written by [Self::reformat].
-    pub const unsafe fn with_no_formatting() -> Self {
-        Self {
-            inner: None,
-            dest_dimensions: const { Dimensions::new(1, 1).unwrap() },
-            rescale_method: None,
-        }
-    }
-}
-
-struct FrameReformatterInner {
-    pub scaler: FFmpegScalingContext,
-    pub intermediate_buffer: FFmpegVideoFrame,
-}
-
-// SAFETY: The `ffmpeg::software::scaling::Context` type (aliased
-// `FFmpegScalingContext` here) which we're storing in `FrameReformatterInner`
-// struct *is* safe to send/share between threads. The library authors likely
-// just didn't think to mark it. I opened an issue about it here:
-// <https://github.com/zmwangx/rust-ffmpeg/issues/252>
-unsafe impl Send for FrameReformatterInner {}
-unsafe impl Sync for FrameReformatterInner {}
-
-fn make_scaler(
-    src_format: FFmpegPixelFormat,
-    src_dimensions: Dimensions,
-    dest_dimensions: Dimensions,
-    rescale_method: RescaleMethod,
-) -> FFmpegResult<FFmpegScalingContext> {
-    let scaling_flags = if src_dimensions == dest_dimensions {
-        FFmpegScalingFlags::empty()
-    } else {
-        match rescale_method {
-            RescaleMethod::NearestNeighbor => FFmpegScalingFlags::POINT,
-            RescaleMethod::Bilinear => FFmpegScalingFlags::BILINEAR,
-            RescaleMethod::Bicubic => FFmpegScalingFlags::BICUBIC,
-        }
-    };
-
-    FFmpegScalingContext::get(
-        // Src:
-        src_format,
-        src_dimensions.width(),
-        src_dimensions.height(),
-        // Dest:
-        FFmpegVideo::TARGET_PIXEL_FORMAT,
-        dest_dimensions.width(),
-        dest_dimensions.height(),
-        // Rescale method:
-        scaling_flags,
-    )
 }
 
 mod frame_count_cache {
@@ -844,15 +545,4 @@ mod frame_count_cache {
         LazyLock::new(Mutex::default);
 
     const LOCK_UNPOISONED: &str = "The lock shouldn't be poisoned.";
-}
-
-impl TryFrom<ffmpeg::Rational> for Fps {
-    type Error = FpsError;
-
-    fn try_from(ffmpeg::Rational(num, den): ffmpeg::Rational) -> Result<Self, Self::Error> {
-        Fps::from_frac(
-            u32::try_from(num).unwrap_or(0),
-            u32::try_from(den).unwrap_or(0),
-        )
-    }
 }
