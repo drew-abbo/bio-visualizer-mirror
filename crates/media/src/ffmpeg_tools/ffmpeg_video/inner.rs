@@ -96,18 +96,12 @@ impl<'a> FFmpegVideoInner {
             None => None,
         };
 
-        let src_frame_buffer = Some(FFmpegVideoFrame::new(
-            decoder.format(),
-            decoder.width(),
-            decoder.height(),
-        ));
-
         Ok(Self {
             // Frame Generation:
             input_context,
             decoder,
             scaler,
-            src_frame_buffer,
+            src_frame_buffer: None,
             draining: false,
 
             // Seeking:
@@ -312,28 +306,33 @@ impl<'a> FFmpegVideoInner {
         recycled_frame: Option<FFmpegVideoFrame>,
         skip_return: bool,
     ) -> FFmpegResult<Option<FFmpegVideoFrame>> {
-        let mut src_frame = self.src_frame_buffer.take().expect("src frame present");
+        let mut src_frame = self
+            .src_frame_buffer
+            .take()
+            .unwrap_or_else(|| self.new_src_frame_buffer(None));
 
-        let ret = self.write_next_frame_in_stream_impl(recycled_frame, &mut src_frame, skip_return);
+        let ret =
+            self.write_next_frame_in_stream_impl(recycled_frame, &mut src_frame, skip_return)?;
 
-        debug_assert_eq!(src_frame.format(), self.decoder.format());
-        debug_assert_eq!(src_frame.width(), self.decoder.width());
-        debug_assert_eq!(src_frame.height(), self.decoder.height());
+        if src_frame.format() != self.decoder.format()
+            || src_frame.width() != self.decoder.width()
+            || src_frame.height() != self.decoder.height()
+        {
+            return Err(ffmpeg::Error::InputChanged);
+        }
         self.src_frame_buffer = Some(src_frame);
 
-        if let Ok(maybe_frame) = &ret {
-            if let Some(ret_frame) = maybe_frame {
-                debug_assert!(!skip_return);
+        if let Some(ret_frame) = &ret {
+            debug_assert!(!skip_return);
 
-                debug_assert_eq!(ret_frame.format(), TARGET_PIXEL_FORMAT);
-                debug_assert_eq!(ret_frame.width(), self.dest_dimensions().width());
-                debug_assert_eq!(ret_frame.height(), self.dest_dimensions().height());
-            } else {
-                debug_assert!(skip_return);
-            }
+            assert_eq!(ret_frame.format(), TARGET_PIXEL_FORMAT);
+            assert_eq!(ret_frame.width(), self.dest_dimensions().width());
+            assert_eq!(ret_frame.height(), self.dest_dimensions().height());
+        } else {
+            debug_assert!(skip_return);
         }
 
-        ret
+        Ok(ret)
     }
 
     fn write_next_frame_in_stream_impl(
