@@ -521,8 +521,8 @@ impl<'a> FFmpegVideoInner {
             // If the timestamp difference is not constant between frames (with
             // an allowed ±1 tolerance) then this is a variable frame rate video
             // (which we aren't going to support).
-            let new_timestamp_delta = self.frame_timestamp_delta.update(timestamp_delta);
-            self.frame_timestamp_delta = match new_timestamp_delta {
+            let timestamp_delta = self.frame_timestamp_delta.update(timestamp_delta);
+            self.frame_timestamp_delta = match timestamp_delta {
                 Some(delta) if !delta.has_split_range() => delta,
                 _ => return Err(Self::UNSUPPORTED_FORMAT),
             };
@@ -629,7 +629,7 @@ impl Range1 {
 
     /// Whether or not any values have been recorded.
     pub const fn has_values(self) -> bool {
-        self.min_count == 0 && self.mid_count == 0 && self.max_count == 0
+        self.min_count != 0 || self.mid_count != 0 || self.max_count != 0
     }
 
     /// Updates the range of `self` with `new_n` if `new_n` is within range of
