@@ -84,6 +84,33 @@ impl NodeGraphViewer {
     fn push_error(&mut self, msg: impl Into<String>) {
         self.pending_errors.push(msg.into());
     }
+
+    /// Simple DFS to check if connecting would create a cycle in the graph
+    fn would_create_cycle(
+        snarl: &Snarl<NodeData>,
+        from: SnarlNodeId,
+        to: SnarlNodeId,
+    ) -> bool {
+        let mut stack = vec![to];
+        let mut visited = std::collections::HashSet::new();
+
+        while let Some(node) = stack.pop() {
+            if !visited.insert(node) {
+                continue;
+            }
+            if node == from {
+                return true;
+            }
+
+            for (wire_from, wire_to) in snarl.wires() {
+                if wire_from.node == node {
+                    stack.push(wire_to.node);
+                }
+            }
+        }
+
+        false
+    }
 }
 
 impl SnarlViewer<NodeData> for NodeGraphViewer {
@@ -250,6 +277,10 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
 
         // TODO
         // Check for cycles in the graph
+        if Self::would_create_cycle(snarl, from.id.node, to.id.node) {
+            self.push_error("Connecting these nodes would create a cycle.");
+            return;
+        }
 
         let Some(from_def) = self.node_library.get_definition(&from_node.definition_name) else {
             return;
@@ -295,6 +326,7 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
         snarl.drop_outputs(pin.id);
     }
 }
+
 
 impl NodeGraphState {
     /// Sync the entire node graph to the engine
