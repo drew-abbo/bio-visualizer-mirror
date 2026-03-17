@@ -24,6 +24,9 @@ pub struct ResampledFFmpegVideo {
     resampled_paused: bool,
     will_loop: bool,
     last_frame_played: bool,
+
+    #[cfg(debug_assertions)]
+    do_debug_checks: bool,
 }
 
 impl ResampledFFmpegVideo {
@@ -57,6 +60,9 @@ impl ResampledFFmpegVideo {
             resampled_paused: paused,
             will_loop,
             last_frame_played: false,
+
+            #[cfg(debug_assertions)]
+            do_debug_checks: false,
         };
 
         let target_fps = target_fps.unwrap_or(src_fps);
@@ -64,7 +70,12 @@ impl ResampledFFmpegVideo {
         ret.set_clip(clip);
         ret.seek_playhead(playhead);
 
-        ret.debug_assert_state_is_valid();
+        #[cfg(debug_assertions)]
+        {
+            ret.do_debug_checks = true;
+            ret.debug_assert_state_is_valid();
+        }
+
         ret
     }
 
@@ -361,6 +372,11 @@ impl ResampledFFmpegVideo {
     /// state is valid.
     #[cfg_attr(not(debug_assertions), inline(always))]
     const fn debug_assert_state_is_valid(&self) {
+        #[cfg(debug_assertions)]
+        if !self.do_debug_checks {
+            return;
+        }
+
         // The clip should be within the video's bounds.
         debug_assert!(self.resampled_clip.end < self.resampled_duration());
         debug_assert!(self.resampled_clip.start <= self.resampled_clip.end);
