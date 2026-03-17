@@ -268,6 +268,14 @@ impl<'a> FFmpegVideoInner {
         Ok(())
     }
 
+    /// The target dimensions of this video.
+    pub const fn dest_dimensions(&self) -> Dimensions {
+        match &self.scaler {
+            Some(scaler) => scaler.dest_dimensions,
+            None => self.src_dimensions,
+        }
+    }
+
     /// The native dimensions of this video.
     pub const fn src_dimensions(&self) -> Dimensions {
         self.src_dimensions
@@ -313,6 +321,18 @@ impl<'a> FFmpegVideoInner {
         debug_assert_eq!(src_frame.height(), self.decoder.height());
         self.src_frame_buffer = Some(src_frame);
 
+        if let Ok(maybe_frame) = &ret {
+            if let Some(ret_frame) = maybe_frame {
+                debug_assert!(!skip_return);
+
+                debug_assert_eq!(ret_frame.format(), TARGET_PIXEL_FORMAT);
+                debug_assert_eq!(ret_frame.width(), self.dest_dimensions().width());
+                debug_assert_eq!(ret_frame.height(), self.dest_dimensions().height());
+            } else {
+                debug_assert!(skip_return);
+            }
+        }
+
         ret
     }
 
@@ -326,7 +346,7 @@ impl<'a> FFmpegVideoInner {
         debug_assert_eq!(src_frame.width(), self.decoder.width());
         debug_assert_eq!(src_frame.height(), self.decoder.height());
 
-        let mut ret_frame = skip_return.then(|| self.new_dest_frame_buffer(recycled_frame));
+        let mut ret_frame = (!skip_return).then(|| self.new_dest_frame_buffer(recycled_frame));
 
         loop {
             // We'll write directly to the frame we'll return if reformatting
@@ -373,7 +393,6 @@ impl<'a> FFmpegVideoInner {
 
             // `EAGAIN` means we haven't sent enough packets for a frame yet. If
             // that happens, we have to load some packets and keep going.
-            const EAGAIN: ffmpeg::Error = ffmpeg::Error::Other { errno: ffmpeg::error::EAGAIN };
             if decode_err != EAGAIN {
                 // Something must be wrong w/ the file or the object's state.
                 return Err(decode_err);
@@ -560,6 +579,10 @@ impl<'a> FFmpegVideoInner {
         start_timestamp.saturating_add(frame_idx.rescale(frame_duration, time_base))
     }
 }
+
+const EAGAIN: ffmpeg::Error = ffmpeg::Error::Other {
+    errno: ffmpeg::error::EAGAIN,
+};
 
 type Range1InnerT = i64;
 
