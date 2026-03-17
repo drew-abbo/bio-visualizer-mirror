@@ -373,7 +373,8 @@ impl<'a> FFmpegVideoInner {
 
             // `EAGAIN` means we haven't sent enough packets for a frame yet. If
             // that happens, we have to load some packets and keep going.
-            if decode_err != ffmpeg::error::EAGAIN.into() {
+            const EAGAIN: ffmpeg::Error = ffmpeg::Error::Other { errno: ffmpeg::error::EAGAIN };
+            if decode_err != EAGAIN {
                 // Something must be wrong w/ the file or the object's state.
                 return Err(decode_err);
             }
