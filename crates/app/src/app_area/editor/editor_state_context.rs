@@ -56,10 +56,10 @@ impl EditorStateContext {
 
     /// Check if the graph state hash changed and mark as edited if so
     pub fn check_hash_changed(&mut self, current_hash: u64) {
-        if let Some(last_hash) = self.last_saved_hash {
-            if current_hash != last_hash {
-                self.mark_edited();
-            }
+        if let Some(last_hash) = self.last_saved_hash
+            && current_hash != last_hash
+        {
+            self.mark_edited();
         }
     }
 

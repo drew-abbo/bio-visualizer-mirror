@@ -86,11 +86,7 @@ impl NodeGraphViewer {
     }
 
     /// Simple DFS to check if connecting would create a cycle in the graph
-    fn would_create_cycle(
-        snarl: &Snarl<NodeData>,
-        from: SnarlNodeId,
-        to: SnarlNodeId,
-    ) -> bool {
+    fn would_create_cycle(snarl: &Snarl<NodeData>, from: SnarlNodeId, to: SnarlNodeId) -> bool {
         let mut stack = vec![to];
         let mut visited = std::collections::HashSet::new();
 
@@ -149,23 +145,21 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
             ui.label(&input_def.name);
 
             // If the definition is file check to make sure the file exists
-            if let engine::node::NodeInputKind::File { .. } = input_def.kind {
-                if let Some(InputValue::File(path)) =
+            if let engine::node::NodeInputKind::File { .. } = input_def.kind
+                && let Some(InputValue::File(path)) =
                     snarl[pin.id.node].input_values.get(&input_def.name)
-                {
-                    if !std::path::Path::new(path).exists() {
-                        let missing_path = path.clone();
-                        let input_name = input_def.name.clone();
-                        // clear the file input
-                        snarl[pin.id.node].input_values.remove(&input_def.name);
-                        missing_file_error = Some(format!(
-                            "Missing file for '{}' on '{}': {}",
-                            input_name,
-                            node_name,
-                            missing_path.display()
-                        ));
-                    }
-                }
+                && !std::path::Path::new(path).exists()
+            {
+                let missing_path = path.clone();
+                let input_name = input_def.name.clone();
+                // clear the file input
+                snarl[pin.id.node].input_values.remove(&input_def.name);
+                missing_file_error = Some(format!(
+                    "Missing file for '{}' on '{}': {}",
+                    input_name,
+                    node_name,
+                    missing_path.display()
+                ));
             }
 
             // Show input configuration UI if no connection
@@ -326,7 +320,6 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
         snarl.drop_outputs(pin.id);
     }
 }
-
 
 impl NodeGraphState {
     /// Sync the entire node graph to the engine

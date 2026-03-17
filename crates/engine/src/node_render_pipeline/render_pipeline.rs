@@ -150,7 +150,6 @@ impl PipelineBase for NodeRenderPipeline {
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
-            ..Default::default()
         });
         rpass.set_pipeline(&self.pipeline);
         rpass.set_bind_group(0, &bind_group, &[]);

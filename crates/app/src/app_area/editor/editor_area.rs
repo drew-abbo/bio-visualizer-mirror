@@ -138,10 +138,10 @@ impl EditorArea {
         // Check if graph state changed (nodes added/removed/modified) and mark as edited if so
         if has_project {
             // Compute hash of current state
-            if let Some(current_state) = self.editor_state_context.node_graph_mut() {
-                if let Some(current_hash) = EditorStateContext::compute_state_hash(current_state) {
-                    self.editor_state_context.check_hash_changed(current_hash);
-                }
+            if let Some(current_state) = self.editor_state_context.node_graph_mut()
+                && let Some(current_hash) = EditorStateContext::compute_state_hash(current_state)
+            {
+                self.editor_state_context.check_hash_changed(current_hash);
             }
         }
 
