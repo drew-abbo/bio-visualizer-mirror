@@ -86,15 +86,14 @@ impl<'a> FFmpegVideoInner {
         let src_dimensions =
             Dimensions::new(decoder.width(), decoder.height()).ok_or(Self::UNSUPPORTED_FORMAT)?;
 
-        let scaler = match rescale {
-            Some((dest_dimensions, rescale_method)) => FrameScaler::new_if_needed(
-                decoder.format(),
-                src_dimensions,
-                dest_dimensions,
-                rescale_method,
-            )?,
-            None => None,
-        };
+        let (dest_dimensions, rescale_method) =
+            rescale.unwrap_or((src_dimensions, RescaleMethod::default()));
+        let scaler = FrameScaler::new_if_needed(
+            decoder.format(),
+            src_dimensions,
+            dest_dimensions,
+            rescale_method,
+        )?;
 
         Ok(Self {
             // Frame Generation:
@@ -426,12 +425,10 @@ impl<'a> FFmpegVideoInner {
     }
 
     fn new_dest_frame_buffer(&self, recycled_buffer: Option<FFmpegVideoFrame>) -> FFmpegVideoFrame {
-        let Some(scaler) = &self.scaler else {
-            return self.new_src_frame_buffer(recycled_buffer);
+        let (dest_width, dest_height) = match &self.scaler {
+            Some(scaler) => scaler.dest_dimensions.into(),
+            None => self.src_dimensions.into(),
         };
-
-        let dest_width = scaler.dest_dimensions.width();
-        let dest_height = scaler.dest_dimensions.height();
 
         if let Some(recycled_buffer) = recycled_buffer
             && recycled_buffer.format() == TARGET_PIXEL_FORMAT

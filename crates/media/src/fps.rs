@@ -630,11 +630,11 @@ impl Resampler {
         old_resampler: Resampler,
         old_dest_idx: usize,
     ) -> usize {
-        let old_num = old_resampler.src_per_dest_num.get();
-        let old_den = old_resampler.src_per_dest_den.get();
-        let new_num = self.src_per_dest_num.get();
-        let new_den = self.src_per_dest_den.get();
-        ((old_dest_idx as u64 * old_num * new_den) / (old_den * new_num)) as usize
+        let old_num = old_resampler.src_per_dest_num.get() as u128;
+        let old_den = old_resampler.src_per_dest_den.get() as u128;
+        let new_num = self.src_per_dest_num.get() as u128;
+        let new_den = self.src_per_dest_den.get() as u128;
+        ((old_dest_idx as u128 * old_num * new_den) / (old_den * new_num)) as usize
     }
 }
 
