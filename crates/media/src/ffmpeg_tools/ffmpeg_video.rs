@@ -367,9 +367,9 @@ struct FrameScaler {
     scaler: FFmpegScalingContext,
 
     #[cfg(debug_assertions)]
-    src_format: FFmpegPixelFormat,
+    src_format_debug: FFmpegPixelFormat,
     #[cfg(debug_assertions)]
-    src_dimensions: Dimensions,
+    src_dimensions_debug: Dimensions,
 
     dest_dimensions: Dimensions,
     rescale_method: RescaleMethod,
@@ -410,9 +410,9 @@ impl FrameScaler {
             scaler,
 
             #[cfg(debug_assertions)]
-            src_format,
+            src_format_debug: src_format,
             #[cfg(debug_assertions)]
-            src_dimensions,
+            src_dimensions_debug: src_dimensions,
 
             dest_dimensions,
             rescale_method,
@@ -441,10 +441,10 @@ impl FrameScaler {
     ) -> FFmpegResult<()> {
         #[cfg(debug_assertions)]
         {
-            debug_assert_eq!(src.format(), self.src_format);
+            debug_assert_eq!(src.format(), self.src_format_debug);
             debug_assert_eq!(
                 Dimensions::new(src.width(), src.height()),
-                Some(self.src_dimensions)
+                Some(self.src_dimensions_debug)
             );
         }
 
@@ -493,7 +493,11 @@ pub fn rescale_ffmpeg_frame(
         rescale_method,
     )?;
 
-    let mut rescaled_frame = FFmpegVideoFrame::empty();
+    let mut rescaled_frame = FFmpegVideoFrame::new(
+        TARGET_PIXEL_FORMAT,
+        new_dimensions.width(),
+        new_dimensions.height(),
+    );
     scaler.rescale(&frame, &mut rescaled_frame)?;
     Ok(rescaled_frame)
 }

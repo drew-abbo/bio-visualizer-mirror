@@ -81,6 +81,7 @@ struct StreamGeneratorOuter<T: StreamGenerator> {
     generator: T,
     data_outbox: Outbox<T::Data>,
     request_server: Server<T::Request, T::Response>,
+    in_flight: usize,
 }
 
 impl<T: StreamGenerator> StreamGeneratorOuter<T> {
@@ -94,17 +95,17 @@ impl<T: StreamGenerator> StreamGeneratorOuter<T> {
             generator,
             data_outbox,
             request_server,
+            in_flight: 0,
         }
     }
 
     /// Runs the stream generator, sending and handling requests.
     pub fn run(mut self) -> ChannelResult<Infallible> {
         let mut buffering_suggestor = BufferingSuggestor::new(self.generator.target_fps());
-        let mut in_flight = 0;
 
         loop {
-            let new_data =
-                buffering_suggestor.run_timed_and_sampled(|| self.generator.new_data(in_flight));
+            let new_data = buffering_suggestor
+                .run_timed_and_sampled(|| self.generator.new_data(self.in_flight));
 
             buffering_suggestor.set_dest_fps(self.generator.target_fps());
             let buffering_suggestion = buffering_suggestor.buffering_suggestion();
@@ -113,8 +114,9 @@ impl<T: StreamGenerator> StreamGeneratorOuter<T> {
                 .data_outbox
                 .send_bounded(new_data, buffering_suggestion)
             {
-                Ok(_) => {
-                    in_flight = self.handle_requests()?;
+                Ok(in_flight) => {
+                    self.in_flight = in_flight;
+                    self.handle_requests()?;
                     continue;
                 }
                 Err(ChannelError::SendBlocked { msg }) => msg,
@@ -128,42 +130,42 @@ impl<T: StreamGenerator> StreamGeneratorOuter<T> {
             // invalid queue handler can see *every* item that has been
             // generated but not received.
             self.data_outbox
-                .with_queue_in_place(|queue| queue.push_back(new_data));
+                .with_queue_in_place_unchecked(|queue| queue.push_back(new_data));
 
-            in_flight = self.handle_requests()?;
+            self.handle_requests()?;
         }
     }
 
-    fn handle_requests(&mut self) -> ChannelResult<usize> {
+    fn handle_requests(&mut self) -> ChannelResult<()> {
         let mut handle_all_requests = |requests: &mut VecDeque<ReqRes<_, _>>| -> () {
             for (mut request, res_handle) in requests.drain(..) {
                 let queue_invalid_note = self.generator.handle_request(&mut request);
 
                 if let Some(queue_invalid_note) = queue_invalid_note {
-                    self.data_outbox.with_queue_in_place(|queue| {
-                        self.generator.handle_invalid_queue(
-                            queue,
-                            &mut request,
-                            queue_invalid_note,
-                        );
-                    });
+                    // Unchecked because we may be send-blocked.
+                    self.data_outbox
+                        .with_queue_in_place_unchecked(|data_queue| {
+                            self.generator.handle_invalid_queue(
+                                data_queue,
+                                &mut request,
+                                queue_invalid_note,
+                            );
+                            self.in_flight = data_queue.len();
+                        });
                 }
 
                 if let Some(res_handle) = res_handle {
                     let response = self.generator.create_response_for_request(request);
+                    // We don't care if they actually wait for the response or not.
                     _ = res_handle.respond(response);
                 }
             }
         };
 
-        let in_flight = self
-            .request_server
-            .check_in_place(|queue| {
-                handle_all_requests(queue);
-                queue.len()
-            })?
-            .unwrap_or(0);
+        self.request_server.with_queue_in_place(|request_queue| {
+            handle_all_requests(request_queue);
+        })?;
 
-        Ok(in_flight)
+        Ok(())
     }
 }

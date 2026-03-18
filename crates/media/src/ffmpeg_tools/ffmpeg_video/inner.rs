@@ -18,7 +18,7 @@ use crate::fps::Fps;
 use crate::frame::{Dimensions, RescaleMethod};
 
 /// A basic FFmpeg video stream that can write formatted and resized frames from
-/// a stream in order and can be seeked. See [FFmpegVideo].
+/// a stream in order and can be seeked. See [FFmpegVideo](super::FFmpegVideo).
 pub struct FFmpegVideoInner {
     // Frame Generation:
     input_context: FFmpegInputFormatContext,
@@ -44,7 +44,8 @@ pub struct FFmpegVideoInner {
 }
 
 impl<'a> FFmpegVideoInner {
-    /// Create an [FFmpegVideo] with everything but the duration.
+    /// Create an [FFmpegVideo](super::FFmpegVideo) with everything but the
+    /// duration.
     pub fn new(path: &'a Path, rescale: Option<(Dimensions, RescaleMethod)>) -> FFmpegResult<Self> {
         // This object is a handle to the file we opened. Right now, this is
         // just the kind of container (e.g. MP4, MKV) and FFmpeg has none of the
@@ -135,8 +136,9 @@ impl<'a> FFmpegVideoInner {
             .map(|frame| assert!(frame.is_none(), "return skipped"))
     }
 
-    /// See [FFmpegVideo::seek_playhead].
+    /// See [FFmpegVideo::seek_playhead](super::FFmpegVideo::seek_playhead).
     pub fn seek_playhead(&mut self, new_playhead: usize) -> FFmpegResult<()> {
+        self.draining = false;
         self.next_frame_min_timestamp = None;
         self.last_frame_timestamp = None;
         self.frames_since_keyframe = None;
@@ -176,7 +178,7 @@ impl<'a> FFmpegVideoInner {
         Ok(())
     }
 
-    /// See [FFmpegVideo::rescale].
+    /// See [FFmpegVideo::rescale](super::FFmpegVideo::rescale).
     pub const fn rescale(&self) -> Option<(Dimensions, RescaleMethod)> {
         match &self.scaler {
             Some(scaler) => Some((scaler.dest_dimensions(), scaler.rescale_method())),
@@ -184,7 +186,7 @@ impl<'a> FFmpegVideoInner {
         }
     }
 
-    /// See [FFmpegVideo::set_rescale].
+    /// See [FFmpegVideo::set_rescale](super::FFmpegVideo::set_rescale).
     pub fn set_rescale(
         &mut self,
         new_dest_dimensions: Dimensions,

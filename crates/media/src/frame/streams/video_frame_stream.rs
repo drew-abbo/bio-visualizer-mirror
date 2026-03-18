@@ -565,9 +565,9 @@ struct Worker {
 impl Worker {
     /// Create a new [Worker].
     pub fn new(ffmpeg_video: ResampledFFmpegVideo) -> Self {
-        let recycled_frames = Vec::with_capacity(16);
+        let recycled_frames = Vec::with_capacity(32);
 
-        let mut state_history = VecDeque::with_capacity(16);
+        let mut state_history = VecDeque::with_capacity(32);
         state_history.push_back(PlaybackState::snapshot(&ffmpeg_video));
 
         let rescale_method = ffmpeg_video.rescale_method().unwrap_or_default();
@@ -629,13 +629,15 @@ impl StreamGenerator for Worker {
             }
         };
 
+        debug_assert!(self.state_history.len() >= in_flight + 1);
         while self.state_history.len() > in_flight + 1 {
-            self.state_history.pop_back();
+            self.state_history.pop_front();
         }
 
         let state = PlaybackState::snapshot(&self.ffmpeg_video);
         self.state_history.push_back(state);
 
+        debug_assert!(self.state_history.len() == in_flight + 2);
         Ok((frame, state))
     }
 
@@ -673,7 +675,8 @@ impl StreamGenerator for Worker {
         req: &mut Self::Request,
         _queue_invalid_note: Self::QueueInvalidNote,
     ) {
-        assert!(queue.len() + 1 == self.state_history.len());
+        debug_assert!(self.state_history.len() == queue.len() + 1);
+
         let client_state = self.get_client_state();
 
         // Rewind to where the client is.

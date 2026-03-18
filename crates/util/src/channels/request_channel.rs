@@ -424,14 +424,25 @@ impl<Q, A> Server<Q, A> {
     /// Direct access to the inner request queue.
     ///
     /// No requests can be sent while `f` is executing.
-    ///
-    /// There are no checks for if the connection has been dropped or if sending
     /// is blocked.
-    pub fn with_queue_in_place<F, R>(&self, f: F) -> R
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped.
+    pub fn with_queue_in_place<F, R>(&self, f: F) -> ChannelResult<R>
     where
         F: FnOnce(&mut VecDeque<ReqRes<Q, A>>) -> R,
     {
         self.channel.with_queue_in_place(f)
+    }
+
+    /// Like [Self::with_queue_in_place], just without the check for if the
+    /// other end of the connection was dropped or if the channel is
+    /// [send-blocked](Server::block_sender).
+    pub fn with_queue_in_place_unchecked<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut VecDeque<ReqRes<Q, A>>) -> R,
+    {
+        self.channel.with_queue_in_place_unchecked(f)
     }
 }
 
@@ -622,13 +633,24 @@ impl<Q, A> Client<Q, A> {
     ///
     /// No requests can be received while `f` is executing.
     ///
-    /// There are no checks for if the connection has been dropped or if sending
-    /// is blocked.
-    pub fn with_queue_in_place<F, R>(&self, f: F) -> R
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped. [ChannelError::SendBlockedNoMsg] is
+    /// returned if the channel is [send-blocked](Server::block_sender).
+    pub fn with_queue_in_place<F, R>(&self, f: F) -> ChannelResult<R>
     where
         F: FnOnce(&mut VecDeque<ReqRes<Q, A>>) -> R,
     {
         self.channel.with_queue_in_place(f)
+    }
+
+    /// Like [Self::with_queue_in_place], just without the check for if the
+    /// other end of the connection was dropped or if the channel is
+    /// [send-blocked](Server::block_sender).
+    pub fn with_queue_in_place_unchecked<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut VecDeque<ReqRes<Q, A>>) -> R,
+    {
+        self.channel.with_queue_in_place_unchecked(f)
     }
 
     #[inline]

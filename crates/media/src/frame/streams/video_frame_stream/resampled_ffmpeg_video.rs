@@ -26,7 +26,7 @@ pub struct ResampledFFmpegVideo {
     last_frame_played: bool,
 
     #[cfg(debug_assertions)]
-    do_debug_checks: bool,
+    debug_check_blocks: usize,
 }
 
 impl ResampledFFmpegVideo {
@@ -62,7 +62,7 @@ impl ResampledFFmpegVideo {
             last_frame_played: false,
 
             #[cfg(debug_assertions)]
-            do_debug_checks: false,
+            debug_check_blocks: 1,
         };
 
         let target_fps = target_fps.unwrap_or(src_fps);
@@ -70,11 +70,8 @@ impl ResampledFFmpegVideo {
         ret.set_clip(clip);
         ret.seek_playhead(playhead);
 
-        #[cfg(debug_assertions)]
-        {
-            ret.do_debug_checks = true;
-            ret.debug_assert_state_is_valid();
-        }
+        ret.unblock_debug_checks();
+        ret.debug_assert_state_is_valid();
 
         ret
     }
@@ -152,8 +149,10 @@ impl ResampledFFmpegVideo {
             return clip;
         }
 
+        self.block_debug_checks();
         self.resampled_clip = clip;
         self.seek_playhead(self.resampled_playhead);
+        self.unblock_debug_checks();
 
         self.debug_assert_state_is_valid();
         clip
@@ -360,10 +359,12 @@ impl ResampledFFmpegVideo {
             .translate_old_dest_idx(old_resampler, self.resampled_playhead)
             .clamp(new_clip.start, new_clip.end);
 
+        self.block_debug_checks();
         self.fps_resampler = new_resampler;
         self.resampled_duration = new_duration;
         self.resampled_clip = new_clip;
         self.seek_playhead(new_playhead);
+        self.unblock_debug_checks();
 
         self.debug_assert_state_is_valid();
     }
@@ -373,7 +374,7 @@ impl ResampledFFmpegVideo {
     #[cfg_attr(not(debug_assertions), inline(always))]
     const fn debug_assert_state_is_valid(&self) {
         #[cfg(debug_assertions)]
-        if !self.do_debug_checks {
+        if self.debug_check_blocks > 0 {
             return;
         }
 
@@ -398,5 +399,22 @@ impl ResampledFFmpegVideo {
 
         // The inner video should have a valid playhead.
         debug_assert!(self.ffmpeg_video.playhead() < self.src_duration());
+    }
+
+    #[cfg_attr(not(debug_assertions), inline(always))]
+    fn block_debug_checks(&mut self) {
+        #[cfg(debug_assertions)]
+        {
+            self.debug_check_blocks += 1;
+        }
+    }
+
+    #[cfg_attr(not(debug_assertions), inline(always))]
+    fn unblock_debug_checks(&mut self) {
+        #[cfg(debug_assertions)]
+        {
+            debug_assert!(self.debug_check_blocks != 0);
+            self.debug_check_blocks -= 1;
+        }
     }
 }

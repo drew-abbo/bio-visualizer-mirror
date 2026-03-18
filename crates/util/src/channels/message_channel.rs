@@ -427,8 +427,20 @@ impl<T> Inbox<T> {
     ///
     /// No messages can be sent while `f` is executing.
     ///
-    /// There are no checks for whether or not the connection has been dropped.
-    pub fn with_queue_in_place<F, R>(&self, f: F) -> R
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped.
+    pub fn with_queue_in_place<F, R>(&self, f: F) -> ChannelResult<R>
+    where
+        F: FnOnce(&mut VecDeque<T>) -> R,
+    {
+        super::ensure_connection_not_dropped(&self.channel)?;
+        let mut queue = self.channel.queue.lock().expect(THREAD_PANIC_MSG);
+        Ok(self.mutate_queue(&mut queue, |q| f(q)))
+    }
+
+    /// Like [Self::with_queue_in_place], just without the check for if the
+    /// other end of the connection was dropped.
+    pub fn with_queue_in_place_unchecked<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&mut VecDeque<T>) -> R,
     {
@@ -436,7 +448,7 @@ impl<T> Inbox<T> {
         self.mutate_queue(&mut queue, |q| f(q))
     }
 
-    /// Wait for the queue to have at least 1 item in it, then return the queue.
+    /// Wait for the queue to have at least 1 item in it, then run `f` on it.
     fn wait_for_queue<F, R>(&self, f: F) -> ChannelResult<R>
     where
         F: FnOnce(&mut MutexGuard<'_, QueueAndRule<T>>) -> R,
@@ -466,7 +478,7 @@ impl<T> Inbox<T> {
     }
 
     /// Wait for the queue to have at least 1 item in it for up to `duration`,
-    /// then return the queue.
+    /// then run `f` on it.
     fn wait_for_queue_timeout<F, R>(&self, timeout: Duration, f: F) -> ChannelResult<R>
     where
         F: FnOnce(&mut MutexGuard<'_, QueueAndRule<T>>) -> R,
@@ -508,8 +520,7 @@ impl<T> Inbox<T> {
         }
     }
 
-    /// See if the queue has at least 1 item in it. If it does, return the
-    /// queue.
+    /// See if the queue has at least 1 item in it. If it does, run `f` on it.
     fn check_for_queue<F, R>(&self, f: F) -> ChannelResult<Option<R>>
     where
         F: FnOnce(&mut MutexGuard<'_, QueueAndRule<T>>) -> R,
@@ -528,7 +539,7 @@ impl<T> Inbox<T> {
     }
 
     /// See if the queue's mutex is unlocked and the queue has at least 1 item
-    /// in it. If it does, return the queue.
+    /// in it. If it does, run `f` on it.
     fn check_for_queue_non_blocking<F, R>(&self, f: F) -> ChannelResult<Option<R>>
     where
         F: FnOnce(&mut MutexGuard<'_, QueueAndRule<T>>) -> R,
@@ -760,9 +771,32 @@ impl<T> Outbox<T> {
     ///
     /// No messages can be received while `f` is executing.
     ///
-    /// There are no checks for if the connection has been dropped or if sending
-    /// is blocked.
-    pub fn with_queue_in_place<F, R>(&self, f: F) -> R
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped. [ChannelError::SendBlockedNoMsg] is
+    /// returned if the channel is [send-blocked](Inbox::block_sender).
+    pub fn with_queue_in_place<F, R>(&self, f: F) -> ChannelResult<R>
+    where
+        F: FnOnce(&mut VecDeque<T>) -> R,
+    {
+        super::ensure_connection_not_dropped(&self.channel)?;
+        let mut queue = self.channel.queue.lock().expect(THREAD_PANIC_MSG);
+        if queue.rule == SendRule::Block {
+            return Err(ChannelError::SendBlockedNoMsg);
+        }
+
+        let ret = f(queue.as_mut());
+
+        // We need to notify the inbox that a message may have arrived if it's
+        // waiting.
+        self.channel.notifier.notify_one();
+
+        Ok(ret)
+    }
+
+    /// Like [Self::with_queue_in_place], just without the check for if the
+    /// other end of the connection was dropped or if the channel is
+    /// [send-blocked](Inbox::block_sender).
+    pub fn with_queue_in_place_unchecked<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&mut VecDeque<T>) -> R,
     {
