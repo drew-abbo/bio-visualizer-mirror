@@ -182,14 +182,20 @@ impl ResampledFFmpegVideo {
 
     /// Tries to set whether or not the stream is paused. The new paused state
     /// is returned.
-    pub const fn set_paused(&mut self, paused: bool) -> bool {
+    pub fn set_paused(&mut self, paused: bool) -> bool {
         self.debug_assert_state_is_valid();
 
-        // We have to be paused if we've played the last frame and are still at
-        // the end of the video.
-        if self.last_frame_played && self.resampled_playhead == self.resampled_clip.end {
-            debug_assert!(self.resampled_paused);
-            return true;
+        let video_is_over =
+            self.last_frame_played && self.resampled_playhead == self.resampled_clip.end;
+        debug_assert!(!video_is_over || self.resampled_paused);
+
+        // If the video is over and we un-pause, we'll restart the video.
+        if video_is_over && !paused {
+            // Can't unpause 1 frame video though.
+            if self.resampled_duration() <= 1 {
+                return true;
+            }
+            self.seek_playhead(self.resampled_clip.start);
         }
 
         self.resampled_paused = paused;
