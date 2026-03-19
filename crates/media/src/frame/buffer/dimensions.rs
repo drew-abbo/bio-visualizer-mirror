@@ -3,6 +3,8 @@
 use std::fmt::{self, Display, Formatter};
 use std::num::NonZeroU32;
 
+use util::gcd::gcd_u32;
+
 /// A width and a height, both guaranteed to be non-zero.
 ///
 /// # Example
@@ -116,7 +118,7 @@ impl Dimensions {
     /// assert_eq!(ratio, (16, 9).into());
     /// ```
     pub const fn aspect_ratio(&self) -> Self {
-        let gcd = greatest_common_divisor(self.width.get(), self.height.get());
+        let gcd = gcd_u32(self.width.get(), self.height.get());
 
         // SAFETY: The sides are non-zero, `gcd` cannot be 0, and `gcd` also
         // cannot be greater than the width or height. Because of all of this,
@@ -253,11 +255,4 @@ impl From<Dimensions> for (NonZeroU32, NonZeroU32) {
     fn from(dimensions: Dimensions) -> Self {
         (dimensions.width_non_zero(), dimensions.height_non_zero())
     }
-}
-
-const fn greatest_common_divisor(mut a: u32, mut b: u32) -> u32 {
-    while b != 0 {
-        (b, a) = (a % b, b)
-    }
-    a
 }
