@@ -117,9 +117,9 @@ impl FFmpegVideo {
         let (req, res) = Request::new();
         thread::spawn(move || {
             let count_frames_and_construct = || {
-                // We'll only check the connection every 64 frames.
+                // We'll only check the connection every so often.
                 let duration =
-                    inner.skip_frames_while(|n| n.get() % 64 != 0 || res.connection_open())?;
+                    inner.determine_frame_count(|n| n % 64 != 0 || res.connection_open())?;
 
                 inner.seek_playhead(0)?;
 
