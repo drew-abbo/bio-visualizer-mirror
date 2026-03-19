@@ -1,9 +1,11 @@
 pub mod editor;
+mod main_output;
 mod title_bar;
 
 use super::args::Args;
 use super::launcher_comm;
 use editor::{EditorArea, NodeGraphState};
+use main_output::MainOutputArea;
 use title_bar::Command;
 use util::eframe;
 use util::egui;
@@ -16,6 +18,7 @@ use util::ui::popup_window;
 pub struct AppArea {
     title_bar: title_bar::TitleBarArea,
     editor_area: EditorArea,
+    main_output: MainOutputArea,
     show_exit_confirmation: bool,
     /// Flag to indicate we're exiting, prevents re-checking for changes
     is_exiting: bool,
@@ -49,6 +52,7 @@ impl AppArea {
         Self {
             title_bar: title_bar::TitleBarArea::new(),
             editor_area,
+            main_output: MainOutputArea::new(),
             show_exit_confirmation: false,
             is_exiting: false,
         }
@@ -128,6 +132,25 @@ impl eframe::App for AppArea {
 
         self.show_top_bar(ctx);
         self.editor_area.show(ctx, frame);
+        self.editor_area
+            .sync_main_output(frame, &mut self.main_output);
+
+        // Fallback output container that is always visible even when detached
+        egui::Window::new("Output")
+            .default_pos(egui::pos2(100.0, 100.0))
+            .default_size(egui::vec2(520.0, 620.0))
+            .min_size(egui::vec2(320.0, 280.0))
+            .resizable(true)
+            .collapsible(true)
+            .frame(
+                egui::Frame::new()
+                    .fill(egui::Color32::from_rgb(18, 22, 24))
+                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(44, 54, 58)))
+                    .inner_margin(egui::Margin::same(10)),
+            )
+            .show(ctx, |ui| {
+                self.main_output.show(ui);
+            });
     }
 
     fn persist_egui_memory(&self) -> bool {

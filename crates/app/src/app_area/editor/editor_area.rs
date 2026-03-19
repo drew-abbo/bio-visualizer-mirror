@@ -1,29 +1,34 @@
 use super::editor_state_context::EditorStateContext;
 use super::graph_executor_manager::GraphExecutorManager;
 use super::node_graph::{NodeGraphState, NodeGraphViewer};
-use super::output_controller::OutputController;
-use super::output_panel::OutputPanel;
-use super::playback_controls::PlaybackControls;
-use super::playback_state::PlaybackState;
 use super::snarl_style;
+use crate::app_area::main_output::MainOutputArea;
+use engine::graph_executor::NodeValue;
 use engine::node::NodeLibrary;
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use util::eframe;
 use util::egui;
 use util::ui::ErrorPopup;
+
+const GRAPH_PREVIEW_MIN_INTERVAL: Duration = Duration::from_millis(16);
 
 /// Manages all editor-related state: node graph, output display, and playback
 pub struct EditorArea {
     /// Local node graph used when no project is open
     local_node_graph: NodeGraphState,
     error_popup_queue: VecDeque<String>,
-    output_panel: OutputPanel,
-    playback_controls: PlaybackControls,
-    playback_state: PlaybackState,
     executor_manager: GraphExecutorManager,
     node_library: Arc<NodeLibrary>,
     editor_state_context: EditorStateContext,
+    displayed_frame: Option<NodeValue>,
+    last_fps_output: Option<f64>,
+    last_playback_request: Instant,
+    playback_accumulator: Duration,
+    last_playing: bool,
+    last_execute_request: Instant,
+    pending_graph_preview: bool,
 }
 
 impl EditorArea {
@@ -39,12 +44,16 @@ impl EditorArea {
         Self {
             local_node_graph: NodeGraphState::new(),
             error_popup_queue: VecDeque::default(),
-            output_panel: OutputPanel::new(),
-            playback_controls: PlaybackControls::new(),
-            playback_state: PlaybackState::new(),
             executor_manager: GraphExecutorManager::new(),
             node_library,
             editor_state_context: EditorStateContext::new(),
+            displayed_frame: None,
+            last_fps_output: None,
+            last_playback_request: Instant::now(),
+            playback_accumulator: Duration::ZERO,
+            last_playing: false,
+            last_execute_request: Instant::now(),
+            pending_graph_preview: false,
         }
     }
 
@@ -69,8 +78,21 @@ impl EditorArea {
         let selected_nodes = self.show_node_graph(ctx);
         let selected_snarl_node = self.update_output_selection(&selected_nodes);
         self.update_output_from_graph(ctx, frame, selected_snarl_node);
-        self.show_output_window(ctx);
+
         self.show_any_error_popups(ctx);
+    }
+
+    /// Push the latest cached output data into the app-owned output area.
+    pub fn sync_main_output(&mut self, frame: &eframe::Frame, main_output: &mut MainOutputArea) {
+        let Some(render_state) = frame.wgpu_render_state() else {
+            return;
+        };
+
+        main_output.update_from_editor(
+            self.displayed_frame.as_ref(),
+            self.last_fps_output,
+            render_state,
+        );
     }
 
     pub fn save_state(&mut self) {
@@ -83,6 +105,8 @@ impl EditorArea {
             }
             Err(e) => {
                 util::debug_log_error!("Failed to save project: {}", e);
+                self.error_popup_queue
+                    .push_back(format!("Failed to save project: {}", e));
             }
         }
     }
@@ -93,7 +117,7 @@ impl EditorArea {
 
         // First, render the UI
         egui::CentralPanel::default()
-            .frame(egui::Frame::NONE)
+            .frame(egui::Frame::new().fill(egui::Color32::from_rgb(16, 20, 22)))
             .show(ctx, |ui| {
                 let mut viewer = NodeGraphViewer::new(self.node_library.clone());
 
@@ -135,14 +159,19 @@ impl EditorArea {
             self.executor_manager.mark_graph_changed();
         }
 
-        // Check if graph state changed (nodes added/removed/modified) and mark as edited if so
-        if has_project {
-            // Compute hash of current state
-            if let Some(current_state) = self.editor_state_context.node_graph_mut()
-                && let Some(current_hash) = EditorStateContext::compute_state_hash(current_state)
-            {
-                self.editor_state_context.check_hash_changed(current_hash);
-            }
+        // Node position/layout edits don't always change engine graph wiring.
+        // Hash-check while interacting with the graph so layout-only edits still mark dirty.
+        let is_interacting_with_graph =
+            ctx.input(|i| i.pointer.any_down() || i.pointer.any_released());
+
+        // Mark project edited using state hash comparison when graph semantics changed
+        // or while interacting (to catch layout-only edits like node moves).
+        if has_project
+            && (graph_changed || is_interacting_with_graph)
+            && let Some(current_state) = self.editor_state_context.node_graph_mut()
+            && let Some(current_hash) = EditorStateContext::compute_state_hash(current_state)
+        {
+            self.editor_state_context.check_hash_changed(current_hash);
         }
 
         selected_nodes
@@ -157,7 +186,6 @@ impl EditorArea {
         } else {
             selected_nodes.last().copied()
         };
-        self.output_panel.set_selected_node(selected_snarl_node);
         selected_snarl_node
     }
 
@@ -176,31 +204,141 @@ impl EditorArea {
         let selected_engine_node =
             selected_snarl_node.and_then(|snarl_id| node_graph.snarl[snarl_id].engine_node_id);
 
-        OutputController::update(
-            ctx,
-            &mut self.output_panel,
-            &self.playback_controls,
-            &mut self.playback_state,
-            &mut self.executor_manager,
+        let selection_changed = self
+            .executor_manager
+            .selection_changed(selected_engine_node);
+        let graph_changed = self.executor_manager.consume_graph_changed();
+
+        if selection_changed {
+            self.executor_manager
+                .set_last_selected_engine_node(selected_engine_node);
+            self.pending_graph_preview = false;
+            self.last_fps_output = None;
+        }
+
+        let has_nodes = !self.executor_manager.engine_graph().is_empty();
+        if !has_nodes {
+            self.displayed_frame = None;
+            self.last_fps_output = None;
+            self.playback_accumulator = Duration::ZERO;
+            self.last_playing = false;
+            return;
+        }
+
+        let node_to_execute =
+            selected_engine_node.unwrap_or_else(|| self.executor_manager.find_display_node());
+
+        if self.last_fps_output.is_none() || selection_changed || graph_changed {
+            self.last_fps_output = self
+                .executor_manager
+                .get_target_fps_for_display_node(&self.node_library, node_to_execute);
+        }
+
+        self.update_playback_tick();
+
+        let should_advance = self.should_advance_frame();
+
+        if graph_changed {
+            self.pending_graph_preview = true;
+        }
+
+        // Coalesce rapid UI drags (e.g., brightness slider) to avoid executing on every repaint.
+        let graph_preview_due = self.pending_graph_preview
+            && !selection_changed
+            && !should_advance
+            && self.last_execute_request.elapsed() >= GRAPH_PREVIEW_MIN_INTERVAL;
+
+        let should_execute = selection_changed
+            || graph_preview_due
+            || self.displayed_frame.is_none()
+            || should_advance;
+
+        if !should_execute {
+            if self.displayed_frame.is_some() {
+                self.request_next_repaint(ctx);
+            }
+            return;
+        }
+
+        let context = engine::graph_executor::ExecutionContext {
+            // Selection changes should not stall playback for one tick.
+            advance_frame: should_advance || selection_changed,
+        };
+
+        if let Some(outputs) = self.executor_manager.execute(
             &self.node_library,
             render_state,
-            selected_engine_node,
-        );
+            Some(node_to_execute),
+            context,
+        ) {
+            self.last_execute_request = Instant::now();
+            self.pending_graph_preview = false;
+
+            let frame_output = outputs.values().find_map(|value| {
+                if let NodeValue::Frame(_) = value {
+                    Some(value.clone())
+                } else {
+                    None
+                }
+            });
+
+            if let Some(frame_output) = frame_output {
+                self.displayed_frame = Some(frame_output);
+            }
+
+            if self.displayed_frame.is_some() {
+                self.request_next_repaint(ctx);
+            }
+        }
     }
 
-    fn show_output_window(&mut self, ctx: &egui::Context) {
-        egui::Window::new("Output")
-            .default_size(egui::vec2(640.0, 480.0))
-            .resizable(true)
-            .movable(true)
-            .show(ctx, |ui| {
-                // Playback controls at the top
-                self.playback_controls.ui(ui);
-                ui.separator();
+    fn should_advance_frame(&mut self) -> bool {
+        let Some(fps) = self.last_fps_output.filter(|fps| *fps > 0.0) else {
+            return false;
+        };
 
-                // Output panel content
-                self.output_panel.render_content(ui);
-            });
+        let frame_duration = Duration::from_secs_f64(1.0 / fps);
+        if self.playback_accumulator >= frame_duration {
+            self.playback_accumulator -= frame_duration;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn request_next_repaint(&self, ctx: &egui::Context) {
+        if let Some(fps) = self.last_fps_output.filter(|fps| *fps > 0.0) {
+            ctx.request_repaint_after(Duration::from_secs_f64(1.0 / fps));
+        } else {
+            // Unknown FPS (e.g., static image chain): avoid max-rate repaint loops.
+            ctx.request_repaint_after(Duration::from_millis(100));
+        }
+    }
+
+    fn update_playback_tick(&mut self) {
+        let Some(fps) = self.last_fps_output.filter(|fps| *fps > 0.0) else {
+            self.last_playing = false;
+            return;
+        };
+
+        // Reset accumulator when (re)starting playback.
+        if !self.last_playing {
+            self.last_playback_request = Instant::now();
+            self.playback_accumulator = Duration::ZERO;
+        }
+
+        let now = Instant::now();
+        let dt = now.saturating_duration_since(self.last_playback_request);
+        self.last_playback_request = now;
+        self.playback_accumulator += dt;
+
+        // Clamp to one frame to avoid bursty catch-up behavior under load.
+        let frame_duration = Duration::from_secs_f64(1.0 / fps);
+        if self.playback_accumulator > frame_duration {
+            self.playback_accumulator = frame_duration;
+        }
+
+        self.last_playing = true;
     }
 }
 

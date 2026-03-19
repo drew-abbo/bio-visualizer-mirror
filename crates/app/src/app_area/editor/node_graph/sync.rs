@@ -249,14 +249,9 @@ fn sync_wires_for_node(
         return false;
     };
 
-    // Clear existing engine connections for this node's inputs
-    for input_def in &definition.node.inputs {
-        if engine_graph.disconnect(to_engine_id, &input_def.name) {
-            changes_made = true;
-        }
-    }
-
-    // Connect all inputs
+    // Build desired incoming connections from snarl wires:
+    // input_name -> (from_engine_id, output_name)
+    let mut desired_connections: HashMap<String, (EngineNodeId, String)> = HashMap::new();
     for (wire_from, wire_to) in state.snarl.wires() {
         if wire_to.node != node_id {
             continue;
@@ -267,11 +262,9 @@ fn sync_wires_for_node(
             continue;
         };
 
-        // Get output and input names
         let Some(from_definition) = node_library.get_definition(&from_node.definition_name) else {
             continue;
         };
-
         let Some(output_def) = from_definition.node.outputs.get(wire_from.output) else {
             continue;
         };
@@ -279,12 +272,67 @@ fn sync_wires_for_node(
             continue;
         };
 
-        // Connect in engine graph
+        desired_connections.insert(
+            input_def.name.clone(),
+            (from_engine_id, output_def.name.clone()),
+        );
+    }
+
+    // Snapshot current engine connections for this node:
+    // input_name -> (from_node, output_name)
+    let current_connections: HashMap<String, (EngineNodeId, String)> = engine_graph
+        .get_instance(to_engine_id)
+        .map(|instance| {
+            instance
+                .input_values
+                .iter()
+                .filter_map(|(name, value)| {
+                    if let InputValue::Connection {
+                        from_node,
+                        output_name,
+                    } = value
+                    {
+                        Some((name.clone(), (*from_node, output_name.clone())))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Disconnect stale or changed connections only.
+    for input_def in &definition.node.inputs {
+        let input_name = &input_def.name;
+        let current = current_connections.get(input_name);
+        let desired = desired_connections.get(input_name);
+
+        let needs_disconnect = match (current, desired) {
+            (Some(curr), Some(want)) => curr != want,
+            (Some(_), None) => true,
+            _ => false,
+        };
+
+        if needs_disconnect && engine_graph.disconnect(to_engine_id, input_name) {
+            changes_made = true;
+        }
+    }
+
+    // Connect new or changed connections only.
+    for (input_name, (from_engine_id, output_name)) in desired_connections {
+        let already_connected = current_connections
+            .get(&input_name)
+            .is_some_and(|curr| curr.0 == from_engine_id && curr.1 == output_name);
+
+        if already_connected {
+            continue;
+        }
+
         match engine_graph.connect(
             from_engine_id,
-            output_def.name.clone(),
+            output_name.clone(),
             to_engine_id,
-            input_def.name.clone(),
+            input_name.clone(),
         ) {
             Ok(_) => {
                 changes_made = true;
@@ -293,9 +341,9 @@ fn sync_wires_for_node(
                 util::debug_log_error!(
                     "Failed to connect {} output '{}' to {} input '{}': {}",
                     from_engine_id,
-                    output_def.name,
+                    output_name,
                     to_engine_id,
-                    input_def.name,
+                    input_name,
                     err
                 );
             }

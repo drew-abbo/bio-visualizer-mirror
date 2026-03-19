@@ -30,8 +30,6 @@ fn main() -> Result<(), util::eframe::Error> {
         ..Default::default()
     };
 
-    util::debug_log_info!("Starting app with resizable window");
-
     util::eframe::run_native(
         APP_NAME,
         native_options,

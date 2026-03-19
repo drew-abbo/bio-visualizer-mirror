@@ -1,26 +1,26 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use media::frame::{Frame, Producer, streams::OnStreamEnd, streams::Video};
+use media::frame::{Frame, Uid, streams::FrameStream};
 
 use crate::gpu_frame::GpuFrame;
 use crate::graph_executor::{ExecutionContext, ExecutionError, NodeValue};
 use crate::node::handler::node_handler::NodeHandler;
 use crate::upload_stager::UploadStager;
 
-/// Video source with frame caching (must be kept alive between executions)
-pub struct VideoSourceHandler {
-    producer_cache: HashMap<PathBuf, Producer>,
-    playback_state: HashMap<PathBuf, PlaybackState>,
+#[derive(Default)]
+struct VideoPlaybackState {
+    last_frame_uid: Option<Uid>,
+    last_gpu_frame: Option<GpuFrame>,
+    is_playing: bool,
+    cached_fps: Option<f32>,
+    cached_duration_secs: Option<f64>,
 }
 
-#[derive(Default)]
-struct PlaybackState {
-    accumulator: f64,
-    last_gpu_frame: Option<GpuFrame>,
-    /// CPU frame pending recycling back to the producer.
-    /// We hold onto it until we need to fetch the next frame.
-    pending_recycle: Option<Frame>,
+/// Video source with stream caching (must be kept alive between executions)
+pub struct VideoSourceHandler {
+    stream_cache: HashMap<PathBuf, Box<dyn FrameStream>>,
+    playback_state: HashMap<PathBuf, VideoPlaybackState>,
 }
 
 impl Default for VideoSourceHandler {
@@ -32,62 +32,89 @@ impl Default for VideoSourceHandler {
 impl VideoSourceHandler {
     pub fn new() -> Self {
         Self {
-            producer_cache: HashMap::new(),
+            stream_cache: HashMap::new(),
             playback_state: HashMap::new(),
         }
     }
 
     pub fn clear_cache(&mut self) {
-        self.producer_cache.clear();
+        self.stream_cache.clear();
         self.playback_state.clear();
     }
 
-    fn get_or_create_producer(&mut self, path: &PathBuf) -> Result<&mut Producer, ExecutionError> {
-        if !self.producer_cache.contains_key(path) {
-            let stream = Video::new(path).map_err(|e| {
+    fn get_or_create_stream(
+        &mut self,
+        path: &PathBuf,
+    ) -> Result<&mut Box<dyn FrameStream>, ExecutionError> {
+        if !self.stream_cache.contains_key(path) {
+            // Create a new VideoFrameStream with looping enabled
+            let mut request = media::frame::streams::VideoFrameStream::builder()
+                .set_loop(true)
+                .build(path);
+
+            let stream = request.wait().map_err(|e| {
+                ExecutionError::VideoStreamError(
+                    path.clone(),
+                    format!("Failed to create video stream: {:?}", e),
+                )
+            })?;
+
+            let stream = stream.map_err(|e| {
                 ExecutionError::VideoStreamError(
                     path.clone(),
                     format!("Failed to open video stream: {:?}", e),
                 )
             })?;
 
-            let producer = Producer::new(stream, OnStreamEnd::Loop).map_err(|e| {
-                ExecutionError::ProducerCreateError(
-                    path.clone(),
-                    format!("Failed to create producer: {:?}", e),
-                )
-            })?;
-
-            self.producer_cache.insert(path.clone(), producer);
+            self.stream_cache.insert(path.clone(), Box::new(stream));
         }
 
-        Ok(self.producer_cache.get_mut(path).unwrap())
+        Ok(self.stream_cache.get_mut(path).unwrap())
     }
 
     pub fn fetch_frame(&mut self, path: &PathBuf) -> Result<Frame, ExecutionError> {
-        // First, recycle any pending frame back to the producer
-        if let Some(playback_state) = self.playback_state.get_mut(path)
-            && let Some(frame_to_recycle) = playback_state.pending_recycle.take()
-            && let Some(producer) = self.producer_cache.get_mut(path)
-        {
-            producer.recycle_frame(frame_to_recycle);
-        }
-
-        let producer = self.get_or_create_producer(path)?;
-        producer.fetch_frame().map_err(|e| {
+        let stream = self.get_or_create_stream(path)?;
+        stream.fetch().map_err(|e| {
             ExecutionError::VideoFetchError(path.clone(), format!("Failed to fetch frame: {:?}", e))
         })
     }
 
     pub fn get_stats(&mut self, path: &PathBuf) -> Result<(f32, f64), ExecutionError> {
-        let producer = self.get_or_create_producer(path)?;
-        let fps = producer.stats().fps as f32;
-        let duration_secs = producer
-            .stats()
-            .stream_duration()
-            .map(|d: std::time::Duration| d.as_secs_f64())
+        let stream = self.get_or_create_stream(path)?;
+        let fps = stream.target_fps().as_float();
+
+        let duration_secs = stream
+            .seek_controls()
+            .map(|seek| {
+                if fps > 0.0 {
+                    seek.unclipped_stream_duration() as f64 / fps
+                } else {
+                    0.0
+                }
+            })
             .unwrap_or(0.0);
+
+        Ok((fps as f32, duration_secs))
+    }
+
+    fn get_cached_stats(&mut self, path: &PathBuf) -> Result<(f32, f64), ExecutionError> {
+        if let Some(state) = self.playback_state.get(path)
+            && let (Some(fps), Some(duration_secs)) = (state.cached_fps, state.cached_duration_secs)
+        {
+            return Ok((fps, duration_secs));
+        }
+
+        let (fps, duration_secs) = self.get_stats(path)?;
+        let state = self.playback_state.entry(path.clone()).or_default();
+        state.cached_fps = Some(fps);
+        state.cached_duration_secs = Some(duration_secs);
         Ok((fps, duration_secs))
+    }
+
+    fn recycle_frame(&mut self, path: &PathBuf, frame: Frame) {
+        if let Ok(stream) = self.get_or_create_stream(path) {
+            stream.recycle(frame);
+        }
     }
 }
 
@@ -109,64 +136,59 @@ impl NodeHandler for VideoSourceHandler {
             })
             .ok_or(ExecutionError::InvalidInputType)?;
 
-        // Find the playback rate (Float input, defaults to 1.0 if not provided)
-        // I think this is fine since these are not user defined nodes
-        let playback_rate = inputs
-            .values()
-            .find_map(|v| match v {
-                NodeValue::Float(rate) => Some(*rate),
-                _ => None,
-            })
-            .unwrap_or(1.0);
+        // Apply play/pause only on transitions to avoid expensive churn.
+        let needs_mode_update = self
+            .playback_state
+            .get(path)
+            .map(|state| state.is_playing != context.advance_frame)
+            .unwrap_or(true);
 
-        let (native_fps, duration_secs) = self.get_stats(path)?;
-        let sampling_rate_hz = if context.sampling_rate_hz > 0.0 {
-            context.sampling_rate_hz
-        } else {
-            30.0
-        };
-
-        let effective_fps = (native_fps as f64) * (playback_rate as f64);
-        let advance_ratio = if sampling_rate_hz > 0.0 {
-            effective_fps / sampling_rate_hz
-        } else {
-            0.0
-        };
-
-        let (mut frames_to_advance, cached_frame) = {
-            let playback_state = self.playback_state.entry(path.clone()).or_default();
-
+        if needs_mode_update {
+            let stream = self.get_or_create_stream(path)?;
             if context.advance_frame {
-                playback_state.accumulator += advance_ratio;
+                stream.play();
+            } else {
+                stream.pause();
             }
 
-            let frames_to_advance = playback_state.accumulator.floor() as u32;
-            playback_state.accumulator -= frames_to_advance as f64;
+            let state = self.playback_state.entry(path.clone()).or_default();
+            state.is_playing = context.advance_frame;
+        }
 
-            let cached_frame = if frames_to_advance == 0 {
-                playback_state.last_gpu_frame.clone()
-            } else {
-                None
-            };
+        let (native_fps, duration_secs) = self.get_cached_stats(path)?;
 
-            (frames_to_advance, cached_frame)
-        };
-
-        if let Some(gpu_frame) = cached_frame {
+        // If we are not advancing playback, return the already-uploaded frame.
+        if !context.advance_frame
+            && let Some(state) = self.playback_state.get(path)
+            && let Some(frame) = &state.last_gpu_frame
+        {
             return Ok(vec![
-                NodeValue::Frame(gpu_frame),
-                NodeValue::Float(effective_fps as f32),
+                NodeValue::Frame(frame.clone()),
+                NodeValue::Float(native_fps),
                 NodeValue::Float(duration_secs as f32),
             ]);
         }
 
-        if frames_to_advance == 0 {
-            frames_to_advance = 1;
-        }
+        // Fetch and upload only when we need a new frame.
+        let frame = self.fetch_frame(path)?;
+        let frame_uid = frame.uid();
 
-        let mut frame = self.fetch_frame(path)?;
-        for _ in 1..frames_to_advance {
-            frame = self.fetch_frame(path)?;
+        // If the stream gave us the same frame again, avoid re-uploading.
+        if let Some(cached_gpu_frame) = self
+            .playback_state
+            .get(path)
+            .and_then(|state| {
+                (state.last_frame_uid == Some(frame_uid))
+                    .then(|| state.last_gpu_frame.clone())
+                    .flatten()
+            })
+        {
+            self.recycle_frame(path, frame);
+            return Ok(vec![
+                NodeValue::Frame(cached_gpu_frame),
+                NodeValue::Float(native_fps),
+                NodeValue::Float(duration_secs as f32),
+            ]);
         }
 
         let width = frame.dimensions().width();
@@ -188,18 +210,16 @@ impl NodeHandler for VideoSourceHandler {
             },
         );
 
-        // Store GPU frame for reuse when playback rate is < 1.0, and
-        // store CPU frame for recycling back to the producer on next fetch
-        if let Some(playback_state) = self.playback_state.get_mut(path) {
-            playback_state.last_gpu_frame = Some(gpu_frame.clone());
-            playback_state.pending_recycle = Some(frame);
-        }
+        self.recycle_frame(path, frame);
+
+        let state = self.playback_state.entry(path.clone()).or_default();
+        state.last_frame_uid = Some(frame_uid);
+        state.last_gpu_frame = Some(gpu_frame.clone());
 
         // Return outputs in the order defined in node.json: Output, Fps, Duration
-        // Again this is not user defined so this is acceptable
         Ok(vec![
             NodeValue::Frame(gpu_frame),
-            NodeValue::Float(effective_fps as f32),
+            NodeValue::Float(native_fps),
             NodeValue::Float(duration_secs as f32),
         ])
     }

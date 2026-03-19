@@ -81,19 +81,12 @@ pub struct ExecutionResult<'a> {
 /// playback position and whether to advance to the next frame.
 #[derive(Debug, Clone, Copy)]
 pub struct ExecutionContext {
-    /// Current timeline position in seconds
-    pub timeline_time_secs: f64,
-    /// Sampling rate in Hz (frames per second)
-    pub sampling_rate_hz: f64,
-    /// Whether to advance to the next frame in video sources
     pub advance_frame: bool,
 }
 
 impl Default for ExecutionContext {
     fn default() -> Self {
         Self {
-            timeline_time_secs: 0.0,
-            sampling_rate_hz: 30.0,
             advance_frame: true,
         }
     }
@@ -144,6 +137,42 @@ impl GraphExecutor {
     /// Get the ID of the current output node (from the last execution)
     pub fn get_output_node_id(&self) -> EngineNodeId {
         self.output_node_id
+    }
+
+    /// Return the target FPS for a specific node when it is a video source.
+    ///
+    /// This intentionally avoids relying on runtime output-name matching.
+    /// Instead, it inspects the node definition and queries the video handler
+    /// directly from the node's configured file input.
+    pub fn get_target_fps_for_node(
+        &mut self,
+        graph: &NodeGraph,
+        library: &NodeLibrary,
+        node_id: EngineNodeId,
+    ) -> Option<f64> {
+        let instance = graph.get_instance(node_id)?;
+        let definition = library.get_definition(&instance.definition_name)?;
+
+        if !matches!(
+            definition.node.executor,
+            NodeExecutionPlan::BuiltIn(BuiltInHandler::VideoSource)
+        ) {
+            return None;
+        }
+
+        let path = instance.input_values.values().find_map(|input| {
+            if let InputValue::File(path) = input {
+                Some(path)
+            } else {
+                None
+            }
+        })?;
+
+        self.video_handler
+            .get_stats(path)
+            .ok()
+            .map(|(fps, _duration)| fps as f64)
+            .filter(|fps| *fps > 0.0)
     }
 
     /// Execute the node graph with an execution context.

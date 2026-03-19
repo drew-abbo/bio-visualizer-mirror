@@ -3,7 +3,8 @@
 //! It provides methods to check for changes, execute the graph, and determine which node's output to display based on selection or graph structure.
 use engine::graph_executor::{ExecutionContext, GraphExecutor, NodeValue};
 use engine::node::NodeLibrary;
-use engine::node_graph::{EngineNodeId, NodeGraph};
+use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
+use std::collections::HashSet;
 
 /// Manager for the node graph and its execution, separate from the UI state in EditorArea
 pub struct GraphExecutorManager {
@@ -76,6 +77,57 @@ impl GraphExecutorManager {
                 None
             }
         }
+    }
+
+    /// Query target FPS for a specific node id directly from the executor.
+    pub fn get_target_fps_for_node(
+        &mut self,
+        node_library: &NodeLibrary,
+        node_id: EngineNodeId,
+    ) -> Option<f64> {
+        self.graph_executor
+            .get_target_fps_for_node(&self.engine_graph, node_library, node_id)
+    }
+
+    /// Resolve playback FPS for a display node by checking the node itself first,
+    /// then traversing upstream connections for video sources.
+    pub fn get_target_fps_for_display_node(
+        &mut self,
+        node_library: &NodeLibrary,
+        node_id: EngineNodeId,
+    ) -> Option<f64> {
+        if let Some(fps) = self.get_target_fps_for_node(node_library, node_id) {
+            return Some(fps);
+        }
+
+        let mut visited = HashSet::new();
+        let mut stack = vec![node_id];
+        let mut best_fps: Option<f64> = None;
+
+        while let Some(current) = stack.pop() {
+            if !visited.insert(current) {
+                continue;
+            }
+
+            if current != node_id
+                && let Some(fps) = self.get_target_fps_for_node(node_library, current)
+            {
+                best_fps = Some(match best_fps {
+                    Some(existing) => existing.max(fps),
+                    None => fps,
+                });
+            }
+
+            if let Some(instance) = self.engine_graph.get_instance(current) {
+                for input in instance.input_values.values() {
+                    if let InputValue::Connection { from_node, .. } = input {
+                        stack.push(*from_node);
+                    }
+                }
+            }
+        }
+
+        best_fps
     }
 
     pub fn get_output_node_id(&self) -> EngineNodeId {

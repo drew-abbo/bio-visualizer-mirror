@@ -23,6 +23,7 @@ pub struct FrameDisplay {
     texture_id: Option<egui::TextureId>,
     texture_size: [usize; 2],
     last_frame_id: Option<Uid>,
+    last_renderer_ptr: Option<usize>,
 }
 
 impl FrameDisplay {
@@ -32,6 +33,7 @@ impl FrameDisplay {
             texture_id: None,
             texture_size: [0, 0],
             last_frame_id: None,
+            last_renderer_ptr: None,
         }
     }
 
@@ -47,25 +49,31 @@ impl FrameDisplay {
         size: [usize; 2],
         frame_id: Uid,
     ) {
-        if self.last_frame_id == Some(frame_id) {
+        let renderer_ptr = std::sync::Arc::as_ptr(&render_state.renderer) as usize;
+        let renderer_changed = self.last_renderer_ptr != Some(renderer_ptr);
+
+        if self.last_frame_id == Some(frame_id) && !renderer_changed {
             return;
         }
 
-        // Free old texture
-        if let Some(old_id) = self.texture_id.take() {
-            render_state.renderer.write().free_texture(&old_id);
-        }
-
-        // Register new texture
+        // Register new texture first, then free old texture. This avoids transient
+        // blanking/flicker when frames are updated rapidly.
         let texture_id = render_state.renderer.write().register_native_texture(
             &render_state.device,
             texture_view,
             wgpu::FilterMode::Linear,
         );
 
+        if let Some(old_id) = self.texture_id.take()
+            && !renderer_changed
+        {
+            render_state.renderer.write().free_texture(&old_id);
+        }
+
         self.texture_id = Some(texture_id);
         self.texture_size = size;
         self.last_frame_id = Some(frame_id);
+        self.last_renderer_ptr = Some(renderer_ptr);
     }
 
     /// Clear the current texture
@@ -77,6 +85,7 @@ impl FrameDisplay {
         }
         self.texture_size = [0, 0];
         self.last_frame_id = None;
+        self.last_renderer_ptr = None;
     }
 
     /// Render just the texture content
