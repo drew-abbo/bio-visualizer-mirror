@@ -2,7 +2,9 @@
 
 mod resampled_ffmpeg_video;
 
+use std::cmp::Ordering;
 use std::collections::VecDeque;
+use std::mem;
 use std::num::NonZeroUsize;
 use std::ops::{Bound, RangeBounds, RangeInclusive};
 use std::path::Path;
@@ -14,7 +16,7 @@ use util::drop_join_thread::{self, DropJoinHandle};
 
 use super::{FrameStream, FrameStreamError, StreamGenerator};
 use crate::ffmpeg_tools::FFmpegResult;
-use crate::ffmpeg_tools::ffmpeg_video::{self, FFmpegVideo, FFmpegVideoFrame};
+use crate::ffmpeg_tools::ffmpeg_video::{FFmpegVideo, FFmpegVideoFrame};
 use crate::fps::{self, Fps};
 use crate::frame::{Dimensions, Frame, RescaleMethod};
 use crate::playback_stream::{PlaybackStream, SeekablePlaybackStream};
@@ -175,7 +177,7 @@ impl VideoFrameStreamBuilder {
 pub struct VideoFrameStream {
     // Worker Communication:
     frame_inbox: Inbox<Result<(Frame, PlaybackState), FrameStreamError>>,
-    worker_client: Client<WorkerRequest, PlaybackState>,
+    worker_client: Client<WorkerRequestAndState, PlaybackState>,
 
     // Shared State:
     target_fps: Fps,
@@ -275,11 +277,25 @@ impl VideoFrameStream {
     }
 
     fn worker_alert(&self, msg: WorkerRequest) {
+        let msg = WorkerRequestAndState {
+            msg,
+            client_state: PlaybackState {
+                playhead: self.playhead,
+                paused: self.paused,
+            },
+        };
         self.worker_client.alert(msg).expect(EXPECT_WORKER);
     }
 
     #[must_use]
     fn worker_request_and_wait(&self, msg: WorkerRequest) -> PlaybackState {
+        let msg = WorkerRequestAndState {
+            msg,
+            client_state: PlaybackState {
+                playhead: self.playhead,
+                paused: self.paused,
+            },
+        };
         let mut req = self.worker_client.request(msg).expect(EXPECT_WORKER);
 
         // Interrupt worker if it's waiting for us to pull from the queue.
@@ -542,6 +558,12 @@ impl From<Clip> for RangeInclusive<usize> {
 }
 
 #[derive(Debug)]
+struct WorkerRequestAndState {
+    pub msg: WorkerRequest,
+    pub client_state: PlaybackState,
+}
+
+#[derive(Debug)]
 enum WorkerRequest {
     SetTargetFps(Fps),
     SetPaused(bool),
@@ -556,9 +578,6 @@ enum WorkerRequest {
 struct Worker {
     ffmpeg_video: ResampledFFmpegVideo,
     recycled_frames: Vec<FFmpegVideoFrame>,
-    state_history: VecDeque<PlaybackState>,
-    frames_to_rescale: VecDeque<FFmpegVideoFrame>,
-    rescale_method: RescaleMethod,
     err_state: Option<FrameStreamError>,
 }
 
@@ -570,44 +589,22 @@ impl Worker {
         let mut state_history = VecDeque::with_capacity(32);
         state_history.push_back(PlaybackState::snapshot(&ffmpeg_video));
 
-        let rescale_method = ffmpeg_video.rescale_method().unwrap_or_default();
-
         Self {
             ffmpeg_video,
             recycled_frames,
-            state_history,
-            frames_to_rescale: VecDeque::default(),
-            rescale_method,
             err_state: None,
         }
     }
 
     fn write_next_frame(&mut self) -> FFmpegResult<FFmpegVideoFrame> {
-        // If we're able to just rescale a frame we've already generated...
-        if let Some(frame_to_rescale) = self.frames_to_rescale.pop_front() {
-            self.ffmpeg_video.step();
-            return ffmpeg_video::rescale_ffmpeg_frame(
-                frame_to_rescale,
-                self.ffmpeg_video.dest_dimensions(),
-                self.rescale_method,
-            );
-        }
-
         let recycled_frame = self.recycled_frames.pop();
         self.ffmpeg_video.write_next(recycled_frame)
-    }
-
-    fn get_client_state(&self) -> PlaybackState {
-        *self
-            .state_history
-            .front()
-            .expect("The oldest state should be present.")
     }
 }
 
 impl StreamGenerator for Worker {
     type Data = Result<(Frame, PlaybackState), FrameStreamError>;
-    type Request = WorkerRequest;
+    type Request = WorkerRequestAndState;
     type Response = PlaybackState;
     type QueueInvalidNote = ();
 
@@ -615,7 +612,7 @@ impl StreamGenerator for Worker {
         self.ffmpeg_video.target_fps()
     }
 
-    fn new_data(&mut self, in_flight: usize) -> Self::Data {
+    fn new_data(&mut self, _in_flight: usize) -> Self::Data {
         if let Some(e) = &self.err_state {
             return Err(e.clone());
         }
@@ -628,16 +625,8 @@ impl StreamGenerator for Worker {
                 return Err(e);
             }
         };
-
-        debug_assert!(self.state_history.len() >= in_flight + 1);
-        while self.state_history.len() > in_flight + 1 {
-            self.state_history.pop_front();
-        }
-
         let state = PlaybackState::snapshot(&self.ffmpeg_video);
-        self.state_history.push_back(state);
 
-        debug_assert!(self.state_history.len() == in_flight + 2);
         Ok((frame, state))
     }
 
@@ -646,7 +635,7 @@ impl StreamGenerator for Worker {
             return None;
         }
 
-        match req {
+        match &mut req.msg {
             WorkerRequest::Recycle(recycled_frame) => {
                 let recycled_frame = recycled_frame.take().expect("A frame was sent");
                 if let Ok(buffer) = recycled_frame.into_buffer::<FFmpegVideoFrame>() {
@@ -675,101 +664,72 @@ impl StreamGenerator for Worker {
         req: &mut Self::Request,
         _queue_invalid_note: Self::QueueInvalidNote,
     ) {
-        debug_assert!(self.state_history.len() == queue.len() + 1);
-
-        let client_state = self.get_client_state();
+        debug_assert!(self.err_state.is_none());
 
         // Rewind to where the client is.
+        let client_state = req.client_state;
         self.ffmpeg_video.seek_playhead(client_state.playhead);
         self.ffmpeg_video.set_paused(client_state.paused);
 
-        let mut invalidate_all_items = false;
-
-        match req {
+        match &mut req.msg {
             // We shouldn't be in this function if this was the request.
             WorkerRequest::Recycle(_) => unreachable!(),
 
-            // If we're changing the dimensions we can just move the frames with
-            // the bad resolution out of the queue and into a cache. We'll pull
-            // from this when we're generating frames instead of reading from
-            // the video.
+            // We can't fix frames with bad dimensions.
             WorkerRequest::SetDimensions(dimensions, rescale_method) => {
                 if let Err(e) = self.ffmpeg_video.set_rescale(*dimensions, *rescale_method) {
                     self.err_state = Some(e.into());
-                    return;
                 }
-
-                for frame in queue
-                    .drain(..)
-                    .rev()
-                    .filter_map(|frame_result| frame_result.ok())
-                    .map(|(frame, _)| frame.into_buffer().expect("ffmpeg-based buffer"))
-                {
-                    self.frames_to_rescale.push_front(frame);
-                }
-
-                self.rescale_method = *rescale_method;
-
+                queue.clear(); // queue not salvageable
                 return;
             }
 
-            // These completely change the timing of the video so we'll just
-            // clear the whole queue to avoid dealing with that.
+            // These completely change the meaning of the playhead. Not worth
+            // the effort of fixing.
             WorkerRequest::SetTargetFps(target_fps) => {
                 self.ffmpeg_video.set_target_fps(*target_fps);
-                invalidate_all_items = true;
+                queue.clear(); // queue not salvageable
+                return;
             }
             WorkerRequest::SetPlaybackSpeed(playback_speed) => {
                 self.ffmpeg_video.set_playback_speed(*playback_speed);
-                invalidate_all_items = true;
+                queue.clear(); // queue not salvageable
+                return;
             }
 
-            WorkerRequest::SetPaused(paused) => _ = self.ffmpeg_video.set_paused(*paused),
-            WorkerRequest::SetClip(clip) => _ = self.ffmpeg_video.set_clip(*clip),
-            WorkerRequest::SeekPlayhead(playhead) => _ = self.ffmpeg_video.seek_playhead(*playhead),
-            WorkerRequest::SetLoop(will_loop) => self.ffmpeg_video.set_will_loop(*will_loop),
-        }
-
-        if invalidate_all_items {
-            queue.clear();
-            self.state_history.truncate(1);
-            self.frames_to_rescale.clear();
-            return;
-        }
-
-        let mut last_match_state = client_state;
-
-        // We'll simulate playing back the video with the new settings until we
-        // find a mismatched state. The queue is valid up until that point.
-        for (matching_item_count, queue_state) in queue
-            .iter_mut()
-            .map_while(|frame_result| frame_result.as_mut().ok())
-            .map(|(_, state)| state)
-            .enumerate()
-        {
-            self.ffmpeg_video.step();
-            let expected_state = PlaybackState::snapshot(&self.ffmpeg_video);
-
-            // Found spot where the queue becomes invalid
-            if queue_state.playhead != expected_state.playhead {
-                queue.truncate(matching_item_count);
-                self.state_history.truncate(matching_item_count + 1);
-                self.frames_to_rescale.truncate(matching_item_count);
-                break;
+            WorkerRequest::SetPaused(paused) => {
+                self.ffmpeg_video.set_paused(*paused);
             }
-
-            // If the playhead matches but the paused state doesn't we can still
-            // keep the frame (we just have to change the playhead).
-            queue_state.paused = expected_state.paused;
-
-            last_match_state = expected_state;
+            WorkerRequest::SetClip(clip) => {
+                self.ffmpeg_video.set_clip(*clip);
+            }
+            WorkerRequest::SeekPlayhead(playhead) => {
+                self.ffmpeg_video.seek_playhead(*playhead);
+            }
+            WorkerRequest::SetLoop(will_loop) => {
+                self.ffmpeg_video.set_will_loop(*will_loop);
+            }
         }
 
-        self.ffmpeg_video.seek_playhead(last_match_state.playhead);
-        self.ffmpeg_video.set_paused(last_match_state.paused);
+        let old_queue = mem::replace(queue, VecDeque::with_capacity(queue.capacity()))
+            .into_iter()
+            .map(|res| res.expect("any errors caught by earlier `err_state` check"));
+
+        // Try to salvage at least *some* of the queue.
+        // This doesn't handle looping videos very elegantly.
+        for (frame, state) in old_queue {
+            match state.playhead.cmp(&self.ffmpeg_video.playhead()) {
+                Ordering::Less => {}
+                Ordering::Equal => {
+                    queue.push_back(Ok((frame, PlaybackState::snapshot(&self.ffmpeg_video))));
+                    self.ffmpeg_video.step();
+                }
+                Ordering::Greater => break, // stop
+            }
+        }
     }
 
     fn create_response_for_request(&mut self, _req: Self::Request) -> Self::Response {
-        self.get_client_state()
+        PlaybackState::snapshot(&self.ffmpeg_video)
     }
 }

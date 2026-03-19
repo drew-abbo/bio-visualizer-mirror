@@ -329,11 +329,6 @@ impl FFmpegVideo {
             return true;
         }
 
-        // If the stream can seek by frame just seek.
-        if self.inner.seek_by_frame_supported() == Some(true) {
-            return false;
-        }
-
         const DEFAULT_FRAMES_BETWEEN_KEYFRAMES_GUESS: usize = 32;
         let frames_between_keyframes = self
             .inner

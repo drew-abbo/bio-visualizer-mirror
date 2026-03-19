@@ -40,7 +40,6 @@ pub struct FFmpegVideoInner {
     // Optimization:
     frames_since_keyframe: Option<NonZeroUsize>,
     max_frames_between_keyframes: Option<NonZeroUsize>,
-    seek_by_frame_supported: Option<bool>,
 }
 
 impl<'a> FFmpegVideoInner {
@@ -117,7 +116,6 @@ impl<'a> FFmpegVideoInner {
             // Optimization:
             frames_since_keyframe: None,
             max_frames_between_keyframes: None,
-            seek_by_frame_supported: None,
         })
     }
 
@@ -143,28 +141,8 @@ impl<'a> FFmpegVideoInner {
         self.last_frame_timestamp = None;
         self.frames_since_keyframe = None;
 
-        // Try to seek directly to the target frame (not always supported).
-        if matches!(self.seek_by_frame_supported, Some(true) | None) {
-            let frame_idx = i64::try_from(new_playhead).expect("valid frame index");
-            let seek_result = self.avformat_seek_file(
-                frame_idx,
-                frame_idx,
-                frame_idx,
-                ffmpeg::sys::AVSEEK_FLAG_ANY | ffmpeg::sys::AVSEEK_FLAG_FRAME,
-            );
-
-            if seek_result.is_ok() {
-                self.seek_by_frame_supported = Some(true);
-                self.decoder.flush();
-                return Ok(());
-            }
-
-            self.seek_by_frame_supported = Some(false);
-        }
-
-        // Otherwise we need to seek to the nearest keyframe behind the target
-        // frame and next time we have to decode we'll walk up to the right
-        // frame.
+        // Seek to the nearest keyframe behind the target frame and next time we
+        // have to decode we'll walk up to the right frame.
         let next_frame_timestamp = self.frame_idx_to_timestamp(new_playhead);
         self.avformat_seek_file(
             self.start_timestamp(),
@@ -279,12 +257,6 @@ impl<'a> FFmpegVideoInner {
     /// The native [Fps] of this video.
     pub const fn src_fps(&self) -> Fps {
         self.src_fps
-    }
-
-    /// Whether or not this stream supports jumping directly to a frame without
-    /// extra decoding. [None] is returned if it's unknown.
-    pub const fn seek_by_frame_supported(&self) -> Option<bool> {
-        self.seek_by_frame_supported
     }
 
     /// The max number of frames we've decoded between 2 keyframes. [None] is
