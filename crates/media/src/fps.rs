@@ -3,10 +3,13 @@
 
 mod resampler;
 pub use resampler::*;
+mod switch_timer;
+pub use switch_timer::*;
 
 use std::cmp::{Ord, Ordering, PartialOrd};
 use std::num::NonZeroU32;
 use std::ops::{Add, Div, Mul, Sub};
+use std::time::Duration;
 
 use thiserror::Error;
 
@@ -326,6 +329,17 @@ impl Fps {
             num: self.den,
             den: self.num,
         }
+    }
+
+    /// The duration of a single frame with this frame rate.
+    pub fn interval(&self) -> Duration {
+        Duration::from_secs_f64(self.interval_float())
+    }
+
+    /// The duration of a single frame with this frame rate as a float (in
+    /// seconds).
+    pub const fn interval_float(&self) -> f64 {
+        self.inverse().as_float()
     }
 
     const TOLERANCE: f64 = 1e-9;

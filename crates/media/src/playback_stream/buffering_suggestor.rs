@@ -28,7 +28,7 @@ impl BufferingSuggestor {
     pub fn new(dest_fps: Fps) -> Self {
         // We're going with a very conservative guess that it will take 80% as
         // long to produce data as to consume it.
-        let time_guess = Duration::from_secs_f64(dest_fps.inverse().as_float() * 0.8);
+        let time_guess = Duration::from_secs_f64(dest_fps.interval_float() * 0.8);
 
         Self::with_time_guess(dest_fps, time_guess)
     }
@@ -37,7 +37,7 @@ impl BufferingSuggestor {
     /// will take to produce a piece of data.
     pub const fn with_time_guess(dest_fps: Fps, time_guess: Duration) -> Self {
         Self {
-            consumer_interval: dest_fps.inverse().as_float(),
+            consumer_interval: dest_fps.interval_float(),
             count: 0,
             mean_production_time: time_guess.as_secs_f64(),
             production_time_variance: 0.0,
@@ -100,7 +100,7 @@ impl BufferingSuggestor {
     /// Update the number of times per second data will be fetched from the
     /// queue.
     pub fn set_dest_fps(&mut self, dest_fps: Fps) {
-        self.consumer_interval = dest_fps.inverse().as_float();
+        self.consumer_interval = dest_fps.interval_float();
     }
 
     /// The amount of time expected between fetches.
