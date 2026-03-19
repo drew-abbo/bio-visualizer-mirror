@@ -3,10 +3,12 @@
 //! with a single thread producing data and another single thread reading it.
 
 use std::collections::VecDeque;
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, TryLockError};
+use std::num::NonZeroUsize;
+use std::ops::{Deref, DerefMut};
+use std::sync::{Condvar, Mutex, MutexGuard, TryLockError};
 use std::time::{Duration, Instant};
 
-use super::{ChannelError, ChannelResult, THREAD_PANIC_MSG};
+use super::{ChannelError, ChannelResult, ConnN, THREAD_PANIC_MSG};
 
 /// The inbox (message receiver) of a one-way message channel (single producer
 /// single consumer queue). Also see [Outbox].
@@ -14,7 +16,7 @@ use super::{ChannelError, ChannelResult, THREAD_PANIC_MSG};
 /// See [new], [with_capacity], and [with_starting_messages] to construct.
 #[derive(Debug)]
 pub struct Inbox<T> {
-    channel: Arc<OneWayChannel<T>>,
+    channel: ConnN<OneWayChannel<T>>,
 }
 
 impl<T> Inbox<T> {
@@ -31,15 +33,19 @@ impl<T> Inbox<T> {
     /// - [Self::wait_timeout_all]
     /// - [Self::check_all]
     /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
     pub fn wait(&self) -> ChannelResult<T> {
         self.wait_for_queue(Self::queue_pop)
     }
 
     /// Waits for a message from the outbox for up to `timeout` time.
     ///
-    /// After `timeout` time, a [ChannelError::Timeout] error is returned. Note
-    /// that this function's execution may take slightly longer than `timeout`
-    /// time.
+    /// After `timeout` time, a [ChannelError::WaitTimeout] error is returned.
+    /// Note that this function's execution may take slightly longer than
+    /// `timeout` time.
     ///
     /// A [ChannelError::ConnectionDropped] error is returned if the other end
     /// of the connection was dropped and there are no more items in the queue.
@@ -52,6 +58,10 @@ impl<T> Inbox<T> {
     /// - [Self::wait_timeout_all]
     /// - [Self::check_all]
     /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
     pub fn wait_timeout(&self, timeout: Duration) -> ChannelResult<T> {
         self.wait_for_queue_timeout(timeout, Self::queue_pop)
     }
@@ -73,6 +83,10 @@ impl<T> Inbox<T> {
     /// - [Self::wait_timeout_all]
     /// - [Self::check_all]
     /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
     pub fn check(&self) -> ChannelResult<Option<T>> {
         self.check_for_queue(Self::queue_pop)
     }
@@ -96,6 +110,10 @@ impl<T> Inbox<T> {
     /// - [Self::wait_timeout_all]
     /// - [Self::check_all]
     /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
     pub fn check_non_blocking(&self) -> ChannelResult<Option<T>> {
         self.check_for_queue_non_blocking(Self::queue_pop)
     }
@@ -116,6 +134,10 @@ impl<T> Inbox<T> {
     /// - [Self::wait_timeout_all]
     /// - [Self::check_all]
     /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
     pub fn wait_all(&self) -> ChannelResult<VecDeque<T>> {
         self.wait_for_queue(Self::queue_pop_all)
     }
@@ -123,9 +145,9 @@ impl<T> Inbox<T> {
     /// Waits for a message from the outbox for up to `timeout` time, returning
     /// all messages if multiple have built up.
     ///
-    /// After `timeout` time, a [ChannelError::Timeout] error is returned. Note
-    /// that this function's execution may take slightly longer than `timeout`
-    /// time.
+    /// After `timeout` time, a [ChannelError::WaitTimeout] error is returned.
+    /// Note that this function's execution may take slightly longer than
+    /// `timeout` time.
     ///
     /// The returned [VecDeque] is guaranteed to have at least 1 element.
     ///
@@ -140,6 +162,10 @@ impl<T> Inbox<T> {
     /// - [Self::wait_all]
     /// - [Self::check_all]
     /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
     pub fn wait_timeout_all(&self, timeout: Duration) -> ChannelResult<VecDeque<T>> {
         self.wait_for_queue_timeout(timeout, Self::queue_pop_all)
     }
@@ -164,6 +190,10 @@ impl<T> Inbox<T> {
     /// - [Self::wait_all]
     /// - [Self::wait_timeout_all]
     /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
     pub fn check_all(&self) -> ChannelResult<Option<VecDeque<T>>> {
         self.check_for_queue(Self::queue_pop_all)
     }
@@ -189,8 +219,196 @@ impl<T> Inbox<T> {
     /// - [Self::wait_all]
     /// - [Self::wait_timeout_all]
     /// - [Self::check_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
     pub fn check_non_blocking_all(&self) -> ChannelResult<Option<VecDeque<T>>> {
         self.check_for_queue_non_blocking(Self::queue_pop_all)
+    }
+
+    /// Waits for a message from the outbox until one appears, giving in-place
+    /// access to all messages if multiple have built up.
+    ///
+    /// No messages can be sent while `f` is executing.
+    ///
+    /// The [VecDeque] is guaranteed to have at least 1 element.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::wait_timeout]
+    /// - [Self::check]
+    /// - [Self::check_non_blocking]
+    /// - [Self::wait_all]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_all]
+    /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
+    pub fn wait_in_place<F, R>(&self, f: F) -> ChannelResult<R>
+    where
+        F: FnOnce(&mut VecDeque<T>) -> R,
+    {
+        self.wait_for_queue(|q| f(q))
+    }
+
+    /// Waits for a message from the outbox for up to `timeout` time, giving
+    /// in-place access to all messages if multiple have built up.
+    ///
+    /// After `timeout` time, a [ChannelError::WaitTimeout] error is returned.
+    /// Note that this function's execution may take slightly longer than
+    /// `timeout` time.
+    ///
+    /// No messages can be sent while `f` is executing.
+    ///
+    /// The [VecDeque] is guaranteed to have at least 1 element.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::wait_timeout]
+    /// - [Self::check]
+    /// - [Self::check_non_blocking]
+    /// - [Self::wait_all]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_all]
+    /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
+    pub fn wait_timeout_in_place<F, R>(&self, f: F, timeout: Duration) -> ChannelResult<R>
+    where
+        F: FnOnce(&mut VecDeque<T>) -> R,
+    {
+        self.wait_for_queue_timeout(timeout, |q| f(q))
+    }
+
+    /// Gives in-place access to all messages from the outbox if at least one
+    /// message is waiting, returning [None] otherwise. This function may still
+    /// block slightly.
+    ///
+    /// This function will block if the outbox is currently sending a new
+    /// message.
+    ///
+    /// No messages can be sent while `f` is executing.
+    ///
+    /// The [VecDeque] is guaranteed to have at least 1 element.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::wait_timeout]
+    /// - [Self::check]
+    /// - [Self::check_non_blocking]
+    /// - [Self::wait_all]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_all]
+    /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_non_blocking_in_place]
+    pub fn check_in_place<F, R>(&self, f: F) -> ChannelResult<Option<R>>
+    where
+        F: FnOnce(&mut VecDeque<T>) -> R,
+    {
+        self.check_for_queue(|q| f(q))
+    }
+
+    /// Gives in-place access to all messages from the outbox if the queue is
+    /// not locked and at least one message is waiting, returning [None]
+    /// otherwise. This function will not block.
+    ///
+    /// Note that [None] being returned *does not* always mean there are no
+    /// messages in the inbox. If the outbox is currently adding an item, [None]
+    /// will still be returned (even if there are items in the queue).
+    ///
+    /// No messages can be sent while `f` is executing.
+    ///
+    /// The [VecDeque] is guaranteed to have at least 1 element.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::wait_timeout]
+    /// - [Self::check]
+    /// - [Self::check_non_blocking]
+    /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_all]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    pub fn check_non_blocking_in_place<F, R>(&self, f: F) -> ChannelResult<Option<R>>
+    where
+        F: FnOnce(&mut VecDeque<T>) -> R,
+    {
+        self.check_for_queue_non_blocking(|q| f(q))
+    }
+
+    /// Block messages from being sent until [Self::unblock_sender] is called.
+    /// When send-blocked, the [Outbox] will get [ChannelError::SendBlocked]
+    /// errors when trying to send messages.
+    ///
+    /// Also see [Self::unblock_sender], [Self::set_send_blocked], and
+    /// [Self::is_send_blocked].
+    pub fn block_sender(&self) -> ChannelResult<()> {
+        self.set_send_blocked(true)
+    }
+
+    /// Unblocks messages from being sent.
+    ///
+    /// Also see [Self::block_sender], [Self::set_send_blocked], and
+    /// [Self::is_send_blocked].
+    pub fn unblock_sender(&self) -> ChannelResult<()> {
+        self.set_send_blocked(false)
+    }
+
+    /// Blocks or unblocks messages from being sent.
+    ///
+    /// Also see [Self::block_sender], [Self::unblock_sender], and
+    /// [Self::is_send_blocked].
+    pub fn set_send_blocked(&self, send_blocked: bool) -> ChannelResult<()> {
+        super::ensure_connection_not_dropped(&self.channel)?;
+
+        let mut queue = self.channel.queue.lock().expect(THREAD_PANIC_MSG);
+
+        let new_rule = match send_blocked {
+            true => SendRule::Block,
+            false => SendRule::None,
+        };
+
+        if new_rule != queue.rule {
+            queue.rule = new_rule;
+
+            // We need to notify the outbox if it's waiting on a rule change.
+            self.channel.notifier.notify_one();
+        }
+
+        Ok(())
+    }
+
+    /// Whether or not the channel is [send-blocked](Inbox::block_sender).
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped.
+    ///
+    /// Also see [Self::block_sender], [Self::unblock_sender], and
+    /// [Self::set_send_blocked].
+    pub fn is_send_blocked(&self) -> ChannelResult<bool> {
+        super::ensure_connection_not_dropped(&self.channel)?;
+
+        Ok(self.channel.queue.lock().expect(THREAD_PANIC_MSG).rule == SendRule::Block)
     }
 
     /// Whether the other party still has their end of the connection alive, the
@@ -205,15 +423,40 @@ impl<T> Inbox<T> {
         !self.connection_open()
     }
 
-    /// Wait for the queue to have at least 1 item in it, then return the queue.
+    /// Direct access to the inner message queue.
+    ///
+    /// No messages can be sent while `f` is executing.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped.
+    pub fn with_queue_in_place<F, R>(&self, f: F) -> ChannelResult<R>
+    where
+        F: FnOnce(&mut VecDeque<T>) -> R,
+    {
+        super::ensure_connection_not_dropped(&self.channel)?;
+        let mut queue = self.channel.queue.lock().expect(THREAD_PANIC_MSG);
+        Ok(self.mutate_queue(&mut queue, |q| f(q)))
+    }
+
+    /// Like [Self::with_queue_in_place], just without the check for if the
+    /// other end of the connection was dropped.
+    pub fn with_queue_in_place_unchecked<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut VecDeque<T>) -> R,
+    {
+        let mut queue = self.channel.queue.lock().expect(THREAD_PANIC_MSG);
+        self.mutate_queue(&mut queue, |q| f(q))
+    }
+
+    /// Wait for the queue to have at least 1 item in it, then run `f` on it.
     fn wait_for_queue<F, R>(&self, f: F) -> ChannelResult<R>
     where
-        F: FnOnce(MutexGuard<'_, VecDeque<T>>) -> R,
+        F: FnOnce(&mut MutexGuard<'_, QueueAndRule<T>>) -> R,
     {
         let mut queue = self.channel.queue.lock().expect(THREAD_PANIC_MSG);
 
         if !queue.is_empty() {
-            return Ok(f(queue));
+            return Ok(self.mutate_queue(&mut queue, f));
         }
 
         // If there are no messages we need to make sure the other end hasn't
@@ -224,7 +467,7 @@ impl<T> Inbox<T> {
             queue = self.channel.notifier.wait(queue).expect(THREAD_PANIC_MSG);
 
             if !queue.is_empty() {
-                return Ok(f(queue));
+                return Ok(self.mutate_queue(&mut queue, f));
             }
 
             // No messages after waking up means one of two things:
@@ -235,15 +478,15 @@ impl<T> Inbox<T> {
     }
 
     /// Wait for the queue to have at least 1 item in it for up to `duration`,
-    /// then return the queue.
+    /// then run `f` on it.
     fn wait_for_queue_timeout<F, R>(&self, timeout: Duration, f: F) -> ChannelResult<R>
     where
-        F: FnOnce(MutexGuard<'_, VecDeque<T>>) -> R,
+        F: FnOnce(&mut MutexGuard<'_, QueueAndRule<T>>) -> R,
     {
         let mut queue = self.channel.queue.lock().expect(THREAD_PANIC_MSG);
 
         if !queue.is_empty() {
-            return Ok(f(queue));
+            return Ok(self.mutate_queue(&mut queue, f));
         }
 
         // If there are no messages we need to make sure the other end hasn't
@@ -263,11 +506,11 @@ impl<T> Inbox<T> {
             queue = returned_queue;
 
             if !queue.is_empty() {
-                return Ok(f(queue));
+                return Ok(self.mutate_queue(&mut queue, f));
             }
 
             if wait_result.timed_out() {
-                return Err(ChannelError::Timeout { timeout });
+                return Err(ChannelError::WaitTimeout { timeout });
             }
 
             // No messages after waking up means one of two things:
@@ -277,16 +520,15 @@ impl<T> Inbox<T> {
         }
     }
 
-    /// See if the queue has at least 1 item in it. If it does, return the
-    /// queue.
+    /// See if the queue has at least 1 item in it. If it does, run `f` on it.
     fn check_for_queue<F, R>(&self, f: F) -> ChannelResult<Option<R>>
     where
-        F: FnOnce(MutexGuard<'_, VecDeque<T>>) -> R,
+        F: FnOnce(&mut MutexGuard<'_, QueueAndRule<T>>) -> R,
     {
-        let queue = self.channel.queue.lock().expect(THREAD_PANIC_MSG);
+        let mut queue = self.channel.queue.lock().expect(THREAD_PANIC_MSG);
 
         if !queue.is_empty() {
-            return Ok(Some(f(queue)));
+            return Ok(Some(self.mutate_queue(&mut queue, f)));
         }
 
         // If there are no messages we need to make sure the other end hasn't
@@ -296,16 +538,16 @@ impl<T> Inbox<T> {
         Ok(None)
     }
 
-    /// See if the queue's mutx is unlocked and the queue has at least 1 item in
-    /// it. If it does, return the queue.
+    /// See if the queue's mutex is unlocked and the queue has at least 1 item
+    /// in it. If it does, run `f` on it.
     fn check_for_queue_non_blocking<F, R>(&self, f: F) -> ChannelResult<Option<R>>
     where
-        F: FnOnce(MutexGuard<'_, VecDeque<T>>) -> R,
+        F: FnOnce(&mut MutexGuard<'_, QueueAndRule<T>>) -> R,
     {
         match self.channel.queue.try_lock() {
-            Ok(queue) => {
+            Ok(mut queue) => {
                 if !queue.is_empty() {
-                    Ok(Some(f(queue)))
+                    Ok(Some(self.mutate_queue(&mut queue, f)))
                 } else {
                     // If there are no messages we need to make sure the other
                     // end hasn't hung up.
@@ -321,12 +563,41 @@ impl<T> Inbox<T> {
         }
     }
 
-    fn queue_pop(mut queue: MutexGuard<'_, VecDeque<T>>) -> T {
+    /// Do not mutate the queue in a way that the outbox may care about without
+    /// doing it through this function.
+    #[inline(always)]
+    fn mutate_queue<F, R>(&self, queue: &mut MutexGuard<'_, QueueAndRule<T>>, f: F) -> R
+    where
+        F: FnOnce(&mut MutexGuard<'_, QueueAndRule<T>>) -> R,
+    {
+        let ret = f(queue);
+
+        // We need to notify the outbox if it's waiting and the queue has been
+        // freed up enough.
+        if let SendRule::Limit(limit) = queue.rule
+            && queue.len() < limit.get()
+        {
+            self.channel.notifier.notify_one();
+        }
+
+        ret
+    }
+
+    fn queue_pop(queue: &mut MutexGuard<'_, QueueAndRule<T>>) -> T {
         queue.pop_front().expect("The queue should be non-empty.")
     }
 
-    fn queue_pop_all(mut queue: MutexGuard<'_, VecDeque<T>>) -> VecDeque<T> {
+    fn queue_pop_all(queue: &mut MutexGuard<'_, QueueAndRule<T>>) -> VecDeque<T> {
         queue.split_off(0)
+    }
+}
+
+// We need a custom `Drop` implementation since the outbox may be waiting. We
+// have to notify it that no more messages will be removed from the inbox so it
+// doesn't just wait forever.
+impl<T> Drop for Inbox<T> {
+    fn drop(&mut self) {
+        self.channel.notifier.notify_one();
     }
 }
 
@@ -336,7 +607,7 @@ impl<T> Inbox<T> {
 /// See [new], [with_capacity], and [with_starting_messages] to construct.
 #[derive(Debug)]
 pub struct Outbox<T> {
-    channel: Arc<OneWayChannel<T>>,
+    channel: ConnN<OneWayChannel<T>>,
 }
 
 impl<T> Outbox<T> {
@@ -344,11 +615,18 @@ impl<T> Outbox<T> {
     /// been sent but not received (after sending the message).
     ///
     /// A [ChannelError::ConnectionDropped] error is returned if the other end
-    /// of the connection was dropped.
-    pub fn send(&self, msg: T) -> ChannelResult<usize> {
+    /// of the connection was dropped. [ChannelError::SendBlocked] is returned
+    /// if the channel is [send-blocked](Inbox::block_sender).
+    ///
+    /// Also see [Self::send_bounded] and [Self::send_bounded_timeout].
+    pub fn send(&self, msg: T) -> ChannelResult<usize, T> {
         super::ensure_connection_not_dropped(&self.channel)?;
 
         let mut queue = self.channel.queue.lock().expect(THREAD_PANIC_MSG);
+        if queue.rule == SendRule::Block {
+            return Err(ChannelError::SendBlocked { msg });
+        }
+
         queue.push_back(msg);
         let in_flight = queue.len();
 
@@ -359,6 +637,179 @@ impl<T> Outbox<T> {
         Ok(in_flight)
     }
 
+    /// Sends a message to the inbox only once there are less than
+    /// `max_in_flight` messages [in flight](Self::messages_in_flight),
+    /// returning the number of messages that have been sent but not received
+    /// (after sending the message).
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped. [ChannelError::SendBlocked] is returned
+    /// if the channel is [send-blocked](Inbox::block_sender) at any point.
+    ///
+    /// If `max_in_flight` is `0`, `1` will be used instead.
+    ///
+    /// Also see [Self::send] and [Self::send_bounded_timeout].
+    pub fn send_bounded(&self, msg: T, max_in_flight: usize) -> ChannelResult<usize, T> {
+        super::ensure_connection_not_dropped(&self.channel)?;
+
+        let mut queue = self.channel.queue.lock().expect(THREAD_PANIC_MSG);
+        if queue.rule == SendRule::Block {
+            return Err(ChannelError::SendBlocked { msg });
+        }
+
+        let max_in_flight = NonZeroUsize::new(max_in_flight).unwrap_or(NonZeroUsize::MIN);
+
+        if queue.len() >= max_in_flight.get() {
+            queue.rule = SendRule::Limit(max_in_flight);
+
+            // Wait until queue is small enough.
+            loop {
+                queue = self.channel.notifier.wait(queue).expect(THREAD_PANIC_MSG);
+                if queue.rule == SendRule::Block {
+                    return Err(ChannelError::SendBlocked { msg });
+                }
+
+                if queue.len() < max_in_flight.get() {
+                    break;
+                }
+
+                super::ensure_connection_not_dropped(&self.channel)?;
+            }
+
+            queue.rule = SendRule::None;
+        }
+
+        queue.push_back(msg);
+        let in_flight = queue.len();
+
+        // We need to notify the inbox that a message has arrived if it's
+        // waiting.
+        self.channel.notifier.notify_one();
+
+        Ok(in_flight)
+    }
+
+    /// Sends a message to the inbox only once there are less than
+    /// `max_in_flight` messages [in flight](Self::messages_in_flight) (waiting
+    /// for up to `timeout` time), returning the number of messages that have
+    /// been sent but not received (after sending the message).
+    ///
+    /// After `timeout` time, a [ChannelError::SendTimeout] error is returned.
+    /// Note that this function's execution may take slightly longer than
+    /// `timeout` time.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped. [ChannelError::SendBlocked] is returned
+    /// if the channel is [send-blocked](Inbox::block_sender) at any point.
+    ///
+    /// If `max_in_flight` is `0`, `1` will be used instead.
+    ///
+    /// Also see [Self::send] and [Self::send_bounded].
+    pub fn send_bounded_timeout(
+        &self,
+        msg: T,
+        max_in_flight: usize,
+        timeout: Duration,
+    ) -> ChannelResult<usize, T> {
+        super::ensure_connection_not_dropped(&self.channel)?;
+
+        let mut queue = self.channel.queue.lock().expect(THREAD_PANIC_MSG);
+        if queue.rule == SendRule::Block {
+            return Err(ChannelError::SendBlocked { msg });
+        }
+
+        let max_in_flight = NonZeroUsize::new(max_in_flight).unwrap_or(NonZeroUsize::MIN);
+
+        if queue.len() >= max_in_flight.get() {
+            queue.rule = SendRule::Limit(max_in_flight);
+
+            let deadline = Instant::now() + timeout;
+
+            // Wait until queue is small enough.
+            loop {
+                let time_until_deadline = deadline.saturating_duration_since(Instant::now());
+
+                let (returned_queue, wait_result) = self
+                    .channel
+                    .notifier
+                    .wait_timeout(queue, time_until_deadline)
+                    .expect(THREAD_PANIC_MSG);
+                queue = returned_queue;
+                if queue.rule == SendRule::Block {
+                    return Err(ChannelError::SendBlocked { msg });
+                }
+
+                if queue.len() < max_in_flight.get() {
+                    break;
+                }
+
+                if wait_result.timed_out() {
+                    return Err(ChannelError::SendTimeout { msg, timeout });
+                }
+
+                // No messages after waking up means one of two things:
+                // 1. The other end hung up.
+                // 2. This was a spurious (early) wakeup (should go back to
+                //    sleep).
+                super::ensure_connection_not_dropped(&self.channel)?;
+            }
+
+            queue.rule = SendRule::None;
+        }
+
+        queue.push_back(msg);
+        let in_flight = queue.len();
+
+        // We need to notify the inbox that a message has arrived if it's
+        // waiting.
+        self.channel.notifier.notify_one();
+
+        Ok(in_flight)
+    }
+
+    /// Direct access to the inner message queue.
+    ///
+    /// No messages can be received while `f` is executing.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped. [ChannelError::SendBlockedNoMsg] is
+    /// returned if the channel is [send-blocked](Inbox::block_sender).
+    pub fn with_queue_in_place<F, R>(&self, f: F) -> ChannelResult<R>
+    where
+        F: FnOnce(&mut VecDeque<T>) -> R,
+    {
+        super::ensure_connection_not_dropped(&self.channel)?;
+        let mut queue = self.channel.queue.lock().expect(THREAD_PANIC_MSG);
+        if queue.rule == SendRule::Block {
+            return Err(ChannelError::SendBlockedNoMsg);
+        }
+
+        let ret = f(queue.as_mut());
+
+        // We need to notify the inbox that a message may have arrived if it's
+        // waiting.
+        self.channel.notifier.notify_one();
+
+        Ok(ret)
+    }
+
+    /// Like [Self::with_queue_in_place], just without the check for if the
+    /// other end of the connection was dropped or if the channel is
+    /// [send-blocked](Inbox::block_sender).
+    pub fn with_queue_in_place_unchecked<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut VecDeque<T>) -> R,
+    {
+        let mut queue = self.channel.queue.lock().expect(THREAD_PANIC_MSG);
+        let ret = f(queue.as_mut());
+
+        // We need to notify the inbox that a message may have arrived if it's
+        // waiting.
+        self.channel.notifier.notify_one();
+
+        ret
+    }
+
     /// The number of messages that have been sent but not received.
     ///
     /// A [ChannelError::ConnectionDropped] error is returned if the other end
@@ -367,6 +818,86 @@ impl<T> Outbox<T> {
         super::ensure_connection_not_dropped(&self.channel)?;
 
         Ok(self.channel.queue.lock().expect(THREAD_PANIC_MSG).len())
+    }
+
+    /// Whether or not the channel is [send-blocked](Inbox::block_sender),
+    /// meaning it will return [ChannelError::SendBlocked] on send attempts
+    /// until the [Inbox] unblocks it.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped.
+    pub fn is_send_blocked(&self) -> ChannelResult<bool> {
+        super::ensure_connection_not_dropped(&self.channel)?;
+
+        Ok(self.channel.queue.lock().expect(THREAD_PANIC_MSG).rule == SendRule::Block)
+    }
+
+    /// Wait for the channel to be [send-blocked](Inbox::block_sender) if it's
+    /// blocked.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped.
+    pub fn wait_for_send_unblocked(&self) -> ChannelResult<()> {
+        super::ensure_connection_not_dropped(&self.channel)?;
+
+        let mut queue = self.channel.queue.lock().expect(THREAD_PANIC_MSG);
+        if queue.rule != SendRule::Block {
+            return Ok(());
+        }
+
+        loop {
+            queue = self.channel.notifier.wait(queue).expect(THREAD_PANIC_MSG);
+
+            if queue.rule != SendRule::Block {
+                return Ok(());
+            }
+
+            super::ensure_connection_not_dropped(&self.channel)?;
+        }
+    }
+
+    /// Wait for the channel to be [send-blocked](Inbox::block_sender) if it's
+    /// blocked.
+    ///
+    /// After `timeout` time, a [ChannelError::WaitTimeout] error is returned.
+    /// Note that this function's execution may take slightly longer than
+    /// `timeout` time.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped.
+    pub fn wait_for_send_unblocked_timeout(&self, timeout: Duration) -> ChannelResult<()> {
+        super::ensure_connection_not_dropped(&self.channel)?;
+
+        let mut queue = self.channel.queue.lock().expect(THREAD_PANIC_MSG);
+        if queue.rule != SendRule::Block {
+            return Ok(());
+        }
+
+        let deadline = Instant::now() + timeout;
+
+        loop {
+            let time_until_deadline = deadline.saturating_duration_since(Instant::now());
+
+            let (returned_queue, wait_result) = self
+                .channel
+                .notifier
+                .wait_timeout(queue, time_until_deadline)
+                .expect(THREAD_PANIC_MSG);
+            queue = returned_queue;
+
+            if queue.rule != SendRule::Block {
+                return Ok(());
+            }
+
+            if wait_result.timed_out() {
+                return Err(ChannelError::WaitTimeout { timeout });
+            }
+
+            // No messages after waking up means one of two things:
+            // 1. The other end hung up.
+            // 2. This was a spurious (early) wakeup (should go back to sleep).
+            super::ensure_connection_not_dropped(&self.channel)?;
+        }
     }
 
     /// Whether the other party still has their end of the connection alive, the
@@ -416,7 +947,7 @@ pub fn new<T>() -> (Inbox<T>, Outbox<T>) {
 ///   dropped.
 pub fn with_capacity<T>(capacity: usize) -> (Inbox<T>, Outbox<T>) {
     OneWayChannel {
-        queue: Mutex::new(VecDeque::with_capacity(capacity)),
+        queue: Mutex::new(VecDeque::with_capacity(capacity).into()),
         notifier: Condvar::default(),
     }
     .into()
@@ -438,19 +969,91 @@ pub fn with_starting_messages<T, I: IntoIterator<Item = T>>(msg: I) -> (Inbox<T>
 }
 
 #[derive(Debug)]
+struct QueueAndRule<T> {
+    queue: VecDeque<T>,
+    rule: SendRule,
+}
+
+impl<T> QueueAndRule<T> {
+    pub fn new(queue: VecDeque<T>) -> Self {
+        Self {
+            queue,
+            rule: SendRule::default(),
+        }
+    }
+}
+
+impl<T> Default for QueueAndRule<T> {
+    fn default() -> Self {
+        Self {
+            queue: Default::default(),
+            rule: SendRule::None,
+        }
+    }
+}
+
+impl<T> From<VecDeque<T>> for QueueAndRule<T> {
+    fn from(queue: VecDeque<T>) -> Self {
+        Self::new(queue)
+    }
+}
+
+impl<T> FromIterator<T> for QueueAndRule<T> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        Self::new(VecDeque::from_iter(iter))
+    }
+}
+
+impl<T> AsRef<VecDeque<T>> for QueueAndRule<T> {
+    fn as_ref(&self) -> &VecDeque<T> {
+        &self.queue
+    }
+}
+
+impl<T> AsMut<VecDeque<T>> for QueueAndRule<T> {
+    fn as_mut(&mut self) -> &mut VecDeque<T> {
+        &mut self.queue
+    }
+}
+
+impl<T> Deref for QueueAndRule<T> {
+    type Target = VecDeque<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.queue
+    }
+}
+
+impl<T> DerefMut for QueueAndRule<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.queue
+    }
+}
+
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+enum SendRule {
+    #[default]
+    None,
+    Limit(NonZeroUsize),
+    Block,
+}
+
+#[derive(Debug)]
 struct OneWayChannel<T> {
-    queue: Mutex<VecDeque<T>>,
+    queue: Mutex<QueueAndRule<T>>,
     notifier: Condvar,
 }
 
 impl<T> From<OneWayChannel<T>> for (Inbox<T>, Outbox<T>) {
     fn from(channel: OneWayChannel<T>) -> Self {
-        let channel = Arc::new(channel);
+        let [inbox_channel, outbox_channel] = ConnN::new::<2>(channel);
         (
             Inbox {
-                channel: channel.clone(),
+                channel: inbox_channel,
             },
-            Outbox { channel },
+            Outbox {
+                channel: outbox_channel,
+            },
         )
     }
 }
@@ -488,7 +1091,7 @@ mod tests {
         assert_eq!(inbox.wait_timeout(timeout), Ok(1));
         assert_eq!(
             inbox.wait_timeout(timeout),
-            Err(ChannelError::Timeout { timeout })
+            Err(ChannelError::WaitTimeout { timeout })
         );
     }
 
@@ -570,5 +1173,57 @@ mod tests {
         assert_eq!(inbox.wait(), Ok(3));
 
         assert!(inbox.wait().is_err());
+    }
+
+    #[test]
+    fn bounded_works() {
+        let (inbox, outbox) = new::<i32>();
+
+        const BOUND: usize = 2;
+
+        let thread = thread::spawn(move || {
+            for i in 1..=32 {
+                assert!(outbox.send_bounded(i, BOUND).is_ok());
+            }
+
+            drop(outbox);
+        });
+
+        thread::sleep(Duration::from_millis(500));
+
+        while let Ok(msgs) = inbox.wait_all() {
+            assert!(msgs.len() <= BOUND);
+
+            // Give it time to re-populate
+            thread::sleep(Duration::from_millis(75));
+        }
+
+        thread.join().unwrap();
+    }
+
+    #[test]
+    fn bounded_drop_works() {
+        let (inbox, outbox) = new::<i32>();
+
+        const BOUND: usize = 2;
+
+        let thread = thread::spawn(move || {
+            assert!(outbox.send_bounded(1, BOUND).is_ok());
+            assert!(outbox.send_bounded(2, BOUND).is_ok());
+            assert!(outbox.send_bounded(3, BOUND).is_ok());
+            assert!(
+                outbox
+                    .send_bounded(4, BOUND)
+                    .is_err_and(|e| e == ChannelError::ConnectionDropped)
+            );
+
+            drop(outbox);
+        });
+
+        assert_eq!(inbox.wait(), Ok(1));
+        thread::sleep(Duration::from_millis(500));
+        drop(inbox);
+
+        thread.join().unwrap();
     }
 }

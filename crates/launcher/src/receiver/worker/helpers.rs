@@ -142,7 +142,7 @@ pub fn handle_worker_server_requests_for_time(
     while timeout > Duration::ZERO {
         match worker_data.server.wait_timeout_all(timeout) {
             Ok(requests) => respond_to_worker_server_requests(worker_data, requests)?,
-            Err(ChannelError::Timeout { .. }) => return Ok(()),
+            Err(ChannelError::WaitTimeout { .. }) => return Ok(()),
             Err(_) => return Err(StopWorkReason::ConnectionDropped),
         };
 

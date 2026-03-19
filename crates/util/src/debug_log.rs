@@ -18,11 +18,9 @@ macro_rules! debug_log_info {
     ($($arg:tt)*) => {{
         if ::std::cfg!(debug_assertions) && $crate::debug_log::enabled() {
             let is_terminal = ::std::io::IsTerminal::is_terminal(&::std::io::stdout());
-            let (blue, magenta, reset_color) = if is_terminal {
-                ("\x1b[34m", "\x1b[35m", "\x1b[0m")
-            } else {
-                ("", "", "")
-            };
+            let (blue, magenta, reset_color) = is_terminal
+                .then_some(("\x1b[34m", "\x1b[35m", "\x1b[0m"))
+                .unwrap_or_default();
 
             let where_and_when = $crate::debug_log::where_and_when(blue, reset_color);
 
@@ -41,11 +39,9 @@ macro_rules! debug_log_warning {
     ($($arg:tt)*) => {{
         if ::std::cfg!(debug_assertions) && $crate::debug_log::enabled() {
             let is_terminal = ::std::io::IsTerminal::is_terminal(&::std::io::stderr());
-            let (blue, yellow, reset_color) = if is_terminal {
-                ("\x1b[34m", "\x1b[33m", "\x1b[0m")
-            } else {
-                ("", "", "")
-            };
+            let (blue, yellow, reset_color) = is_terminal
+                .then_some(("\x1b[34m", "\x1b[33m", "\x1b[0m"))
+                .unwrap_or_default();
 
             let where_and_when = $crate::debug_log::where_and_when(blue, reset_color);
 
@@ -64,11 +60,9 @@ macro_rules! debug_log_error {
     ($($arg:tt)*) => {{
         if ::std::cfg!(debug_assertions) && $crate::debug_log::enabled() {
             let is_terminal = ::std::io::IsTerminal::is_terminal(&::std::io::stderr());
-            let (blue, red, reset_color) = if is_terminal {
-                ("\x1b[34m", "\x1b[31m", "\x1b[0m")
-            } else {
-                ("", "", "")
-            };
+            let (blue, red, reset_color) = is_terminal
+                .then_some(("\x1b[34m", "\x1b[31m", "\x1b[0m"))
+                .unwrap_or_default();
 
             let where_and_when = $crate::debug_log::where_and_when(blue, reset_color);
 

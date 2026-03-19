@@ -3,18 +3,16 @@
 //! producer single consumer) requesting system, useful in situations with a
 //! single thread making requests and another single thread responding.
 
+mod req_res;
+
 use std::collections::VecDeque;
-use std::marker::PhantomData;
-use std::sync::{Arc, Condvar, Mutex, TryLockError};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::message_channel;
-use super::{ChannelError, ChannelResult, THREAD_PANIC_MSG};
+use super::{ChannelError, ChannelResult, ConnN, THREAD_PANIC_MSG};
+use super::{connection_not_dropped, ensure_connection_not_dropped};
 
-/// The request data from a [Client] (`Q`) and the handler from the [Server]
-/// that can be used to respond to the request (optional because some requests
-/// are not meant to be replied to, see [Client::alert]).
-pub type ReqRes<Q, A> = (Q, Option<ResponseHandle<A>>);
+pub use req_res::*;
 
 /// The server (request receiver/responder) of a two-way message channel (single
 /// producer single consumer). Also see [Client].
@@ -23,7 +21,6 @@ pub type ReqRes<Q, A> = (Q, Option<ResponseHandle<A>>);
 #[derive(Debug)]
 pub struct Server<Q, A> {
     channel: message_channel::Inbox<ReqRes<Q, A>>,
-    _marker: PhantomData<A>,
 }
 
 impl<Q, A> Server<Q, A> {
@@ -40,6 +37,10 @@ impl<Q, A> Server<Q, A> {
     /// - [Self::wait_timeout_all]
     /// - [Self::check_all]
     /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
     ///
     /// # Example
     ///
@@ -59,9 +60,9 @@ impl<Q, A> Server<Q, A> {
 
     /// Waits for a request from the client for up to `timeout` time.
     ///
-    /// After `timeout` time, a [ChannelError::Timeout] error is returned. Note
-    /// that this function's execution may take slightly longer than `timeout`
-    /// time.
+    /// After `timeout` time, a [ChannelError::WaitTimeout] error is returned.
+    /// Note that this function's execution may take slightly longer than
+    /// `timeout` time.
     ///
     /// A [ChannelError::ConnectionDropped] error is returned if the other end
     /// of the connection was dropped and there are no more items in the queue.
@@ -74,6 +75,10 @@ impl<Q, A> Server<Q, A> {
     /// - [Self::wait_timeout_all]
     /// - [Self::check_all]
     /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
     pub fn wait_timeout(&self, timeout: Duration) -> ChannelResult<ReqRes<Q, A>> {
         self.channel.wait_timeout(timeout)
     }
@@ -95,6 +100,10 @@ impl<Q, A> Server<Q, A> {
     /// - [Self::wait_timeout_all]
     /// - [Self::check_all]
     /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
     pub fn check(&self) -> ChannelResult<Option<ReqRes<Q, A>>> {
         self.channel.check()
     }
@@ -118,6 +127,10 @@ impl<Q, A> Server<Q, A> {
     /// - [Self::wait_timeout_all]
     /// - [Self::check_all]
     /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
     pub fn check_non_blocking(&self) -> ChannelResult<Option<ReqRes<Q, A>>> {
         self.channel.check_non_blocking()
     }
@@ -138,6 +151,10 @@ impl<Q, A> Server<Q, A> {
     /// - [Self::wait_timeout_all]
     /// - [Self::check_all]
     /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
     pub fn wait_all(&self) -> ChannelResult<VecDeque<ReqRes<Q, A>>> {
         self.channel.wait_all()
     }
@@ -145,9 +162,9 @@ impl<Q, A> Server<Q, A> {
     /// Waits for a request from the client for up to `timeout` time, returning
     /// all requests if multiple have built up.
     ///
-    /// After `timeout` time, a [ChannelError::Timeout] error is returned. Note
-    /// that this function's execution may take slightly longer than `timeout`
-    /// time.
+    /// After `timeout` time, a [ChannelError::WaitTimeout] error is returned.
+    /// Note that this function's execution may take slightly longer than
+    /// `timeout` time.
     ///
     /// The returned [VecDeque] is guaranteed to have at least 1 element.
     ///
@@ -162,6 +179,10 @@ impl<Q, A> Server<Q, A> {
     /// - [Self::wait_all]
     /// - [Self::check_all]
     /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
     pub fn wait_timeout_all(&self, timeout: Duration) -> ChannelResult<VecDeque<ReqRes<Q, A>>> {
         self.channel.wait_timeout_all(timeout)
     }
@@ -185,6 +206,10 @@ impl<Q, A> Server<Q, A> {
     /// - [Self::wait_all]
     /// - [Self::wait_timeout_all]
     /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
     pub fn check_all(&self) -> ChannelResult<Option<VecDeque<ReqRes<Q, A>>>> {
         self.channel.check_all()
     }
@@ -210,8 +235,178 @@ impl<Q, A> Server<Q, A> {
     /// - [Self::wait_all]
     /// - [Self::wait_timeout_all]
     /// - [Self::check_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
     pub fn check_non_blocking_all(&self) -> ChannelResult<Option<VecDeque<ReqRes<Q, A>>>> {
         self.channel.check_non_blocking_all()
+    }
+
+    /// Waits for a request from the outbox until one appears, giving in-place
+    /// access to all requests if multiple have built up.
+    ///
+    /// No messages can be sent while `f` is executing.
+    ///
+    /// The [VecDeque] is guaranteed to have at least 1 element.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::wait_timeout]
+    /// - [Self::check]
+    /// - [Self::check_non_blocking]
+    /// - [Self::wait_all]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_all]
+    /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
+    pub fn wait_in_place<F, R>(&self, f: F) -> ChannelResult<R>
+    where
+        F: FnOnce(&mut VecDeque<ReqRes<Q, A>>) -> R,
+    {
+        self.channel.wait_in_place(f)
+    }
+
+    /// Waits for a request from the outbox for up to `timeout` time, giving
+    /// in-place access to all requests if multiple have built up.
+    ///
+    /// After `timeout` time, a [ChannelError::WaitTimeout] error is returned.
+    /// Note that this function's execution may take slightly longer than
+    /// `timeout` time.
+    ///
+    /// No messages can be sent while `f` is executing.
+    ///
+    /// The [VecDeque] is guaranteed to have at least 1 element.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::wait_timeout]
+    /// - [Self::check]
+    /// - [Self::check_non_blocking]
+    /// - [Self::wait_all]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_all]
+    /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::check_in_place]
+    /// - [Self::check_non_blocking_in_place]
+    pub fn wait_timeout_in_place<F, R>(&self, f: F, timeout: Duration) -> ChannelResult<R>
+    where
+        F: FnOnce(&mut VecDeque<ReqRes<Q, A>>) -> R,
+    {
+        self.channel.wait_timeout_in_place(f, timeout)
+    }
+
+    /// Gives in-place access to all requests from the outbox if at least one
+    /// request is waiting, returning [None] otherwise. This function may still
+    /// block slightly.
+    ///
+    /// This function will block if the outbox is currently sending a new
+    /// message.
+    ///
+    /// No messages can be sent while `f` is executing.
+    ///
+    /// The [VecDeque] is guaranteed to have at least 1 element.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::wait_timeout]
+    /// - [Self::check]
+    /// - [Self::check_non_blocking]
+    /// - [Self::wait_all]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_all]
+    /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_non_blocking_in_place]
+    pub fn check_in_place<F, R>(&self, f: F) -> ChannelResult<Option<R>>
+    where
+        F: FnOnce(&mut VecDeque<ReqRes<Q, A>>) -> R,
+    {
+        self.channel.check_in_place(f)
+    }
+
+    /// Gives in-place access to all requests from the outbox if the queue is
+    /// not locked and at least one request is waiting, returning [None]
+    /// otherwise. This function will not block.
+    ///
+    /// Note that [None] being returned *does not* always mean there are no
+    /// messages in the inbox. If the outbox is currently adding an item, [None]
+    /// will still be returned (even if there are items in the queue).
+    ///
+    /// No messages can be sent while `f` is executing.
+    ///
+    /// The [VecDeque] is guaranteed to have at least 1 element.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped and there are no more items in the queue.
+    ///
+    /// Also see:
+    /// - [Self::wait]
+    /// - [Self::wait_timeout]
+    /// - [Self::check]
+    /// - [Self::check_non_blocking]
+    /// - [Self::check_non_blocking_all]
+    /// - [Self::wait_all]
+    /// - [Self::wait_timeout_all]
+    /// - [Self::check_all]
+    /// - [Self::wait_in_place]
+    /// - [Self::wait_timeout_in_place]
+    /// - [Self::check_in_place]
+    pub fn check_non_blocking_in_place<F, R>(&self, f: F) -> ChannelResult<Option<R>>
+    where
+        F: FnOnce(&mut VecDeque<ReqRes<Q, A>>) -> R,
+    {
+        self.channel.check_non_blocking_in_place(f)
+    }
+
+    /// Block requests from being sent until [Self::unblock_sender] is called.
+    /// When send-blocked, the [Client] will get [ChannelError::SendBlocked]
+    /// errors when trying to send messages.
+    ///
+    /// Also see [Self::unblock_sender], [Self::set_send_blocked], and
+    /// [Self::is_send_blocked].
+    pub fn block_sender(&self) -> ChannelResult<()> {
+        self.channel.block_sender()
+    }
+
+    /// Unblocks requests from being sent.
+    ///
+    /// Also see [Self::block_sender], [Self::set_send_blocked], and
+    /// [Self::is_send_blocked].
+    pub fn unblock_sender(&self) -> ChannelResult<()> {
+        self.channel.unblock_sender()
+    }
+
+    /// Blocks or requests messages from being sent.
+    ///
+    /// Also see [Self::block_sender], [Self::unblock_sender], and
+    /// [Self::is_send_blocked].
+    pub fn set_send_blocked(&self, send_blocked: bool) -> ChannelResult<()> {
+        self.channel.set_send_blocked(send_blocked)
+    }
+
+    /// Whether or not the channel is [send-blocked](Server::block_sender).
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped.
+    ///
+    /// Also see [Self::block_sender], [Self::unblock_sender], and
+    /// [Self::set_send_blocked].
+    pub fn is_send_blocked(&self) -> ChannelResult<bool> {
+        self.channel.is_send_blocked()
     }
 
     /// Whether the other party still has their end of the connection alive, the
@@ -224,6 +419,30 @@ impl<Q, A> Server<Q, A> {
     /// inverse of [Self::connection_open].
     pub fn connection_closed(&self) -> bool {
         self.channel.connection_closed()
+    }
+
+    /// Direct access to the inner request queue.
+    ///
+    /// No requests can be sent while `f` is executing.
+    /// is blocked.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped.
+    pub fn with_queue_in_place<F, R>(&self, f: F) -> ChannelResult<R>
+    where
+        F: FnOnce(&mut VecDeque<ReqRes<Q, A>>) -> R,
+    {
+        self.channel.with_queue_in_place(f)
+    }
+
+    /// Like [Self::with_queue_in_place], just without the check for if the
+    /// other end of the connection was dropped or if the channel is
+    /// [send-blocked](Server::block_sender).
+    pub fn with_queue_in_place_unchecked<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut VecDeque<ReqRes<Q, A>>) -> R,
+    {
+        self.channel.with_queue_in_place_unchecked(f)
     }
 }
 
@@ -240,25 +459,121 @@ impl<Q, A> Client<Q, A> {
     /// Send a request to the server.
     ///
     /// A [ChannelError::ConnectionDropped] error is returned if the other end
-    /// of the connection was dropped.
-    pub fn request(&self, request: Q) -> ChannelResult<Request<A>> {
-        let responder = Arc::new(Responder {
-            response: Mutex::new(None),
-            notifier: Condvar::default(),
-        });
+    /// of the connection was dropped. [ChannelError::SendBlocked] is returned
+    /// if the channel is [send-blocked](Server::block_sender).
+    ///
+    /// Also see [Self::request_bounded] and [Self::request_bounded].
+    pub fn request(&self, request: Q) -> ChannelResult<Request<A>, Q> {
+        Self::send_template(self, request, |channel, msg| channel.send(msg))
+            .map_err(|e| e.map_to_req())
+    }
 
-        self.channel
-            .send((request, Some(ResponseHandle(responder.clone()))))?;
+    /// Send a request to the server only once there are less than
+    /// `max_in_flight` requests [in flight](Self::messages_in_flight).
+    ///
+    /// If `max_in_flight` is `0`, `1` will be used instead.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped. [ChannelError::SendBlocked] is returned
+    /// if the channel is [send-blocked](Server::block_sender) at any point.
+    ///
+    /// Also see [Self::request] and [Self::request_bounded_timeout].
+    pub fn request_bounded(
+        &self,
+        request: Q,
+        max_in_flight: usize,
+    ) -> ChannelResult<Request<A>, Q> {
+        Self::send_template(self, request, |channel, msg| {
+            channel.send_bounded(msg, max_in_flight)
+        })
+        .map_err(|e| e.map_to_req())
+    }
 
-        Ok(Request(Some(responder)))
+    /// Sends a request to the inbox only once there are less than
+    /// `max_in_flight` requests [in flight](Self::messages_in_flight) (waiting
+    /// for up to `timeout` time).
+    ///
+    /// After `timeout` time, a [ChannelError::SendTimeout] error is returned.
+    /// Note that this function's execution may take slightly longer than
+    /// `timeout` time.
+    ///
+    /// If `max_in_flight` is `0`, `1` will be used instead.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped. [ChannelError::SendBlocked] is returned
+    /// if the channel is [send-blocked](Server::block_sender) at any point.
+    ///
+    /// Also see [Self::request] and [Self::request_bounded].
+    pub fn request_bounded_timeout(
+        &self,
+        request: Q,
+        max_in_flight: usize,
+        timeout: Duration,
+    ) -> ChannelResult<Request<A>, Q> {
+        Self::send_template(self, request, |channel, msg| {
+            channel
+                .send_bounded_timeout(msg, max_in_flight, timeout)
+                .map_err(|e| e.map_to_req())
+        })
     }
 
     /// Send a message to the server that it does not need to reply to.
     ///
     /// A [ChannelError::ConnectionDropped] error is returned if the other end
-    /// of the connection was dropped.
-    pub fn alert(&self, request: Q) -> ChannelResult<()> {
-        self.channel.send((request, None)).map(|_| ())
+    /// of the connection was dropped. [ChannelError::SendBlocked] is returned
+    /// if the channel is [send-blocked](Server::block_sender).
+    ///
+    /// Also see [Self::alert_bounded] and [Self::alert_bounded_timeout].
+    pub fn alert(&self, request: Q) -> ChannelResult<(), Q> {
+        self.alert_template(request, |channel, msg| channel.send(msg))
+            .map_err(|e| e.map_to_req())
+    }
+
+    /// Send a message to the server that it does not need to reply to once
+    /// there are less than `max_in_flight` requests
+    /// [in flight](Self::messages_in_flight).
+    ///
+    /// If `max_in_flight` is `0`, `1` will be used instead.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped. [ChannelError::SendBlocked] is returned
+    /// if the channel is [send-blocked](Server::block_sender) at any point.
+    ///
+    /// Also see [Self::alert] and [Self::alert_bounded_timeout].
+    pub fn alert_bounded(&self, request: Q, max_in_flight: usize) -> ChannelResult<(), Q> {
+        Self::alert_template(self, request, |channel, msg| {
+            channel.send_bounded(msg, max_in_flight)
+        })
+        .map_err(|e| e.map_to_req())
+    }
+
+    /// Send a message to the server that it does not need to reply to once
+    /// there are less than `max_in_flight` requests
+    /// [in flight](Self::messages_in_flight) (waiting for up to `timeout`
+    /// time).
+    ///
+    /// After `timeout` time, a [ChannelError::SendTimeout] error is returned.
+    /// Note that this function's execution may take slightly longer than
+    /// `timeout` time.
+    ///
+    /// If `max_in_flight` is `0`, `1` will be used instead.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped. [ChannelError::SendBlocked] is returned
+    /// if the channel is [send-blocked](Server::block_sender) at any point.
+    ///
+    /// Also see [Self::alert] and [Self::alert_bounded].
+    pub fn alert_bounded_timeout(
+        &self,
+        request: Q,
+        max_in_flight: usize,
+        timeout: Duration,
+    ) -> ChannelResult<(), Q> {
+        Self::alert_template(self, request, |channel, msg| {
+            channel
+                .send_bounded_timeout(msg, max_in_flight, timeout)
+                .map_err(|e| e.map_to_req())
+        })
     }
 
     /// The number of requests that have been sent but not received. Received
@@ -268,6 +583,38 @@ impl<Q, A> Client<Q, A> {
     /// of the connection was dropped.
     pub fn messages_in_flight(&self) -> ChannelResult<usize> {
         self.channel.messages_in_flight()
+    }
+
+    /// Whether or not the channel is [send-blocked](Server::block_sender),
+    /// meaning it will return [ChannelError::SendBlocked] on send attempts
+    /// until the [Server] unblocks it.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped.
+    pub fn is_send_blocked(&self) -> ChannelResult<bool> {
+        self.channel.is_send_blocked()
+    }
+
+    /// Wait for the channel to be [send-blocked](Server::block_sender) if it's
+    /// blocked.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped.
+    pub fn wait_for_send_unblocked(&self) -> ChannelResult<()> {
+        self.channel.wait_for_send_unblocked()
+    }
+
+    /// Wait for the channel to be [send-blocked](Server::block_sender) if it's
+    /// blocked.
+    ///
+    /// After `timeout` time, a [ChannelError::WaitTimeout] error is returned.
+    /// Note that this function's execution may take slightly longer than
+    /// `timeout` time.
+    ///
+    /// A [ChannelError::ConnectionDropped] error is returned if the other end
+    /// of the connection was dropped.
+    pub fn wait_for_send_unblocked_timeout(&self, timeout: Duration) -> ChannelResult<()> {
+        self.channel.wait_for_send_unblocked_timeout(timeout)
     }
 
     /// Whether the other party still has their end of the connection alive, the
@@ -281,248 +628,47 @@ impl<Q, A> Client<Q, A> {
     pub fn connection_closed(&self) -> bool {
         self.channel.connection_closed()
     }
-}
 
-/// A handle to use for responding to a request from a [Client].
-#[derive(Debug)]
-pub struct ResponseHandle<A>(Arc<Responder<A>>);
-
-impl<A> ResponseHandle<A> {
-    /// Respond to a request from the server.
+    /// Direct access to the inner request queue.
+    ///
+    /// No requests can be received while `f` is executing.
     ///
     /// A [ChannelError::ConnectionDropped] error is returned if the other end
-    /// of the connection was dropped.
-    pub fn respond(self, response: A) -> ChannelResult<()> {
-        super::ensure_connection_not_dropped(&self.0)?;
-
-        self.0
-            .response
-            .lock()
-            .expect(THREAD_PANIC_MSG)
-            .replace(response);
-
-        // We need to notify the client that the request has been responded to
-        // so that it if it's waiting.
-        self.0.notifier.notify_one();
-
-        Ok(())
+    /// of the connection was dropped. [ChannelError::SendBlockedNoMsg] is
+    /// returned if the channel is [send-blocked](Server::block_sender).
+    pub fn with_queue_in_place<F, R>(&self, f: F) -> ChannelResult<R>
+    where
+        F: FnOnce(&mut VecDeque<ReqRes<Q, A>>) -> R,
+    {
+        self.channel.with_queue_in_place(f)
     }
 
-    /// Whether the other party still has their end of the connection alive, the
-    /// inverse of [Self::connection_closed].
-    pub fn connection_open(&self) -> bool {
-        super::connection_not_dropped(&self.0)
+    /// Like [Self::with_queue_in_place], just without the check for if the
+    /// other end of the connection was dropped or if the channel is
+    /// [send-blocked](Server::block_sender).
+    pub fn with_queue_in_place_unchecked<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut VecDeque<ReqRes<Q, A>>) -> R,
+    {
+        self.channel.with_queue_in_place_unchecked(f)
     }
 
-    /// Whether the other party has dropped their end of the connection, the
-    /// inverse of [Self::connection_open].
-    pub fn connection_closed(&self) -> bool {
-        !self.connection_open()
-    }
-}
-
-// We need a custom `Drop` implementation since the client may be waiting. We
-// have to notify it that we won't reply so it doesn't just wait forever.
-impl<A> Drop for ResponseHandle<A> {
-    fn drop(&mut self) {
-        // We need to notify the client that no response is coming.
-        self.0.notifier.notify_one();
-    }
-}
-
-/// A handle to use to await a response to a request from a [Server].
-#[derive(Debug)]
-pub struct Request<A>(Option<Arc<Responder<A>>>);
-
-impl<A> Request<A> {
-    /// Waits for a response from the server until one appears.
-    ///
-    /// For a version with a maximum wait time, see [Self::wait_timeout]. If you
-    /// just want to check without waiting, see [Self::check].
-    ///
-    /// A [ChannelError::ConnectionDropped] error is returned if the other end
-    /// of the connection was dropped and there are no more items in the queue.
-    ///
-    /// A [ChannelError::ResponseAlreadyReceived] is returned if this request
-    /// has already been responded to.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let request = client.request(1).unwrap();
-    /// let response = request.wait().unwrap();
-    /// ```
-    pub fn wait(&mut self) -> ChannelResult<A> {
-        let request = self
-            .0
-            .as_ref()
-            .ok_or(ChannelError::ResponseAlreadyReceived)?;
-
-        let mut response = request.response.lock().expect(THREAD_PANIC_MSG);
-
-        if let Some(response) = response.take() {
-            return Ok(response);
-        }
-
-        // If there's no response we need to make sure the other end hasn't hung
-        // up.
-        super::ensure_connection_not_dropped(request)?;
-
-        loop {
-            response = request.notifier.wait(response).expect(THREAD_PANIC_MSG);
-
-            if let Some(response) = response.take() {
-                return Ok(response);
-            }
-
-            // No response after waking up means one of two things:
-            // 1. The other end hung up.
-            // 2. This was a spurious (early) wakeup (should go back to sleep).
-            super::ensure_connection_not_dropped(request)?;
-        }
+    #[inline]
+    fn send_template<F, R, M>(&self, request: Q, sender: F) -> ChannelResult<Request<A>, M>
+    where
+        F: FnOnce(&message_channel::Outbox<ReqRes<Q, A>>, ReqRes<Q, A>) -> ChannelResult<R, M>,
+    {
+        let (req, res) = Request::new();
+        sender(&self.channel, (request, Some(res)))?;
+        Ok(req)
     }
 
-    /// Waits for a response from the server for up to `timeout` time.
-    ///
-    /// After `timeout` time, a [ChannelError::Timeout] error is returned. Note
-    /// that this function's execution may take slightly longer than `timeout`
-    /// time.
-    ///
-    /// For a version without a maximum waiting time, see [Self::wait]. If you
-    /// just want to check without waiting, see [Self::check].
-    ///
-    /// A [ChannelError::ConnectionDropped] error is returned if the other end
-    /// of the connection was dropped and there are no more items in the queue.
-    ///
-    /// A [ChannelError::ResponseAlreadyReceived] is returned if this request
-    /// has already been responded to.
-    pub fn wait_timeout(&mut self, timeout: Duration) -> ChannelResult<A> {
-        let request = self
-            .0
-            .as_ref()
-            .ok_or(ChannelError::ResponseAlreadyReceived)?;
-
-        let mut response = request.response.lock().expect(THREAD_PANIC_MSG);
-
-        if let Some(response) = response.take() {
-            return Ok(response);
-        }
-
-        // If there's no response we need to make sure the other end hasn't hung
-        // up.
-        super::ensure_connection_not_dropped(request)?;
-
-        let deadline = Instant::now() + timeout;
-
-        loop {
-            let time_until_deadline = deadline.saturating_duration_since(Instant::now());
-
-            let (returned_response, wait_result) = request
-                .notifier
-                .wait_timeout(response, time_until_deadline)
-                .expect(THREAD_PANIC_MSG);
-            response = returned_response;
-
-            match response.take() {
-                Some(response) => return Ok(response),
-                None if wait_result.timed_out() => {
-                    return Err(ChannelError::Timeout { timeout });
-                }
-                None => {}
-            }
-
-            // No response after waking up means one of two things:
-            // 1. The other end hung up.
-            // 2. This was a spurious (early) wakeup (should go back to sleep).
-            super::ensure_connection_not_dropped(request)?;
-        }
-    }
-
-    /// Receives a response from the server if a response is waiting, returning
-    /// [None] otherwise. This function may still block slightly.
-    ///
-    /// This function will block if the server is currently sending a response.
-    /// For a function that will never block at all, see
-    /// [Self::check_non_blocking]. If you want to wait for a request to appear,
-    /// see [Self::wait] or [Self::wait_timeout].
-    ///
-    /// A [ChannelError::ConnectionDropped] error is returned if the other end
-    /// of the connection was dropped and there are no more items in the queue.
-    ///
-    /// A [ChannelError::ResponseAlreadyReceived] is returned if this request
-    /// has already been responded to.
-    pub fn check(&mut self) -> ChannelResult<Option<A>> {
-        let request = self
-            .0
-            .as_ref()
-            .ok_or(ChannelError::ResponseAlreadyReceived)?;
-
-        if let Some(response) = request.response.lock().expect(THREAD_PANIC_MSG).take() {
-            Ok(Some(response))
-        } else {
-            // If there's no response we need to make sure the other end hasn't
-            // hung up.
-            super::ensure_connection_not_dropped(request)?;
-
-            Ok(None)
-        }
-    }
-
-    /// Receives a response from the server if the queue is not locked and a
-    /// response is waiting. [None] is returned otherwise. This function will
-    /// not block.
-    ///
-    /// Note that [None] being returned *does not* always mean there are no
-    /// response waiting. If the server is currently adding an item, [None] will
-    /// still be returned (even if there are items in the queue). If you don't
-    /// want this behavior, see [Self::check]. If you want to wait for a
-    /// response to appear, see [Self::wait] or [Self::wait_timeout].
-    ///
-    /// A [ChannelError::ConnectionDropped] error is returned if the other end
-    /// of the connection was dropped and there are no more items in the queue.
-    ///
-    /// A [ChannelError::ResponseAlreadyReceived] is returned if this request
-    /// has already been responded to.
-    pub fn check_non_blocking(&mut self) -> ChannelResult<Option<A>> {
-        let request = self
-            .0
-            .as_ref()
-            .ok_or(ChannelError::ResponseAlreadyReceived)?;
-
-        match request.response.try_lock() {
-            Ok(mut response) => Ok(response.take()),
-            Err(e) => match e {
-                TryLockError::WouldBlock => Ok(None),
-                TryLockError::Poisoned(_) => panic!("{}", THREAD_PANIC_MSG),
-            },
-        }
-    }
-
-    /// Whether or not a response to this request has already been received.
-    pub fn response_received(&self) -> bool {
-        self.0.is_none()
-    }
-
-    /// Whether the other party still has their end of the connection alive, the
-    /// inverse of [Self::connection_closed].
-    ///
-    /// A [ChannelError::ResponseAlreadyReceived] is returned if this request
-    /// has already been responded to.
-    pub fn connection_open(&self) -> ChannelResult<bool> {
-        Ok(super::connection_not_dropped(
-            self.0
-                .as_ref()
-                .ok_or(ChannelError::ResponseAlreadyReceived)?,
-        ))
-    }
-
-    /// Whether the other party has dropped their end of the connection, the
-    /// inverse of [Self::connection_open].
-    ///
-    /// A [ChannelError::ResponseAlreadyReceived] is returned if this request
-    /// has already been responded to.
-    pub fn connection_closed(&self) -> ChannelResult<bool> {
-        self.connection_open().map(|open| !open)
+    #[inline]
+    fn alert_template<F, R, M>(&self, request: Q, sender: F) -> ChannelResult<(), M>
+    where
+        F: FnOnce(&message_channel::Outbox<ReqRes<Q, A>>, ReqRes<Q, A>) -> ChannelResult<R, M>,
+    {
+        sender(&self.channel, (request, None)).map(|_| ())
     }
 }
 
@@ -539,13 +685,7 @@ impl<A> Request<A> {
 ///   not been dropped.
 pub fn new<Q, A>() -> (Server<Q, A>, Client<Q, A>) {
     let (inbox, outbox) = message_channel::new();
-    (
-        Server {
-            channel: inbox,
-            _marker: PhantomData,
-        },
-        Client { channel: outbox },
-    )
+    (Server { channel: inbox }, Client { channel: outbox })
 }
 
 /// Create a two-way message channel's [Server] and [Client] with space to store
@@ -564,19 +704,7 @@ pub fn new<Q, A>() -> (Server<Q, A>, Client<Q, A>) {
 ///   not been dropped.
 pub fn with_capacity<Q, A>(capacity: usize) -> (Server<Q, A>, Client<Q, A>) {
     let (inbox, outbox) = message_channel::with_capacity(capacity);
-    (
-        Server {
-            channel: inbox,
-            _marker: PhantomData,
-        },
-        Client { channel: outbox },
-    )
-}
-
-#[derive(Debug)]
-struct Responder<A> {
-    response: Mutex<Option<A>>,
-    notifier: Condvar,
+    (Server { channel: inbox }, Client { channel: outbox })
 }
 
 #[cfg(test)]
@@ -629,7 +757,7 @@ mod tests {
         let timeout = Duration::from_millis(500);
         assert!(matches!(
             server.wait_timeout(timeout),
-            Err(ChannelError::Timeout { .. })
+            Err(ChannelError::WaitTimeout { .. })
         ));
 
         thread.join().unwrap();
