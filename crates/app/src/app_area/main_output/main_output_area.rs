@@ -1,16 +1,23 @@
+use super::output_controls::OutputControls;
 use super::output_window::OutputWindow;
 use engine::graph_executor::NodeValue;
 use util::egui;
 
 pub struct MainOutputArea {
+    controls: OutputControls,
     output_window: OutputWindow,
 }
 
 impl MainOutputArea {
     pub fn new() -> Self {
         Self {
+            controls: OutputControls::new(),
             output_window: OutputWindow::new(),
         }
+    }
+
+    pub fn playback_enabled(&self) -> bool {
+        self.controls.playback_enabled()
     }
 
     /// Update the output window with frame and FPS data
@@ -35,6 +42,6 @@ impl MainOutputArea {
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        self.output_window.show(ui);
+        self.output_window.show(ui, &mut self.controls);
     }
 }

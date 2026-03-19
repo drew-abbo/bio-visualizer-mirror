@@ -1,3 +1,4 @@
+use super::output_controls::OutputControls;
 use crate::components::FrameDisplay;
 use engine::graph_executor::NodeValue;
 use media::frame::Uid;
@@ -88,28 +89,30 @@ impl OutputWindow {
     }
 
     /// Render the output window to a UI
-    pub fn show(&mut self, ui: &mut egui::Ui) {
+    pub fn show(&mut self, ui: &mut egui::Ui, controls: &mut OutputControls) {
         egui::Frame::new()
             .fill(egui::Color32::from_rgb(12, 16, 18))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(38, 47, 51)))
             .inner_margin(egui::Margin::same(10))
             .show(ui, |ui| {
                 ui.vertical(|ui| {
-                    // Header with title
-                    ui.heading("Output");
+                    ui.horizontal(|ui| {
+                        controls.show(ui);
+                    });
                     ui.separator();
 
-                    // Frame display section
                     if matches!(&self.current_output, Some(NodeValue::Frame(_))) {
-                        ui.horizontal(|ui| {
-                            ui.label(format!("{}x{}", self.frame_width, self.frame_height));
+                        if controls.show_info() {
+                            ui.horizontal(|ui| {
+                                ui.label(format!("{}x{}", self.frame_width, self.frame_height));
+                                ui.separator();
+                                match self.playback_fps {
+                                    Some(fps) => ui.label(format!("{:.1} FPS", fps)),
+                                    None => ui.label("-- FPS"),
+                                };
+                            });
                             ui.separator();
-                            match self.playback_fps {
-                                Some(fps) => ui.label(format!("{:.1} FPS", fps)),
-                                None => ui.label("-- FPS"),
-                            };
-                        });
-                        ui.separator();
+                        }
 
                         // Display the frame
                         egui::Frame::canvas(ui.style())

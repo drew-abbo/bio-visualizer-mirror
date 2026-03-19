@@ -14,6 +14,27 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use util::egui;
+use util::egui::emath::TSTransform;
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+pub struct GraphViewState {
+    pub scaling: f32,
+    pub translation: [f32; 2],
+}
+
+impl GraphViewState {
+    fn from_transform(transform: TSTransform) -> Self {
+        Self {
+            scaling: transform.scaling,
+            translation: [transform.translation.x, transform.translation.y],
+        }
+    }
+
+    fn apply_to(self, transform: &mut TSTransform) {
+        transform.scaling = self.scaling;
+        transform.translation = egui::vec2(self.translation[0], self.translation[1]);
+    }
+}
 
 /// Data associated with each node in the snarl graph, including its definition and configured input values
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -31,6 +52,15 @@ pub struct NodeData {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct NodeGraphState {
     pub snarl: Snarl<NodeData>,
+    #[serde(default)]
+    pub graph_view: Option<GraphViewState>,
+    // Backward-compatible load path for prior zoom-only persistence.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "graph_view_zoom"
+    )]
+    pub legacy_graph_view_zoom: Option<f32>,
 }
 
 /// Needed to hack this since [Snarl<T>] doesn't implement PartialEq.
@@ -54,6 +84,8 @@ impl NodeGraphState {
     pub fn new() -> Self {
         Self {
             snarl: Snarl::new(),
+            graph_view: None,
+            legacy_graph_view_zoom: None,
         }
     }
 }
@@ -67,6 +99,11 @@ impl Default for NodeGraphState {
 pub struct NodeGraphViewer {
     node_library: Arc<NodeLibrary>,
     pending_errors: Vec<String>,
+    initial_graph_view: Option<GraphViewState>,
+    initial_graph_view_zoom: Option<f32>,
+    apply_initial_graph_view: bool,
+    latest_graph_view: Option<GraphViewState>,
+    reset_view_requested: bool,
 }
 
 impl NodeGraphViewer {
@@ -74,7 +111,31 @@ impl NodeGraphViewer {
         Self {
             node_library,
             pending_errors: Vec::new(),
+            initial_graph_view: None,
+            initial_graph_view_zoom: None,
+            apply_initial_graph_view: false,
+            latest_graph_view: None,
+            reset_view_requested: false,
         }
+    }
+
+    pub fn set_initial_graph_view(
+        &mut self,
+        view: Option<GraphViewState>,
+        legacy_zoom: Option<f32>,
+        apply_once: bool,
+    ) {
+        self.initial_graph_view = view;
+        self.initial_graph_view_zoom = legacy_zoom;
+        self.apply_initial_graph_view = apply_once;
+    }
+
+    pub fn latest_graph_view(&self) -> Option<GraphViewState> {
+        self.latest_graph_view
+    }
+
+    pub fn take_reset_view_requested(&mut self) -> bool {
+        std::mem::take(&mut self.reset_view_requested)
     }
 
     pub fn take_pending_errors(&mut self) -> Vec<String> {
@@ -110,6 +171,19 @@ impl NodeGraphViewer {
 }
 
 impl SnarlViewer<NodeData> for NodeGraphViewer {
+    fn current_transform(&mut self, to_global: &mut TSTransform, _snarl: &mut Snarl<NodeData>) {
+        if self.apply_initial_graph_view {
+            if let Some(saved_view) = self.initial_graph_view {
+                saved_view.apply_to(to_global);
+            } else if let Some(saved_zoom) = self.initial_graph_view_zoom {
+                to_global.scaling = saved_zoom;
+            }
+            self.apply_initial_graph_view = false;
+        }
+
+        self.latest_graph_view = Some(GraphViewState::from_transform(*to_global));
+    }
+
     fn title(&mut self, node: &NodeData) -> String {
         self.node_library
             .get_definition(&node.definition_name)
@@ -216,6 +290,15 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
 
     fn show_graph_menu(&mut self, pos: egui::Pos2, ui: &mut egui::Ui, snarl: &mut Snarl<NodeData>) {
         ui.label("Add Node");
+        ui.separator();
+
+        // This should be moved somewhere else that makese sense I was just playing around with it.
+        if ui.button("Reset View").clicked() {
+            self.reset_view_requested = true;
+            ui.close();
+            return;
+        }
+
         ui.separator();
 
         egui::ScrollArea::vertical()

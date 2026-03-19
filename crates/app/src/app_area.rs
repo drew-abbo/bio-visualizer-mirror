@@ -92,14 +92,25 @@ impl eframe::App for AppArea {
         if ctx.input(|i| i.viewport().close_requested()) {
             // Only check for unsaved changes if we're not already exiting
             if !self.is_exiting {
-                let state_context = self.editor_area.editor_state_context_mut();
-                let has_unsaved_changes =
-                    state_context.has_open_project() && state_context.has_unsaved_changes();
+                let (has_unsaved_changes, only_view_unsaved_changes) = {
+                    let state_context = self.editor_area.editor_state_context_mut();
+                    let has_unsaved =
+                        state_context.has_open_project() && state_context.has_unsaved_changes();
+                    let only_view_unsaved =
+                        has_unsaved && state_context.has_only_view_unsaved_changes();
+                    (has_unsaved, only_view_unsaved)
+                };
 
                 if has_unsaved_changes {
-                    // Prevent the close and show confirmation dialog
-                    ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                    self.show_exit_confirmation = true;
+                    if only_view_unsaved_changes {
+                        // Persist viewport-only changes without user interruption.
+                        self.editor_area.save_state();
+                        self.is_exiting = true;
+                    } else {
+                        // Prevent the close and show confirmation dialog
+                        ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                        self.show_exit_confirmation = true;
+                    }
                 }
             }
         }
@@ -131,6 +142,8 @@ impl eframe::App for AppArea {
         }
 
         self.show_top_bar(ctx);
+        self.editor_area
+            .set_playback_enabled(self.main_output.playback_enabled());
         self.editor_area.show(ctx, frame);
         self.editor_area
             .sync_main_output(frame, &mut self.main_output);

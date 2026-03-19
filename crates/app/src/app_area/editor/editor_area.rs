@@ -29,6 +29,9 @@ pub struct EditorArea {
     last_playing: bool,
     last_execute_request: Instant,
     pending_graph_preview: bool,
+    playback_enabled: bool,
+    snarl_view_generation: u64,
+    apply_saved_graph_zoom_once: bool,
 }
 
 impl EditorArea {
@@ -54,6 +57,9 @@ impl EditorArea {
             last_playing: false,
             last_execute_request: Instant::now(),
             pending_graph_preview: false,
+            playback_enabled: true,
+            snarl_view_generation: 0,
+            apply_saved_graph_zoom_once: true,
         }
     }
 
@@ -67,6 +73,10 @@ impl EditorArea {
     /// Access to the editor state context for project operations
     pub fn editor_state_context_mut(&mut self) -> &mut EditorStateContext {
         &mut self.editor_state_context
+    }
+
+    pub fn set_playback_enabled(&mut self, enabled: bool) {
+        self.playback_enabled = enabled;
     }
 }
 
@@ -122,11 +132,36 @@ impl EditorArea {
                 let mut viewer = NodeGraphViewer::new(self.node_library.clone());
 
                 let snarl_widget = egui_snarl::ui::SnarlWidget::new()
-                    .id(egui::Id::new("node_graph"))
+                    .id(egui::Id::new(("node_graph", self.snarl_view_generation)))
                     .style(snarl_style::snarl_style());
 
-                let node_graph = self.active_node_graph_mut();
-                snarl_widget.show(&mut node_graph.snarl, &mut viewer, ui);
+                let apply_saved_graph_zoom_once = self.apply_saved_graph_zoom_once;
+                let mut reset_view_requested = false;
+                {
+                    let node_graph = self.active_node_graph_mut();
+                    viewer.set_initial_graph_view(
+                        node_graph.graph_view,
+                        node_graph.legacy_graph_view_zoom,
+                        apply_saved_graph_zoom_once,
+                    );
+                    snarl_widget.show(&mut node_graph.snarl, &mut viewer, ui);
+                    node_graph.graph_view = viewer.latest_graph_view();
+                    node_graph.legacy_graph_view_zoom = None;
+
+                    if viewer.take_reset_view_requested() {
+                        node_graph.graph_view = None;
+                        node_graph.legacy_graph_view_zoom = None;
+                        reset_view_requested = true;
+                    }
+                }
+
+                self.apply_saved_graph_zoom_once = false;
+                if reset_view_requested {
+                    self.snarl_view_generation = self.snarl_view_generation.wrapping_add(1);
+                    self.apply_saved_graph_zoom_once = true;
+                    self.editor_state_context.mark_edited();
+                }
+
                 selected_nodes = snarl_widget.get_selected_nodes(ui);
                 pending_errors = viewer.take_pending_errors();
             });
@@ -161,8 +196,12 @@ impl EditorArea {
 
         // Node position/layout edits don't always change engine graph wiring.
         // Hash-check while interacting with the graph so layout-only edits still mark dirty.
-        let is_interacting_with_graph =
-            ctx.input(|i| i.pointer.any_down() || i.pointer.any_released());
+        let is_interacting_with_graph = ctx.input(|i| {
+            i.pointer.any_down()
+                || i.pointer.any_released()
+                || i.raw_scroll_delta != egui::Vec2::ZERO
+                || (i.zoom_delta() - 1.0).abs() > f32::EPSILON
+        });
 
         // Mark project edited using state hash comparison when graph semantics changed
         // or while interacting (to catch layout-only edits like node moves).
@@ -181,12 +220,11 @@ impl EditorArea {
         &mut self,
         selected_nodes: &[egui_snarl::NodeId],
     ) -> Option<egui_snarl::NodeId> {
-        let selected_snarl_node = if selected_nodes.is_empty() {
+        if selected_nodes.is_empty() {
             None
         } else {
             selected_nodes.last().copied()
-        };
-        selected_snarl_node
+        }
     }
 
     fn update_output_from_graph(
@@ -234,9 +272,14 @@ impl EditorArea {
                 .get_target_fps_for_display_node(&self.node_library, node_to_execute);
         }
 
-        self.update_playback_tick();
+        if self.playback_enabled {
+            self.update_playback_tick();
+        } else {
+            self.last_playing = false;
+            self.playback_accumulator = Duration::ZERO;
+        }
 
-        let should_advance = self.should_advance_frame();
+        let should_advance = self.playback_enabled && self.should_advance_frame();
 
         if graph_changed {
             self.pending_graph_preview = true;
@@ -261,8 +304,7 @@ impl EditorArea {
         }
 
         let context = engine::graph_executor::ExecutionContext {
-            // Selection changes should not stall playback for one tick.
-            advance_frame: should_advance || selection_changed,
+            advance_frame: should_advance,
         };
 
         if let Some(outputs) = self.executor_manager.execute(
