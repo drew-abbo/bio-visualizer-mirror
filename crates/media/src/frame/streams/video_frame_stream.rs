@@ -274,15 +274,14 @@ impl VideoFrameStream {
     fn apply_state(&mut self, new_state: PlaybackState) {
         self.playhead = new_state.playhead;
         self.paused = new_state.paused;
+        self.clip = new_state.clip;
+        self.unclipped_duration = new_state.duration;
     }
 
     fn worker_alert(&self, msg: WorkerRequest) {
         let msg = WorkerRequestAndState {
             msg,
-            client_state: PlaybackState {
-                playhead: self.playhead,
-                paused: self.paused,
-            },
+            client_state: self.snapshot(),
         };
         self.worker_client.alert(msg).expect(EXPECT_WORKER);
     }
@@ -291,10 +290,7 @@ impl VideoFrameStream {
     fn worker_request_and_wait(&self, msg: WorkerRequest) -> PlaybackState {
         let msg = WorkerRequestAndState {
             msg,
-            client_state: PlaybackState {
-                playhead: self.playhead,
-                paused: self.paused,
-            },
+            client_state: self.snapshot(),
         };
         let mut req = self.worker_client.request(msg).expect(EXPECT_WORKER);
 
@@ -307,6 +303,15 @@ impl VideoFrameStream {
         self.frame_inbox.unblock_sender().expect(EXPECT_WORKER);
 
         ret
+    }
+
+    fn snapshot(&self) -> PlaybackState {
+        PlaybackState {
+            playhead: self.playhead,
+            paused: self.paused,
+            clip: self.clip,
+            duration: self.unclipped_duration,
+        }
     }
 }
 
@@ -471,6 +476,8 @@ const EXPECT_WORKER: &str = "The worker should be connected.";
 struct PlaybackState {
     pub playhead: usize,
     pub paused: bool,
+    pub clip: Clip,
+    pub duration: NonZeroUsize,
 }
 
 impl PlaybackState {
@@ -479,6 +486,8 @@ impl PlaybackState {
         Self {
             playhead: ffmpeg_video.playhead(),
             paused: ffmpeg_video.paused(),
+            clip: ffmpeg_video.clip(),
+            duration: ffmpeg_video.resampled_duration_non_zero(),
         }
     }
 }
