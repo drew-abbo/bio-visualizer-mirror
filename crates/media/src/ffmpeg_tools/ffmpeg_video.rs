@@ -340,11 +340,11 @@ impl FFmpegVideo {
             .max_frames_between_keyframes()
             .map_or_else(|| DEFAULT_FRAMES_BETWEEN_KEYFRAMES_GUESS, NonZeroUsize::get);
 
-        let frames_until_keyframe = frames_between_keyframes
-            - self
-                .inner
+        let frames_until_keyframe = frames_between_keyframes.saturating_sub(
+            self.inner
                 .frames_since_keyframe()
-                .map_or_else(|| 0, NonZeroUsize::get);
+                .map_or_else(|| 0, NonZeroUsize::get),
+        );
 
         // We should walk if we're thinking the next keyframe will be after
         // where we're seeking to.

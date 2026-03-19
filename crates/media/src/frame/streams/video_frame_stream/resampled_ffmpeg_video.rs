@@ -283,7 +283,7 @@ impl ResampledFFmpegVideo {
     /// Set how frames should be rescaled if needed.
     ///
     /// If `dest_dimensions` is the same as [Self::src_dimensions],
-    /// [Self::rescale] will return [None].
+    /// [Self::rescale_method] will return [None].
     pub fn set_rescale(
         &mut self,
         dest_dimensions: Dimensions,
@@ -320,7 +320,7 @@ impl ResampledFFmpegVideo {
             self.resampled_playhead += 1;
 
             // Loop back to the start.
-            if self.resampled_playhead >= self.resampled_clip.end {
+            if self.resampled_playhead > self.resampled_clip.end {
                 debug_assert!(self.will_loop);
                 self.resampled_playhead = self.resampled_clip.start;
                 self.last_frame_played = false;
