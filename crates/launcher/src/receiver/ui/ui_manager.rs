@@ -421,7 +421,7 @@ fn apply_base_style(ctx: &Context) {
 
     ctx.style_mut(|style| {
         // Add some padding to the inside of buttons.
-        style.spacing.button_padding = egui::vec2(10.0, 5.0);
+        style.spacing.button_padding = util::egui::vec2(10.0, 5.0);
         // This is the color of hte buttons
         style.visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(0x72, 0x02, 0x57); // #EB0CB7
         style.visuals.widgets.active.weak_bg_fill = Color32::from_rgb(0xFE, 0xB6, 0xE3); // #FEB6E3
