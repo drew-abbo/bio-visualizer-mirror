@@ -1,7 +1,5 @@
 # Substrate
 
-We really need a better name...
-
 ---
 
 - [Build Instructions](#build-instructions)
