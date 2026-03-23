@@ -174,7 +174,7 @@ pub enum FileKind {
     #[default]
     Any,
     Video,
-    Image
+    Image,
 }
 
 fn default_step_i32() -> i32 {

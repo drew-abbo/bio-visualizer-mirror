@@ -54,16 +54,10 @@ pub struct NodeGraphState {
     pub snarl: Snarl<NodeData>,
     #[serde(default)]
     pub graph_view: Option<GraphViewState>,
-    // Backward-compatible load path for prior zoom-only persistence.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "graph_view_zoom"
-    )]
     pub legacy_graph_view_zoom: Option<f32>,
 }
 
-/// Needed to hack this since [Snarl<T>] doesn't implement PartialEq.
+/// Needed to impl this since [Snarl<T>] doesn't implement PartialEq.
 /// Project needs to be able to compare.
 impl PartialEq for NodeGraphState {
     /// Compare two NodeGraphStates by serializing them to binary.
@@ -352,8 +346,6 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
             return;
         }
 
-        // TODO
-        // Check for cycles in the graph
         if Self::would_create_cycle(snarl, from.id.node, to.id.node) {
             self.push_error("Connecting these nodes would create a cycle.");
             return;

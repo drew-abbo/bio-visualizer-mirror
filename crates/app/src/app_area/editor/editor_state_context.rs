@@ -6,7 +6,6 @@ use util::local_data::project::OpenProject;
 
 pub struct EditorStateContext {
     last_edit: Option<SystemTime>,
-    /// The currently open project containing the node graph state
     open_project: Option<OpenProject<NodeGraphState>>,
 
     last_saved_hash: Option<u64>,

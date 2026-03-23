@@ -41,7 +41,22 @@ impl MainOutputArea {
         }
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui) {
-        self.output_window.show(ui, &mut self.controls);
+    pub fn show(&mut self, ctx: &egui::Context) {
+        // Keep output window orchestration in the output area so AppArea only delegates.
+        egui::Window::new("Output")
+            .default_pos(egui::pos2(100.0, 100.0))
+            .default_size(egui::vec2(520.0, 620.0))
+            .min_size(egui::vec2(320.0, 280.0))
+            .resizable(true)
+            .collapsible(true)
+            .frame(
+                egui::Frame::new()
+                    .fill(egui::Color32::from_rgb(18, 22, 24))
+                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(44, 54, 58)))
+                    .inner_margin(egui::Margin::same(10)),
+            )
+            .show(ctx, |ui| {
+                self.output_window.show(ui, &mut self.controls);
+            });
     }
 }

@@ -12,7 +12,8 @@ use util::eframe;
 use util::egui;
 use util::ui::ErrorPopup;
 
-const GRAPH_PREVIEW_MIN_INTERVAL: Duration = Duration::from_millis(16);
+// While dragging controls, coalesce graph re-exec requests to roughly one UI frame.
+const GRAPH_INTERACTION_MIN_INTERVAL: Duration = Duration::from_millis(16);
 
 /// Manages all editor-related state: node graph, output display, and playback
 pub struct EditorArea {
@@ -24,11 +25,12 @@ pub struct EditorArea {
     editor_state_context: EditorStateContext,
     displayed_frame: Option<NodeValue>,
     last_fps_output: Option<f64>,
-    last_playback_request: Instant,
-    playback_accumulator: Duration,
-    last_playing: bool,
-    last_execute_request: Instant,
-    pending_graph_preview: bool,
+    // Absolute deadline for the next playback-driven frame advance.
+    next_playback_deadline: Option<Instant>,
+    // Last time we ran a graph execute triggered by graph edits.
+    last_graph_execute_request: Instant,
+    // Set when graph topology/parameters changed and a preview execute is pending.
+    pending_graph_execute: bool,
     playback_enabled: bool,
     snarl_view_generation: u64,
     apply_saved_graph_zoom_once: bool,
@@ -52,11 +54,9 @@ impl EditorArea {
             editor_state_context: EditorStateContext::new(),
             displayed_frame: None,
             last_fps_output: None,
-            last_playback_request: Instant::now(),
-            playback_accumulator: Duration::ZERO,
-            last_playing: false,
-            last_execute_request: Instant::now(),
-            pending_graph_preview: false,
+            next_playback_deadline: None,
+            last_graph_execute_request: Instant::now(),
+            pending_graph_execute: false,
             playback_enabled: true,
             snarl_view_generation: 0,
             apply_saved_graph_zoom_once: true,
@@ -75,16 +75,79 @@ impl EditorArea {
         &mut self.editor_state_context
     }
 
-    pub fn set_playback_enabled(&mut self, enabled: bool) {
+    fn set_playback_enabled(&mut self, enabled: bool) {
+        if self.playback_enabled != enabled {
+            self.next_playback_deadline = None;
+        }
         self.playback_enabled = enabled;
+    }
+
+    fn playback_frame_duration(&self) -> Option<Duration> {
+        self.last_fps_output
+            .filter(|fps| *fps > 0.0)
+            .map(|fps| Duration::from_secs_f64(1.0 / fps))
+    }
+
+    /// Returns true when the playback clock reached its next frame deadline.
+    /// Also advances the internal deadline to the next frame boundary.
+    fn playback_due(&mut self) -> bool {
+        if !self.playback_enabled {
+            self.next_playback_deadline = None;
+            return false;
+        }
+
+        let Some(frame_duration) = self.playback_frame_duration() else {
+            self.next_playback_deadline = None;
+            return false;
+        };
+
+        let now = Instant::now();
+        let mut deadline = self
+            .next_playback_deadline
+            .unwrap_or_else(|| now + frame_duration);
+
+        if now < deadline {
+            self.next_playback_deadline = Some(deadline);
+            return false;
+        }
+
+        while deadline <= now {
+            deadline += frame_duration;
+        }
+        self.next_playback_deadline = Some(deadline);
+        true
+    }
+
+    fn schedule_next_playback_repaint(&self, ctx: &egui::Context) {
+        let Some(deadline) = self.next_playback_deadline else {
+            return;
+        };
+
+        let now = Instant::now();
+        if deadline <= now {
+            ctx.request_repaint();
+        } else {
+            ctx.request_repaint_after(deadline - now);
+        }
     }
 }
 
 impl EditorArea {
+    /// Render the editor and synchronize the shared main output area.
+    pub fn show_with_main_output(
+        &mut self,
+        ctx: &egui::Context,
+        frame: &eframe::Frame,
+        main_output: &mut MainOutputArea,
+    ) {
+        self.set_playback_enabled(main_output.playback_enabled());
+        self.show(ctx, frame);
+        self.sync_main_output(frame, main_output);
+    }
+
     /// Render the entire editor area
     pub fn show(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
-        // show the node graph and get selected nodes
-        // feed selected node into output panel to update its content
+        // Render graph UI, then update preview/output from current selection.
         let selected_nodes = self.show_node_graph(ctx);
         let selected_snarl_node = self.update_output_selection(&selected_nodes);
         self.update_output_from_graph(ctx, frame, selected_snarl_node);
@@ -93,7 +156,7 @@ impl EditorArea {
     }
 
     /// Push the latest cached output data into the app-owned output area.
-    pub fn sync_main_output(&mut self, frame: &eframe::Frame, main_output: &mut MainOutputArea) {
+    fn sync_main_output(&mut self, frame: &eframe::Frame, main_output: &mut MainOutputArea) {
         let Some(render_state) = frame.wgpu_render_state() else {
             return;
         };
@@ -250,16 +313,16 @@ impl EditorArea {
         if selection_changed {
             self.executor_manager
                 .set_last_selected_engine_node(selected_engine_node);
-            self.pending_graph_preview = false;
             self.last_fps_output = None;
+            self.pending_graph_execute = false;
         }
 
         let has_nodes = !self.executor_manager.engine_graph().is_empty();
         if !has_nodes {
             self.displayed_frame = None;
             self.last_fps_output = None;
-            self.playback_accumulator = Duration::ZERO;
-            self.last_playing = false;
+            self.next_playback_deadline = None;
+            self.pending_graph_execute = false;
             return;
         }
 
@@ -272,115 +335,79 @@ impl EditorArea {
                 .get_target_fps_for_display_node(&self.node_library, node_to_execute);
         }
 
-        if self.playback_enabled {
-            self.update_playback_tick();
-        } else {
-            self.last_playing = false;
-            self.playback_accumulator = Duration::ZERO;
-        }
-
-        let should_advance = self.playback_enabled && self.should_advance_frame();
-
         if graph_changed {
-            self.pending_graph_preview = true;
+            self.pending_graph_execute = true;
         }
 
-        // Coalesce rapid UI drags (e.g., brightness slider) to avoid executing on every repaint.
-        let graph_preview_due = self.pending_graph_preview
-            && !selection_changed
-            && !should_advance
-            && self.last_execute_request.elapsed() >= GRAPH_PREVIEW_MIN_INTERVAL;
+        // Pointer-down usually means slider drags or active graph interaction.
+        let is_dragging_graph = ctx.input(|i| i.pointer.any_down());
 
-        let should_execute = selection_changed
-            || graph_preview_due
-            || self.displayed_frame.is_none()
-            || should_advance;
-
-        if !should_execute {
-            if self.displayed_frame.is_some() {
-                self.request_next_repaint(ctx);
-            }
-            return;
-        }
-
-        let context = engine::graph_executor::ExecutionContext {
-            advance_frame: should_advance,
-        };
-
-        if let Some(outputs) = self.executor_manager.execute(
-            &self.node_library,
-            render_state,
-            Some(node_to_execute),
-            context,
-        ) {
-            self.last_execute_request = Instant::now();
-            self.pending_graph_preview = false;
-
-            let frame_output = outputs.values().find_map(|value| {
-                if let NodeValue::Frame(_) = value {
-                    Some(value.clone())
-                } else {
-                    None
-                }
-            });
-
-            if let Some(frame_output) = frame_output {
-                self.displayed_frame = Some(frame_output);
-            }
-
-            if self.displayed_frame.is_some() {
-                self.request_next_repaint(ctx);
-            }
-        }
-    }
-
-    fn should_advance_frame(&mut self) -> bool {
-        let Some(fps) = self.last_fps_output.filter(|fps| *fps > 0.0) else {
-            return false;
-        };
-
-        let frame_duration = Duration::from_secs_f64(1.0 / fps);
-        if self.playback_accumulator >= frame_duration {
-            self.playback_accumulator -= frame_duration;
+        // Graph edits execute immediately when interaction ends, but are throttled
+        // while dragging to keep UI input responsive.
+        let graph_execute_due = if selection_changed {
             true
+        } else if self.pending_graph_execute {
+            if !is_dragging_graph {
+                true
+            } else {
+                self.last_graph_execute_request.elapsed() >= GRAPH_INTERACTION_MIN_INTERVAL
+            }
         } else {
             false
-        }
-    }
-
-    fn request_next_repaint(&self, ctx: &egui::Context) {
-        if let Some(fps) = self.last_fps_output.filter(|fps| *fps > 0.0) {
-            ctx.request_repaint_after(Duration::from_secs_f64(1.0 / fps));
-        } else {
-            // Unknown FPS (e.g., static image chain): avoid max-rate repaint loops.
-            ctx.request_repaint_after(Duration::from_millis(100));
-        }
-    }
-
-    fn update_playback_tick(&mut self) {
-        let Some(fps) = self.last_fps_output.filter(|fps| *fps > 0.0) else {
-            self.last_playing = false;
-            return;
         };
 
-        // Reset accumulator when (re)starting playback.
-        if !self.last_playing {
-            self.last_playback_request = Instant::now();
-            self.playback_accumulator = Duration::ZERO;
+        let should_advance = self.playback_due();
+        let should_execute = graph_execute_due || self.displayed_frame.is_none() || should_advance;
+
+        if should_execute {
+            let context = engine::graph_executor::ExecutionContext {
+                advance_frame: should_advance,
+                playback_running: self.playback_enabled,
+            };
+
+            if let Some(outputs) = self.executor_manager.execute(
+                &self.node_library,
+                render_state,
+                Some(node_to_execute),
+                context,
+            ) {
+                let frame_output = outputs.values().find_map(|value| {
+                    if let NodeValue::Frame(_) = value {
+                        Some(value.clone())
+                    } else {
+                        None
+                    }
+                });
+
+                if let Some(frame_output) = frame_output {
+                    self.displayed_frame = Some(frame_output);
+                }
+
+                if graph_execute_due {
+                    self.pending_graph_execute = false;
+                    self.last_graph_execute_request = Instant::now();
+                }
+            }
         }
 
-        let now = Instant::now();
-        let dt = now.saturating_duration_since(self.last_playback_request);
-        self.last_playback_request = now;
-        self.playback_accumulator += dt;
-
-        // Clamp to one frame to avoid bursty catch-up behavior under load.
-        let frame_duration = Duration::from_secs_f64(1.0 / fps);
-        if self.playback_accumulator > frame_duration {
-            self.playback_accumulator = frame_duration;
+        if self.pending_graph_execute {
+            if is_dragging_graph {
+                let elapsed = self.last_graph_execute_request.elapsed();
+                let wait = GRAPH_INTERACTION_MIN_INTERVAL.saturating_sub(elapsed);
+                if wait.is_zero() {
+                    ctx.request_repaint();
+                } else {
+                    ctx.request_repaint_after(wait);
+                }
+            } else {
+                // Apply queued graph changes immediately once dragging stops.
+                ctx.request_repaint();
+            }
         }
 
-        self.last_playing = true;
+        if self.playback_enabled {
+            self.schedule_next_playback_repaint(ctx);
+        }
     }
 }
 

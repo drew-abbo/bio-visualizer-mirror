@@ -26,9 +26,8 @@
 //!
 //! ```ignore
 //! let context = ExecutionContext {
-//!     timeline_time_secs: 0.0,
-//!     sampling_rate_hz: 30.0,
 //!     advance_frame: true,
+//!     playback_running: true,
 //! };
 //! let result = executor.execute(&graph, &library, &device, &queue, None, context)?;
 //! Or target a specific node:

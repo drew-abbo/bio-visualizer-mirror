@@ -1,5 +1,5 @@
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::path::{Path, PathBuf};
 
 use serde_json;
@@ -39,12 +39,12 @@ pub struct SubcategoryInfo {
 #[derive(Debug, Clone)]
 pub struct CategoryInfo {
     pub name: String,
-    
+
     /// Optional subcategories within this category
     /// Each subcategory contains its own list of nodes
     /// Empty if no nodes in this category use subcategories
     pub subcategories: Vec<SubcategoryInfo>,
-    
+
     /// Nodes that belong directly to this category
     /// not assigned to any subcategory
     pub direct_nodes: Vec<String>,
@@ -57,11 +57,11 @@ impl NodeLibrary {
     }
     /// Get comprehensive category information for the entire library
     /// This is useful for UI components that need to build category menus/folders
-    /// 
+    ///
     /// Returns a hierarchical structure:
     /// - Categories contain subcategories (if any nodes use them)
     /// - Categories contain direct_nodes (nodes not in any subcategory)
-    /// 
+    ///
     /// Example for UI:
     /// ```
     /// Color/
@@ -74,13 +74,13 @@ impl NodeLibrary {
     /// ```
     pub fn get_all_category_info(&self) -> Vec<CategoryInfo> {
         let categories = self.get_all_categories();
-        
+
         categories
             .into_iter()
             .map(|category| {
                 // Get all subcategories used in this category
                 let subcategory_names = self.get_category_subcategories(&category);
-                
+
                 // Build SubcategoryInfo for each subcategory
                 let subcategories: Vec<SubcategoryInfo> = subcategory_names
                     .into_iter()
@@ -90,14 +90,14 @@ impl NodeLibrary {
                             .into_iter()
                             .map(|def| def.node.name.clone())
                             .collect();
-                        
+
                         SubcategoryInfo {
                             name: subcat_name,
                             nodes,
                         }
                     })
                     .collect();
-                
+
                 // Get nodes that don't belong to any subcategory
                 let direct_nodes: Vec<String> = self
                     .definitions

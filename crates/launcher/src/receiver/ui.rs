@@ -87,7 +87,7 @@ pub fn run_ui(instance_lock: &mut InstanceLock<PersistedData>, worker: &Worker) 
             // looks like it'll be a pain or completely not impossible with the
             // way egui/eframe currently works. Still could be worth checking...
             // ZB - I like the centering, I thought that was normal for launchers
-            // However if we wanted to remember position it would be super simple
+            // However if we wanted to remember position it should be simple
             // since I do this in the app already
             centered: true,
 

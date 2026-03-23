@@ -140,19 +140,19 @@ impl NodeHandler for VideoSourceHandler {
         let needs_mode_update = self
             .playback_state
             .get(path)
-            .map(|state| state.is_playing != context.advance_frame)
+            .map(|state| state.is_playing != context.playback_running)
             .unwrap_or(true);
 
         if needs_mode_update {
             let stream = self.get_or_create_stream(path)?;
-            if context.advance_frame {
+            if context.playback_running {
                 stream.play();
             } else {
                 stream.pause();
             }
 
             let state = self.playback_state.entry(path.clone()).or_default();
-            state.is_playing = context.advance_frame;
+            state.is_playing = context.playback_running;
         }
 
         let (native_fps, duration_secs) = self.get_cached_stats(path)?;
@@ -174,15 +174,11 @@ impl NodeHandler for VideoSourceHandler {
         let frame_uid = frame.uid();
 
         // If the stream gave us the same frame again, avoid re-uploading.
-        if let Some(cached_gpu_frame) = self
-            .playback_state
-            .get(path)
-            .and_then(|state| {
-                (state.last_frame_uid == Some(frame_uid))
-                    .then(|| state.last_gpu_frame.clone())
-                    .flatten()
-            })
-        {
+        if let Some(cached_gpu_frame) = self.playback_state.get(path).and_then(|state| {
+            (state.last_frame_uid == Some(frame_uid))
+                .then(|| state.last_gpu_frame.clone())
+                .flatten()
+        }) {
             self.recycle_frame(path, frame);
             return Ok(vec![
                 NodeValue::Frame(cached_gpu_frame),

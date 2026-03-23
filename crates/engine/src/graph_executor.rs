@@ -82,12 +82,14 @@ pub struct ExecutionResult<'a> {
 #[derive(Debug, Clone, Copy)]
 pub struct ExecutionContext {
     pub advance_frame: bool,
+    pub playback_running: bool,
 }
 
 impl Default for ExecutionContext {
     fn default() -> Self {
         Self {
             advance_frame: true,
+            playback_running: true,
         }
     }
 }

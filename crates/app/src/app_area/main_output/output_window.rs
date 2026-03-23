@@ -1,7 +1,6 @@
 use super::output_controls::OutputControls;
 use crate::components::FrameDisplay;
 use engine::graph_executor::NodeValue;
-use media::frame::Uid;
 use util::egui;
 
 /// Main output window for displaying frames with native FPS tracking
@@ -65,7 +64,6 @@ impl OutputWindow {
                     return;
                 }
 
-                let frame_id = Uid::generate_new();
                 self.last_texture_view_ptr = Some(texture_view_ptr);
                 self.last_renderer_ptr = Some(renderer_ptr);
                 self.frame_width = gpu_frame.size.width;
@@ -75,7 +73,7 @@ impl OutputWindow {
                     render_state,
                     gpu_frame.view(),
                     size,
-                    frame_id,
+                    texture_view_ptr,
                 );
             }
             _ => {

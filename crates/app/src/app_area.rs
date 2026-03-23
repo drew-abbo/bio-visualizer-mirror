@@ -84,40 +84,47 @@ impl AppArea {
             }
         }
     }
+
+    fn handle_exit(&mut self, ctx: &egui::Context) {
+        if !self.is_exiting {
+            // essentially, if there are unsaved changes, we want to show a confirmation dialog.
+            // however, if the only unsaved changes are viewport changes, we can just save those and exit without confirmation
+            let (has_unsaved_changes, only_view_unsaved_changes) = {
+                let state_context = self.editor_area.editor_state_context_mut();
+                let has_unsaved =
+                    state_context.has_open_project() && state_context.has_unsaved_changes();
+                let only_view_unsaved =
+                    has_unsaved && state_context.has_only_view_unsaved_changes();
+                (has_unsaved, only_view_unsaved)
+            };
+
+            if has_unsaved_changes {
+                if only_view_unsaved_changes {
+                    // Persist viewport-only changes without user interruption.
+                    self.editor_area.save_state();
+                    self.is_exiting = true;
+                } else {
+                    // Prevent the close and show confirmation dialog
+                    ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                    self.show_exit_confirmation = true;
+                }
+            }
+        }
+    }
 }
 
 impl eframe::App for AppArea {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        self.process_pending_commands();
+
         // Check if the user is trying to close the window
         if ctx.input(|i| i.viewport().close_requested()) {
             // Only check for unsaved changes if we're not already exiting
-            if !self.is_exiting {
-                let (has_unsaved_changes, only_view_unsaved_changes) = {
-                    let state_context = self.editor_area.editor_state_context_mut();
-                    let has_unsaved =
-                        state_context.has_open_project() && state_context.has_unsaved_changes();
-                    let only_view_unsaved =
-                        has_unsaved && state_context.has_only_view_unsaved_changes();
-                    (has_unsaved, only_view_unsaved)
-                };
-
-                if has_unsaved_changes {
-                    if only_view_unsaved_changes {
-                        // Persist viewport-only changes without user interruption.
-                        self.editor_area.save_state();
-                        self.is_exiting = true;
-                    } else {
-                        // Prevent the close and show confirmation dialog
-                        ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                        self.show_exit_confirmation = true;
-                    }
-                }
-            }
+            self.handle_exit(ctx);
         }
 
-        self.process_pending_commands();
-
         // Show exit confirmation popup if requested
+        // could move this into its own function but it is pretty self contained I think
         if self.show_exit_confirmation {
             popup_window(ctx, "Unsaved Changes", |ui| {
                 ui.label("You have unsaved changes. Do you want to save them?");
@@ -142,28 +149,9 @@ impl eframe::App for AppArea {
         }
 
         self.show_top_bar(ctx);
+        self.main_output.show(ctx);
         self.editor_area
-            .set_playback_enabled(self.main_output.playback_enabled());
-        self.editor_area.show(ctx, frame);
-        self.editor_area
-            .sync_main_output(frame, &mut self.main_output);
-
-        // Fallback output container that is always visible even when detached
-        egui::Window::new("Output")
-            .default_pos(egui::pos2(100.0, 100.0))
-            .default_size(egui::vec2(520.0, 620.0))
-            .min_size(egui::vec2(320.0, 280.0))
-            .resizable(true)
-            .collapsible(true)
-            .frame(
-                egui::Frame::new()
-                    .fill(egui::Color32::from_rgb(18, 22, 24))
-                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(44, 54, 58)))
-                    .inner_margin(egui::Margin::same(10)),
-            )
-            .show(ctx, |ui| {
-                self.main_output.show(ui);
-            });
+            .show_with_main_output(ctx, frame, &mut self.main_output);
     }
 
     fn persist_egui_memory(&self) -> bool {
@@ -171,7 +159,7 @@ impl eframe::App for AppArea {
     }
 
     fn on_exit(&mut self, _gl: Option<&util::eframe::glow::Context>) {
-        // Auto-save on unexpected exit
+        // auto save on unexpected exits
         if !self.is_exiting {
             let has_unsaved_changes = self
                 .editor_area
