@@ -5,11 +5,12 @@ use super::snarl_style;
 use crate::app_area::main_output::MainOutputArea;
 use engine::graph_executor::NodeValue;
 use engine::node::NodeLibrary;
+use media::fps::{Fps, SwitchTimer};
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use util::eframe;
-use util::egui;
+use eframe;
+use egui;
 use util::ui::ErrorPopup;
 
 // While dragging controls, coalesce graph re-exec requests to roughly one UI frame.
@@ -24,9 +25,9 @@ pub struct EditorArea {
     node_library: Arc<NodeLibrary>,
     editor_state_context: EditorStateContext,
     displayed_frame: Option<NodeValue>,
-    last_fps_output: Option<f64>,
-    // Absolute deadline for the next playback-driven frame advance.
-    next_playback_deadline: Option<Instant>,
+    last_fps_output: Option<Fps>,
+    // Anchored playback timing (uses a fixed start time to avoid drift).
+    playback_timer: Option<SwitchTimer>,
     // Last time we ran a graph execute triggered by graph edits.
     last_graph_execute_request: Instant,
     // Set when graph topology/parameters changed and a preview execute is pending.
@@ -55,7 +56,7 @@ impl EditorArea {
             editor_state_context: EditorStateContext::new(),
             displayed_frame: None,
             last_fps_output: None,
-            next_playback_deadline: None,
+            playback_timer: None,
             last_graph_execute_request: Instant::now(),
             pending_graph_execute: false,
             playback_enabled: true,
@@ -79,57 +80,45 @@ impl EditorArea {
 
     fn set_playback_enabled(&mut self, enabled: bool) {
         if self.playback_enabled != enabled {
-            self.next_playback_deadline = None;
+            self.playback_timer = None;
         }
         self.playback_enabled = enabled;
-    }
-
-    fn playback_frame_duration(&self) -> Option<Duration> {
-        self.last_fps_output
-            .filter(|fps| *fps > 0.0)
-            .map(|fps| Duration::from_secs_f64(1.0 / fps))
     }
 
     /// Returns true when the playback clock reached its next frame deadline.
     /// Also advances the internal deadline to the next frame boundary.
     fn playback_due(&mut self) -> bool {
         if !self.playback_enabled {
-            self.next_playback_deadline = None;
+            self.playback_timer = None;
             return false;
         }
 
-        let Some(frame_duration) = self.playback_frame_duration() else {
-            self.next_playback_deadline = None;
+        let Some(target_fps) = self.last_fps_output else {
+            self.playback_timer = None;
             return false;
         };
 
-        let now = Instant::now();
-        let mut deadline = self
-            .next_playback_deadline
-            .unwrap_or_else(|| now + frame_duration);
-
-        if now < deadline {
-            self.next_playback_deadline = Some(deadline);
-            return false;
-        }
-
-        while deadline <= now {
-            deadline += frame_duration;
-        }
-        self.next_playback_deadline = Some(deadline);
-        true
+        let timer = self
+            .playback_timer
+            .get_or_insert_with(|| SwitchTimer::new(target_fps));
+        timer.set_target_fps(target_fps);
+        timer.is_switch_time()
     }
 
     fn schedule_next_playback_repaint(&self, ctx: &egui::Context) {
-        let Some(deadline) = self.next_playback_deadline else {
+        if !self.playback_enabled {
+            return;
+        }
+
+        let Some(timer) = &self.playback_timer else {
             return;
         };
 
-        let now = Instant::now();
-        if deadline <= now {
+        let wait = timer.time_until_next_switch();
+        if wait.is_zero() {
             ctx.request_repaint();
         } else {
-            ctx.request_repaint_after(deadline - now);
+            ctx.request_repaint_after(wait);
         }
     }
 }
@@ -338,7 +327,7 @@ impl EditorArea {
         if !has_nodes {
             self.displayed_frame = None;
             self.last_fps_output = None;
-            self.next_playback_deadline = None;
+            self.playback_timer = None;
             self.pending_graph_execute = false;
             return;
         }
@@ -382,17 +371,28 @@ impl EditorArea {
                 playback_running: self.playback_enabled,
             };
 
-            if let Some(frame_output) = self.executor_manager.execute(
+            match self.executor_manager.execute(
                 &self.node_library,
                 render_state,
                 Some(node_to_execute),
                 context,
             ) {
-                self.displayed_frame = Some(frame_output);
+                Ok(Some(frame_output)) => {
+                    self.displayed_frame = Some(frame_output);
 
-                if graph_execute_due {
-                    self.pending_graph_execute = false;
-                    self.last_graph_execute_request = Instant::now();
+                    if graph_execute_due {
+                        self.pending_graph_execute = false;
+                        self.last_graph_execute_request = Instant::now();
+                    }
+                }
+                Ok(None) => {
+                    // No frame output available
+                }
+                Err(engine::graph_executor::ExecutionError::VideoStreamNotReady(_)) => {
+                    // Video still warming up, expected case
+                }
+                Err(err) => {
+                    util::debug_log_error!("Graph execution error: {}", err);
                 }
             }
         }

@@ -6,7 +6,7 @@ use std::fmt::Debug;
 use std::time::{self, Duration, SystemTime};
 
 use eframe::{App, Frame};
-use util::egui::{CentralPanel, Context, Ui, UserAttentionType, Vec2, ViewportCommand, Visuals};
+use egui::{CentralPanel, Context, Ui, UserAttentionType, Vec2, ViewportCommand, Visuals};
 
 use util::channels::request_channel::Request;
 use util::local_data::project::ProjectId;
@@ -421,7 +421,7 @@ fn apply_base_style(ctx: &Context) {
 
     ctx.style_mut(|style| {
         // Add some padding to the inside of buttons.
-        style.spacing.button_padding = util::egui::vec2(10.0, 5.0);
+        style.spacing.button_padding = egui::vec2(10.0, 5.0);
     });
 }
 

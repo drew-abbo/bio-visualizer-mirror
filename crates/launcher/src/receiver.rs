@@ -6,7 +6,7 @@ pub mod ui;
 mod worker;
 
 use std::process::{Child, ExitCode, ExitStatus};
-use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard, OnceLock};
 
 use serde::{Deserialize, Serialize};
 
@@ -94,7 +94,13 @@ pub fn opened_editors() -> MutexGuard<'static, Vec<Arc<Mutex<Child>>>> {
 /// This assumes the app is in the same directory as the current executable
 /// and is named "app" (or "app.exe" on Windows).
 fn get_app_path() -> Result<std::path::PathBuf, std::io::Error> {
+    static APP_PATH: OnceLock<std::path::PathBuf> = OnceLock::new();
+    if let Some(path) = APP_PATH.get() {
+        return Ok(path.clone());
+    }
+
     let current_exe = std::env::current_exe()?;
+    let current_exe = std::fs::canonicalize(current_exe)?;
     let exe_dir = current_exe.parent().ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -109,13 +115,16 @@ fn get_app_path() -> Result<std::path::PathBuf, std::io::Error> {
 
     let app_path = exe_dir.join(app_name);
 
-    // Verify the app executable exists
-    if !app_path.exists() {
+    // Verify the app executable is actually a file.
+    if !app_path.is_file() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             format!("App executable not found at: {}", app_path.display()),
         ));
     }
+
+    let app_path = std::fs::canonicalize(app_path)?;
+    let _ = APP_PATH.set(app_path.clone());
 
     Ok(app_path)
 }

@@ -1,4 +1,4 @@
-use util::egui;
+use egui;
 
 pub struct OutputControls {
     playback_enabled: bool,

@@ -4,6 +4,7 @@
 use engine::graph_executor::{ExecutionContext, ExecutionError, GraphExecutor, NodeValue};
 use engine::node::NodeLibrary;
 use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
+use media::fps::Fps;
 use std::collections::HashSet;
 
 /// Manager for the node graph and its execution, separate from the UI state in EditorArea
@@ -62,27 +63,20 @@ impl GraphExecutorManager {
         render_state: &egui_wgpu::RenderState,
         selected_engine_node: Option<EngineNodeId>,
         context: ExecutionContext,
-    ) -> Option<NodeValue> {
-        match self.graph_executor.execute(
+    ) -> Result<Option<NodeValue>, ExecutionError> {
+        let result = self.graph_executor.execute(
             &self.engine_graph,
             node_library,
             &render_state.device,
             &render_state.queue,
             selected_engine_node,
             context,
-        ) {
-            Ok(result) => result.outputs.values().find_map(|value| match value {
-                NodeValue::Frame(_) => Some(value.clone()),
-                _ => None,
-            }),
-            Err(ExecutionError::VideoStreamNotReady(_path)) => {
-                None // Don't log an error for this case, it's expected when a video source node is warming up.
-            }
-            Err(err) => {
-                util::debug_log_error!("Graph execution error: {}", err);
-                None
-            }
-        }
+        )?;
+        
+        Ok(result.outputs.values().find_map(|value| match value {
+            NodeValue::Frame(_) => Some(value.clone()),
+            _ => None,
+        }))
     }
 
     /// Query target FPS for a specific node id directly from the executor.
@@ -90,7 +84,7 @@ impl GraphExecutorManager {
         &mut self,
         node_library: &NodeLibrary,
         node_id: EngineNodeId,
-    ) -> Option<f64> {
+    ) -> Option<Fps> {
         self.graph_executor
             .get_target_fps_for_node(&self.engine_graph, node_library, node_id)
     }
@@ -101,14 +95,14 @@ impl GraphExecutorManager {
         &mut self,
         node_library: &NodeLibrary,
         node_id: EngineNodeId,
-    ) -> Option<f64> {
+    ) -> Option<Fps> {
         if let Some(fps) = self.get_target_fps_for_node(node_library, node_id) {
             return Some(fps);
         }
 
         let mut visited = HashSet::new();
         let mut stack = vec![node_id];
-        let mut best_fps: Option<f64> = None;
+        let mut best_fps: Option<Fps> = None;
 
         while let Some(current) = stack.pop() {
             if !visited.insert(current) {

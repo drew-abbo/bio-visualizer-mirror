@@ -161,7 +161,7 @@ impl GraphExecutor {
         graph: &NodeGraph,
         library: &NodeLibrary,
         node_id: EngineNodeId,
-    ) -> Option<f64> {
+    ) -> Option<media::fps::Fps> {
         let instance = graph.get_instance(node_id)?;
         let definition = library.get_definition(&instance.definition_name)?;
 
@@ -183,8 +183,7 @@ impl GraphExecutor {
         self.video_handler
             .get_stats(path)
             .ok()
-            .map(|(fps, _duration)| fps as f64)
-            .filter(|fps| *fps > 0.0)
+            .map(|(fps, _duration)| fps)
     }
 
     /// Execute the node graph with an execution context.

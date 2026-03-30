@@ -7,9 +7,8 @@ edition = "2024"
 winit = "0.30"
 wgpu = { version = "27", default-features = false, features = ["vulkan", "metal", "wgsl"] }
 pollster = "0.4"
-util = { version = "0.1.0", path = "../util" }
-media = { version = "0.1.0", path = "../media" }
-thiserror = "2"
-bytemuck = "1.24.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+util = { workspace = true }
+media = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

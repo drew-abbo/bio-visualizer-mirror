@@ -1,5 +1,5 @@
 use super::command::Command;
-use util::egui::Context;
+use egui::Context;
 
 pub trait ToolBarButton {
     fn label(&self) -> &str;

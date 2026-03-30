@@ -6,16 +6,13 @@ mod windows_resize;
 
 use app_area::AppArea;
 use clap::Parser;
-use util::version;
-const APP_NAME: &str = version::APP_NAME;
+const APP_NAME: &str = util::version::APP_NAME;
 
-fn main() -> Result<(), util::eframe::Error> {
-    env_logger::init();
-
+fn main() -> Result<(), eframe::Error> {
     let args = args::Args::parse();
 
     // Configure the native window with custom title bar
-    let viewport = util::egui::ViewportBuilder::default()
+    let viewport = egui::ViewportBuilder::default()
         .with_title(APP_NAME)
         .with_decorations(false)
         .with_resizable(true)
@@ -23,14 +20,14 @@ fn main() -> Result<(), util::eframe::Error> {
         .with_min_inner_size([800.0, 600.0])
         .with_maximized(false);
 
-    let native_options = util::eframe::NativeOptions {
+    let native_options = eframe::NativeOptions {
         viewport,
         persist_window: true,
         centered: true,
         ..Default::default()
     };
 
-    util::eframe::run_native(
+    eframe::run_native(
         APP_NAME,
         native_options,
         Box::new(|cc| {

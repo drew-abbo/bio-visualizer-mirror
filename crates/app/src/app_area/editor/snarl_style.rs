@@ -1,4 +1,4 @@
-use util::egui;
+use egui;
 
 /// Custom snarl style for the editor area
 pub fn snarl_style() -> egui_snarl::ui::SnarlStyle {

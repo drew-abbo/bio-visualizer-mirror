@@ -4,29 +4,27 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-engine = { version = "0.1.0", path = "../engine" }
-media = { version = "0.1.0", path = "../media" }
-env_logger = "0.11"
+engine = { workspace = true }
+media = { workspace = true }
 eframe = { version = "0.33", default-features = false, features = [
     "default_fonts",
     "wgpu",
     "glow",
     "persistence",
 ] }
-egui-wgpu = "0.33.3"
-thiserror = "2"
+egui = { workspace = true }
+egui-wgpu = { workspace = true }
 rfd = "0.17.2"
 egui-phosphor = "0.11"
 egui-snarl = { version = "0.9", features = ["serde"] }
-util = { version = "0.1.0", path = "../util" }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+util = { workspace = true }
+serde = { workspace = true }
 postcard = { version = "1.0", features = ["alloc"] }
-clap = { version = "4.5.51", features = ["derive"] }
+clap = { workspace = true }
 raw-window-handle = "0.6"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = [
+windows-sys = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
 ] }

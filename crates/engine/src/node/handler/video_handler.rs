@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use media::fps::Fps;
 use media::frame::streams::{FrameStream, FrameStreamError, VideoFrameStream};
 use media::frame::{Frame, Uid};
 use util::channels::request_channel::Request;
@@ -15,7 +16,7 @@ struct VideoPlaybackState {
     last_frame_uid: Option<Uid>,
     last_gpu_frame: Option<GpuFrame>,
     is_playing: bool,
-    cached_fps: Option<f32>,
+    cached_fps: Option<Fps>,
     cached_duration_secs: Option<f64>,
 }
 
@@ -97,28 +98,25 @@ impl VideoSourceHandler {
         })
     }
 
-    pub fn get_stats(&mut self, path: &PathBuf) -> Result<(f32, f64), ExecutionError> {
+    pub fn get_stats(&mut self, path: &PathBuf) -> Result<(Fps, f64), ExecutionError> {
         let Some(stream) = self.try_get_or_create_stream(path)? else {
             return Err(ExecutionError::VideoStreamNotReady(path.clone()));
         };
 
-        let fps = stream.target_fps().as_float();
+        let fps = stream.target_fps();
+        let fps_float = fps.as_float();
 
         let duration_secs = stream
             .seek_controls()
             .map(|seek| {
-                if fps > 0.0 {
-                    seek.unclipped_stream_duration() as f64 / fps
-                } else {
-                    0.0
-                }
+                seek.unclipped_stream_duration() as f64 / fps_float
             })
             .unwrap_or(0.0);
 
-        Ok((fps as f32, duration_secs))
+        Ok((fps, duration_secs))
     }
 
-    fn get_cached_stats(&mut self, path: &PathBuf) -> Result<(f32, f64), ExecutionError> {
+    fn get_cached_stats(&mut self, path: &PathBuf) -> Result<(Fps, f64), ExecutionError> {
         if let Some(state) = self.playback_state.get(path)
             && let (Some(fps), Some(duration_secs)) = (state.cached_fps, state.cached_duration_secs)
         {
@@ -166,7 +164,12 @@ impl NodeHandler for VideoSourceHandler {
             {
                 return Ok(vec![
                     NodeValue::Frame(frame.clone()),
-                    NodeValue::Float(state.cached_fps.unwrap_or(0.0)),
+                    NodeValue::Float(
+                        state
+                            .cached_fps
+                            .map(|fps| fps.as_float() as f32)
+                            .unwrap_or(0.0),
+                    ),
                     NodeValue::Float(state.cached_duration_secs.unwrap_or(0.0) as f32),
                     NodeValue::Bool(false),
                 ]);
@@ -197,6 +200,7 @@ impl NodeHandler for VideoSourceHandler {
         }
 
         let (native_fps, duration_secs) = self.get_cached_stats(path)?;
+        let native_fps_float = native_fps.as_float() as f32;
 
         // If we are not advancing playback, return the already-uploaded frame.
         if !context.advance_frame
@@ -205,7 +209,7 @@ impl NodeHandler for VideoSourceHandler {
         {
             return Ok(vec![
                 NodeValue::Frame(frame.clone()),
-                NodeValue::Float(native_fps),
+                NodeValue::Float(native_fps_float),
                 NodeValue::Float(duration_secs as f32),
                 NodeValue::Bool(true),
             ]);
@@ -224,7 +228,7 @@ impl NodeHandler for VideoSourceHandler {
             self.recycle_frame(path, frame);
             return Ok(vec![
                 NodeValue::Frame(cached_gpu_frame),
-                NodeValue::Float(native_fps),
+                NodeValue::Float(native_fps_float),
                 NodeValue::Float(duration_secs as f32),
                 NodeValue::Bool(true),
             ]);
@@ -258,7 +262,7 @@ impl NodeHandler for VideoSourceHandler {
         // Return outputs in the order defined in node.json: Output, Fps, Duration, Ready
         Ok(vec![
             NodeValue::Frame(gpu_frame),
-            NodeValue::Float(native_fps),
+            NodeValue::Float(native_fps_float),
             NodeValue::Float(duration_secs as f32),
             NodeValue::Bool(true),
         ])

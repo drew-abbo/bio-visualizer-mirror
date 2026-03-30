@@ -140,6 +140,7 @@ pub fn setup_borderless_resize<W: HasWindowHandle>(window: &W) {
 }
 
 #[cfg(not(target_os = "windows"))]
+#[inline(always)]
 pub fn setup_borderless_resize<W: HasWindowHandle>(_window: &W) {
     // No-op on non-Windows platforms
 }

@@ -7,7 +7,7 @@ use std::convert::Infallible;
 use std::io;
 use std::time::Duration;
 
-use util::egui::Context;
+use egui::Context;
 
 use thiserror::Error;
 

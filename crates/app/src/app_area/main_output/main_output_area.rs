@@ -1,7 +1,8 @@
 use super::output_controls::OutputControls;
 use super::output_window::OutputWindow;
 use engine::graph_executor::NodeValue;
-use util::egui;
+use egui;
+use media::fps::Fps;
 
 pub struct MainOutputArea {
     controls: OutputControls,
@@ -24,7 +25,7 @@ impl MainOutputArea {
     pub fn update_from_editor(
         &mut self,
         frame_output: Option<&NodeValue>,
-        fps_output: Option<f64>,
+        fps_output: Option<Fps>,
         render_state: &egui_wgpu::RenderState,
     ) {
         if let Some(frame_output) = frame_output {

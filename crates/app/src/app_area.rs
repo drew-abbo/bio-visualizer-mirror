@@ -7,8 +7,8 @@ use super::launcher_comm;
 use editor::{EditorArea, NodeGraphState};
 use main_output::MainOutputArea;
 use title_bar::Command;
-use util::eframe;
-use util::egui;
+use eframe;
+use egui;
 use util::local_data::project::{Project, ProjectId};
 use util::ui::popup_window;
 
@@ -158,7 +158,7 @@ impl eframe::App for AppArea {
         true
     }
 
-    fn on_exit(&mut self, _gl: Option<&util::eframe::glow::Context>) {
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         // auto save on unexpected exits
         if !self.is_exiting {
             let has_unsaved_changes = self

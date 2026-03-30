@@ -1,13 +1,14 @@
 use super::output_controls::OutputControls;
 use crate::components::FrameDisplay;
 use engine::graph_executor::NodeValue;
-use util::egui;
+use egui;
+use media::fps::Fps;
 
 /// Main output window for displaying frames with native FPS tracking
 pub struct OutputWindow {
     frame_display: FrameDisplay,
     current_output: Option<NodeValue>,
-    playback_fps: Option<f64>,
+    playback_fps: Option<Fps>,
     last_texture_view_ptr: Option<usize>,
     last_renderer_ptr: Option<usize>,
 
@@ -44,10 +45,8 @@ impl OutputWindow {
     }
 
     /// Set playback FPS for display info
-    pub fn set_playback_fps(&mut self, fps: f64) {
-        if fps > 0.0 {
-            self.playback_fps = Some(fps);
-        }
+    pub fn set_playback_fps(&mut self, fps: Fps) {
+        self.playback_fps = Some(fps);
     }
 
     /// Update the displayed frame from output value
@@ -105,7 +104,7 @@ impl OutputWindow {
                                 ui.label(format!("{}x{}", self.frame_width, self.frame_height));
                                 ui.separator();
                                 match self.playback_fps {
-                                    Some(fps) => ui.label(format!("{:.1} FPS", fps)),
+                                    Some(fps) => ui.label(format!("{:.1} FPS", fps.as_float())),
                                     None => ui.label("-- FPS"),
                                 };
                             });

@@ -13,8 +13,8 @@ use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use util::egui;
-use util::egui::emath::TSTransform;
+use egui;
+use egui::emath::TSTransform;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub struct GraphViewState {

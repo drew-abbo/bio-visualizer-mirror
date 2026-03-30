@@ -2,7 +2,7 @@ use engine::node::engine_node::NodeInput;
 use engine::node::{NodeInputKind, NodeLibrary};
 use engine::node_graph::InputValue;
 use std::collections::HashMap;
-use util::egui::{self, Ui};
+use egui::{self, Ui};
 
 /// I just hate strings
 const VIDEO_NODE_NAME: &str = "Video";
