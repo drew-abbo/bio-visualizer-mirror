@@ -62,6 +62,9 @@ pub enum ExecutionError {
     #[error("Failed to fetch video frame from {0:?}: {1}")]
     VideoFetchError(PathBuf, String),
 
+    #[error("Video stream is not ready for {0:?}")]
+    VideoStreamNotReady(PathBuf),
+
     #[error("Video stream error for {0:?}: {1}")]
     VideoStreamError(PathBuf, String),
 

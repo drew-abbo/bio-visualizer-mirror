@@ -3,7 +3,7 @@
 mod enums;
 mod errors;
 use std::any::Any;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::gpu_frame::GpuFrame;
 use crate::node::NodeDefinition;
@@ -37,6 +37,9 @@ pub struct GraphExecutor {
     /// Cache of compiled pipelines
     /// Maps: definition_name -> compiled pipeline
     pipeline_cache: HashMap<String, Box<dyn PipelineBase>>,
+
+    /// Cache of shader output targets reused per node instance.
+    render_target_cache: HashMap<EngineNodeId, CachedRenderTarget>,
 
     /// Target texture format for rendering
     target_format: wgpu::TextureFormat,
@@ -73,6 +76,12 @@ pub struct ExecutionResult<'a> {
     pub outputs: &'a HashMap<String, NodeValue>,
 }
 
+#[derive(Debug)]
+struct CachedRenderTarget {
+    view: std::sync::Arc<wgpu::TextureView>,
+    size: wgpu::Extent3d,
+}
+
 /// NOTE: This will change depending on the Media producer API changes in the future.
 /// Execution context supplied by the app for time-based playback control.
 ///
@@ -100,6 +109,7 @@ impl GraphExecutor {
             upload_stager: UploadStager::new(),
             output_cache: HashMap::new(),
             pipeline_cache: HashMap::new(),
+            render_target_cache: HashMap::new(),
             video_handler: VideoSourceHandler::new(),
             image_handler: ImageSourceHandler::new(),
             target_format: format,
@@ -210,6 +220,15 @@ impl GraphExecutor {
         }
 
         // Execute each node in order
+        let live_node_ids: HashSet<EngineNodeId> = order.iter().copied().collect();
+        self.render_target_cache
+            .retain(|node_id, _| live_node_ids.contains(node_id));
+
+        let mut graph_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("graph_execution"),
+        });
+        let mut has_shader_commands = false;
+
         for &node_id in &order {
             let instance = graph
                 .get_instance(node_id)
@@ -228,7 +247,15 @@ impl GraphExecutor {
             // Execute the node based on its type
             let outputs = match &definition.node.executor {
                 NodeExecutionPlan::Shader { .. } => {
-                    self.execute_shader_node(device, queue, definition, &resolved_inputs)?
+                    has_shader_commands = true;
+                    self.execute_shader_node(
+                        node_id,
+                        device,
+                        queue,
+                        &mut graph_encoder,
+                        definition,
+                        &resolved_inputs,
+                    )?
                 }
                 NodeExecutionPlan::BuiltIn(handler) => self.execute_builtin_node(
                     handler,
@@ -246,6 +273,10 @@ impl GraphExecutor {
             if Some(node_id) == target_node_id {
                 break;
             }
+        }
+
+        if has_shader_commands {
+            queue.submit(Some(graph_encoder.finish()));
         }
 
         // Determine output node id
@@ -325,8 +356,10 @@ impl GraphExecutor {
     /// Execute a shader-based node
     fn execute_shader_node(
         &mut self,
+        node_id: EngineNodeId,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
         definition: &NodeDefinition,
         inputs: &HashMap<String, NodeValue>,
     ) -> Result<HashMap<String, NodeValue>, ExecutionError> {
@@ -381,18 +414,46 @@ impl GraphExecutor {
 
         let output_size = primary_frame.size();
 
-        let output_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("shader_output"),
-            size: output_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: self.target_format,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
-        let output_view = output_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let output_view_arc = std::sync::Arc::new(output_view);
+        let output_view_arc = {
+            let cached = self.render_target_cache.entry(node_id).or_insert_with(|| {
+                let texture = device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("shader_output"),
+                    size: output_size,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: self.target_format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                });
+                let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                CachedRenderTarget {
+                    view: std::sync::Arc::new(view),
+                    size: output_size,
+                }
+            });
+
+            if cached.size != output_size {
+                let texture = device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("shader_output"),
+                    size: output_size,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: self.target_format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                });
+                let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                cached.view = std::sync::Arc::new(view);
+                cached.size = output_size;
+            }
+
+            cached.view.clone()
+        };
+
         let output_frame = GpuFrame {
             view: output_view_arc.clone(),
             size: output_size,
@@ -402,23 +463,17 @@ impl GraphExecutor {
         let params = self.inputs_to_shader_params(inputs)?;
 
         // Execute the pipeline
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("node_execution"),
-        });
-
         pipeline
             .apply(
                 device,
                 queue,
-                &mut encoder,
+                encoder,
                 primary_frame.view(),
                 &additional_frames,
                 &output_view_arc,
                 params.as_ref(),
             )
             .map_err(ExecutionError::RenderError)?;
-
-        queue.submit(Some(encoder.finish()));
 
         // Return outputs based on node definition
         let mut outputs = HashMap::new();

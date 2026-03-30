@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use media::frame::{Frame, Uid, streams::FrameStream};
+use media::frame::streams::{FrameStream, FrameStreamError, VideoFrameStream};
+use media::frame::{Frame, Uid};
+use util::channels::request_channel::Request;
 
 use crate::gpu_frame::GpuFrame;
 use crate::graph_executor::{ExecutionContext, ExecutionError, NodeValue};
@@ -20,6 +22,7 @@ struct VideoPlaybackState {
 /// Video source with stream caching (must be kept alive between executions)
 pub struct VideoSourceHandler {
     stream_cache: HashMap<PathBuf, Box<dyn FrameStream>>,
+    pending_stream_requests: HashMap<PathBuf, Request<Result<VideoFrameStream, FrameStreamError>>>,
     playback_state: HashMap<PathBuf, VideoPlaybackState>,
 }
 
@@ -33,54 +36,72 @@ impl VideoSourceHandler {
     pub fn new() -> Self {
         Self {
             stream_cache: HashMap::new(),
+            pending_stream_requests: HashMap::new(),
             playback_state: HashMap::new(),
         }
     }
 
     pub fn clear_cache(&mut self) {
         self.stream_cache.clear();
+        self.pending_stream_requests.clear();
         self.playback_state.clear();
     }
 
-    fn get_or_create_stream(
+    fn try_get_or_create_stream(
         &mut self,
         path: &PathBuf,
-    ) -> Result<&mut Box<dyn FrameStream>, ExecutionError> {
-        if !self.stream_cache.contains_key(path) {
-            // Create a new VideoFrameStream with looping enabled
-            let mut request = media::frame::streams::VideoFrameStream::builder()
-                .set_loop(true)
-                .build(path);
+    ) -> Result<Option<&mut Box<dyn FrameStream>>, ExecutionError> {
+        if self.stream_cache.contains_key(path) {
+            return Ok(self.stream_cache.get_mut(path));
+        }
 
-            let stream = request.wait().map_err(|e| {
+        self.pending_stream_requests
+            .entry(path.clone())
+            .or_insert_with(|| VideoFrameStream::builder().set_loop(true).build(path));
+
+        let ready_stream = {
+            let request = self.pending_stream_requests.get_mut(path).unwrap();
+            request.check_non_blocking().map_err(|e| {
                 ExecutionError::VideoStreamError(
                     path.clone(),
                     format!("Failed to create video stream: {:?}", e),
                 )
-            })?;
+            })?
+        };
 
-            let stream = stream.map_err(|e| {
-                ExecutionError::VideoStreamError(
-                    path.clone(),
-                    format!("Failed to open video stream: {:?}", e),
-                )
-            })?;
+        match ready_stream {
+            Some(stream_result) => {
+                self.pending_stream_requests.remove(path);
 
-            self.stream_cache.insert(path.clone(), Box::new(stream));
+                let stream = stream_result.map_err(|e| {
+                    ExecutionError::VideoStreamError(
+                        path.clone(),
+                        format!("Failed to open video stream: {:?}", e),
+                    )
+                })?;
+
+                self.stream_cache.insert(path.clone(), Box::new(stream));
+                Ok(self.stream_cache.get_mut(path))
+            }
+            None => Ok(None),
         }
-
-        Ok(self.stream_cache.get_mut(path).unwrap())
     }
 
     pub fn fetch_frame(&mut self, path: &PathBuf) -> Result<Frame, ExecutionError> {
-        let stream = self.get_or_create_stream(path)?;
+        let Some(stream) = self.try_get_or_create_stream(path)? else {
+            return Err(ExecutionError::VideoStreamNotReady(path.clone()));
+        };
+
         stream.fetch().map_err(|e| {
             ExecutionError::VideoFetchError(path.clone(), format!("Failed to fetch frame: {:?}", e))
         })
     }
 
     pub fn get_stats(&mut self, path: &PathBuf) -> Result<(f32, f64), ExecutionError> {
-        let stream = self.get_or_create_stream(path)?;
+        let Some(stream) = self.try_get_or_create_stream(path)? else {
+            return Err(ExecutionError::VideoStreamNotReady(path.clone()));
+        };
+
         let fps = stream.target_fps().as_float();
 
         let duration_secs = stream
@@ -112,7 +133,7 @@ impl VideoSourceHandler {
     }
 
     fn recycle_frame(&mut self, path: &PathBuf, frame: Frame) {
-        if let Ok(stream) = self.get_or_create_stream(path) {
+        if let Ok(Some(stream)) = self.try_get_or_create_stream(path) {
             stream.recycle(frame);
         }
     }
@@ -136,6 +157,24 @@ impl NodeHandler for VideoSourceHandler {
             })
             .ok_or(ExecutionError::InvalidInputType)?;
 
+        // Poll stream creation without blocking the frame loop.
+        let stream_ready = self.try_get_or_create_stream(path)?.is_some();
+
+        if !stream_ready {
+            if let Some(state) = self.playback_state.get(path)
+                && let Some(frame) = &state.last_gpu_frame
+            {
+                return Ok(vec![
+                    NodeValue::Frame(frame.clone()),
+                    NodeValue::Float(state.cached_fps.unwrap_or(0.0)),
+                    NodeValue::Float(state.cached_duration_secs.unwrap_or(0.0) as f32),
+                    NodeValue::Bool(false),
+                ]);
+            }
+
+            return Err(ExecutionError::VideoStreamNotReady(path.clone()));
+        }
+
         // Apply play/pause only on transitions to avoid expensive churn.
         let needs_mode_update = self
             .playback_state
@@ -144,7 +183,9 @@ impl NodeHandler for VideoSourceHandler {
             .unwrap_or(true);
 
         if needs_mode_update {
-            let stream = self.get_or_create_stream(path)?;
+            let stream = self
+                .try_get_or_create_stream(path)?
+                .expect("stream checked above");
             if context.playback_running {
                 stream.play();
             } else {
@@ -166,6 +207,7 @@ impl NodeHandler for VideoSourceHandler {
                 NodeValue::Frame(frame.clone()),
                 NodeValue::Float(native_fps),
                 NodeValue::Float(duration_secs as f32),
+                NodeValue::Bool(true),
             ]);
         }
 
@@ -184,6 +226,7 @@ impl NodeHandler for VideoSourceHandler {
                 NodeValue::Frame(cached_gpu_frame),
                 NodeValue::Float(native_fps),
                 NodeValue::Float(duration_secs as f32),
+                NodeValue::Bool(true),
             ]);
         }
 
@@ -212,11 +255,12 @@ impl NodeHandler for VideoSourceHandler {
         state.last_frame_uid = Some(frame_uid);
         state.last_gpu_frame = Some(gpu_frame.clone());
 
-        // Return outputs in the order defined in node.json: Output, Fps, Duration
+        // Return outputs in the order defined in node.json: Output, Fps, Duration, Ready
         Ok(vec![
             NodeValue::Frame(gpu_frame),
             NodeValue::Float(native_fps),
             NodeValue::Float(duration_secs as f32),
+            NodeValue::Bool(true),
         ])
     }
 }

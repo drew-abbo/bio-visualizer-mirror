@@ -21,6 +21,11 @@
     {
       "name": "Duration",
       "kind": "Float"
+    },
+    {
+      "name": "Ready",
+      "kind": "Bool",
+      "show_pin": false
     }
   ],
   "executor": {

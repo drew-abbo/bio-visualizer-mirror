@@ -34,6 +34,7 @@ pub struct EditorArea {
     playback_enabled: bool,
     snarl_view_generation: u64,
     apply_saved_graph_zoom_once: bool,
+    last_synced_content_hash: Option<u64>,
 }
 
 impl EditorArea {
@@ -60,6 +61,7 @@ impl EditorArea {
             playback_enabled: true,
             snarl_view_generation: 0,
             apply_saved_graph_zoom_once: true,
+            last_synced_content_hash: None,
         }
     }
 
@@ -233,24 +235,39 @@ impl EditorArea {
             self.error_popup_queue.push_back(error);
         }
 
+        // Sync to engine only when graph content has changed.
+        let has_project = self.editor_state_context.has_open_project();
+        let current_content_hash = if has_project {
+            self.editor_state_context
+                .node_graph()
+                .and_then(EditorStateContext::compute_content_hash)
+        } else {
+            EditorStateContext::compute_content_hash(&self.local_node_graph)
+        };
+
+        let should_sync = self.last_synced_content_hash != current_content_hash;
+
         // Then sync to engine (after UI to avoid multiple borrows)
         // Check if we have a project graph or use local graph
-        let has_project = self.editor_state_context.has_open_project();
-
-        let graph_changed = if has_project {
-            // Sync project graph to engine
-            let project_graph = self.editor_state_context.node_graph_mut().unwrap();
-            project_graph.sync_to_engine(
-                self.executor_manager.engine_graph_mut_no_flag(),
-                &self.node_library,
-            )
+        let graph_changed = if should_sync {
+            if has_project {
+                // Sync project graph to engine
+                let project_graph = self.editor_state_context.node_graph_mut().unwrap();
+                project_graph.sync_to_engine(
+                    self.executor_manager.engine_graph_mut_no_flag(),
+                    &self.node_library,
+                )
+            } else {
+                // Sync local graph to engine
+                self.local_node_graph.sync_to_engine(
+                    self.executor_manager.engine_graph_mut_no_flag(),
+                    &self.node_library,
+                )
+            }
         } else {
-            // Sync local graph to engine
-            self.local_node_graph.sync_to_engine(
-                self.executor_manager.engine_graph_mut_no_flag(),
-                &self.node_library,
-            )
+            false
         };
+        self.last_synced_content_hash = current_content_hash;
 
         // Mark executor as changed if graph sync made changes
         if graph_changed {
@@ -365,23 +382,13 @@ impl EditorArea {
                 playback_running: self.playback_enabled,
             };
 
-            if let Some(outputs) = self.executor_manager.execute(
+            if let Some(frame_output) = self.executor_manager.execute(
                 &self.node_library,
                 render_state,
                 Some(node_to_execute),
                 context,
             ) {
-                let frame_output = outputs.values().find_map(|value| {
-                    if let NodeValue::Frame(_) = value {
-                        Some(value.clone())
-                    } else {
-                        None
-                    }
-                });
-
-                if let Some(frame_output) = frame_output {
-                    self.displayed_frame = Some(frame_output);
-                }
+                self.displayed_frame = Some(frame_output);
 
                 if graph_execute_due {
                     self.pending_graph_execute = false;

@@ -1,6 +1,10 @@
+use std::collections::VecDeque;
+
 use egui::load::SizedTexture;
 use util::eframe::wgpu;
 use util::egui;
+
+const MAX_TEXTURE_CACHE_SIZE: usize = 3;
 
 /// Display configuration for output frames rendered via egui.
 #[derive(Clone, Debug)]
@@ -23,7 +27,7 @@ pub struct FrameDisplay {
     texture_size: [usize; 2],
     last_frame_key: Option<usize>,
     last_renderer_ptr: Option<usize>,
-    pending_free_texture_id: Option<egui::TextureId>,
+    texture_cache: VecDeque<(usize, egui::TextureId)>,
 }
 
 impl FrameDisplay {
@@ -34,7 +38,7 @@ impl FrameDisplay {
             texture_size: [0, 0],
             last_frame_key: None,
             last_renderer_ptr: None,
-            pending_free_texture_id: None,
+            texture_cache: VecDeque::new(),
         }
     }
 
@@ -57,28 +61,51 @@ impl FrameDisplay {
             return;
         }
 
-        // Free one-update-old texture ids. Delaying by one update helps avoid
-        // transient flashing when the renderer still references the previous id.
-        if let Some(old_pending) = self.pending_free_texture_id.take()
-            && !renderer_changed
-        {
-            render_state.renderer.write().free_texture(&old_pending);
+        if renderer_changed {
+            let mut renderer = render_state.renderer.write();
+            for (_, texture_id) in self.texture_cache.drain(..) {
+                renderer.free_texture(&texture_id);
+            }
+            self.texture_id = None;
         }
 
-        // Register new texture first, then free old texture. This avoids transient
-        // blanking/flicker when frames are updated rapidly.
-        let texture_id = render_state.renderer.write().register_native_texture(
-            &render_state.device,
-            texture_view,
-            wgpu::FilterMode::Linear,
-        );
+        let texture_id = if let Some((_, cached_id)) = self
+            .texture_cache
+            .iter()
+            .find(|(cached_key, _)| *cached_key == frame_key)
+        {
+            *cached_id
+        } else {
+            let new_id = render_state.renderer.write().register_native_texture(
+                &render_state.device,
+                texture_view,
+                wgpu::FilterMode::Linear,
+            );
+            self.texture_cache.push_back((frame_key, new_id));
 
-        if let Some(old_id) = self.texture_id.take() {
-            if renderer_changed {
-                render_state.renderer.write().free_texture(&old_id);
-            } else {
-                self.pending_free_texture_id = Some(old_id);
+            while self.texture_cache.len() > MAX_TEXTURE_CACHE_SIZE {
+                if let Some((evicted_key, evicted_id)) = self.texture_cache.pop_front() {
+                    if Some(evicted_key) == self.last_frame_key
+                        || Some(evicted_id) == self.texture_id
+                    {
+                        self.texture_cache.push_back((evicted_key, evicted_id));
+                        break;
+                    }
+
+                    render_state.renderer.write().free_texture(&evicted_id);
+                }
             }
+
+            new_id
+        };
+
+        if let Some(pos) = self
+            .texture_cache
+            .iter()
+            .position(|(cached_key, _)| *cached_key == frame_key)
+            && let Some(entry) = self.texture_cache.remove(pos)
+        {
+            self.texture_cache.push_back(entry);
         }
 
         self.texture_id = Some(texture_id);
@@ -89,18 +116,14 @@ impl FrameDisplay {
 
     /// Clear the current texture
     pub fn clear(&mut self, render_state: Option<&egui_wgpu::RenderState>) {
-        if let Some(old_id) = self.texture_id.take()
-            && let Some(rs) = render_state
-        {
-            rs.renderer.write().free_texture(&old_id);
+        if let Some(rs) = render_state {
+            let mut renderer = rs.renderer.write();
+            for (_, texture_id) in self.texture_cache.drain(..) {
+                renderer.free_texture(&texture_id);
+            }
         }
 
-        if let Some(old_pending) = self.pending_free_texture_id.take()
-            && let Some(rs) = render_state
-        {
-            rs.renderer.write().free_texture(&old_pending);
-        }
-
+        self.texture_id = None;
         self.texture_size = [0, 0];
         self.last_frame_key = None;
         self.last_renderer_ptr = None;

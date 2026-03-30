@@ -1,7 +1,7 @@
 //! Manager for the node graph and its execution, separate from the UI state in EditorArea
 //! This module defines the GraphExecutorManager, which holds the engine graph and the GraphExecutor instance.
 //! It provides methods to check for changes, execute the graph, and determine which node's output to display based on selection or graph structure.
-use engine::graph_executor::{ExecutionContext, GraphExecutor, NodeValue};
+use engine::graph_executor::{ExecutionContext, ExecutionError, GraphExecutor, NodeValue};
 use engine::node::NodeLibrary;
 use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
 use std::collections::HashSet;
@@ -62,7 +62,7 @@ impl GraphExecutorManager {
         render_state: &egui_wgpu::RenderState,
         selected_engine_node: Option<EngineNodeId>,
         context: ExecutionContext,
-    ) -> Option<std::collections::HashMap<String, NodeValue>> {
+    ) -> Option<NodeValue> {
         match self.graph_executor.execute(
             &self.engine_graph,
             node_library,
@@ -71,7 +71,13 @@ impl GraphExecutorManager {
             selected_engine_node,
             context,
         ) {
-            Ok(result) => Some(result.outputs.clone()),
+            Ok(result) => result.outputs.values().find_map(|value| match value {
+                NodeValue::Frame(_) => Some(value.clone()),
+                _ => None,
+            }),
+            Err(ExecutionError::VideoStreamNotReady(_path)) => {
+                None // Don't log an error for this case, it's expected when a video source node is warming up.
+            }
             Err(err) => {
                 util::debug_log_error!("Graph execution error: {}", err);
                 None
