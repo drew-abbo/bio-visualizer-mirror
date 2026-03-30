@@ -4,7 +4,6 @@ mod enums;
 mod errors;
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 
 use crate::gpu_frame::GpuFrame;
 use crate::node::NodeDefinition;
@@ -131,41 +130,26 @@ impl GraphExecutor {
         required
     }
 
-    fn collect_active_video_paths(
+    fn collect_video_source_nodes(
         graph: &NodeGraph,
         library: &NodeLibrary,
         node_ids: &[EngineNodeId],
-    ) -> HashSet<PathBuf> {
-        let mut paths = HashSet::new();
-
-        for &node_id in node_ids {
-            let Some(instance) = graph.get_instance(node_id) else {
-                continue;
-            };
-
-            let Some(definition) = library.get_definition(&instance.definition_name) else {
-                continue;
-            };
-
-            if !matches!(
-                definition.node.executor,
-                NodeExecutionPlan::BuiltIn(BuiltInHandler::VideoSource)
-            ) {
-                continue;
-            }
-
-            if let Some(path) = instance.input_values.values().find_map(|input| {
-                if let InputValue::File(path) = input {
-                    Some(path.clone())
-                } else {
-                    None
-                }
-            }) {
-                paths.insert(path);
-            }
-        }
-
-        paths
+    ) -> HashSet<EngineNodeId> {
+        node_ids
+            .iter()
+            .copied()
+            .filter(|&id| {
+                graph
+                    .get_instance(id)
+                    .and_then(|inst| library.get_definition(&inst.definition_name))
+                    .is_some_and(|def| {
+                        matches!(
+                            def.node.executor,
+                            NodeExecutionPlan::BuiltIn(BuiltInHandler::VideoSource)
+                        )
+                    })
+            })
+            .collect()
     }
 
     pub fn new(format: wgpu::TextureFormat) -> Self {
@@ -244,9 +228,8 @@ impl GraphExecutor {
             }
         })?;
 
-        self.video_handler
-            .get_target_fps(path)
-            .ok()
+        // Pass node_id so the handler looks up the right stream.
+        self.video_handler.get_target_fps(node_id, path).ok()
     }
 
     /// Execute the node graph with an execution context.
@@ -275,8 +258,8 @@ impl GraphExecutor {
             .execution_order()
             .map_err(ExecutionError::GraphError)?;
 
-        let active_video_paths = Self::collect_active_video_paths(graph, library, &order);
-        self.video_handler.retain_paths(&active_video_paths);
+        let active_video_nodes = Self::collect_video_source_nodes(graph, library, &order);
+        self.video_handler.retain_nodes(&active_video_nodes);
 
         if let Some(target) = target_node_id
             && !order.contains(&target)
@@ -284,9 +267,8 @@ impl GraphExecutor {
             return Err(ExecutionError::TargetNodeNotInExecutionOrder(target));
         }
 
-        let required_nodes = target_node_id.map(|target| {
-            Self::collect_required_nodes_for_target(graph, target)
-        });
+        let required_nodes =
+            target_node_id.map(|target| Self::collect_required_nodes_for_target(graph, target));
 
         let execution_node_ids: Vec<EngineNodeId> = order
             .iter()
@@ -298,10 +280,10 @@ impl GraphExecutor {
             })
             .collect();
 
-        let executing_video_paths =
-            Self::collect_active_video_paths(graph, library, &execution_node_ids);
+        let executing_video_nodes =
+            Self::collect_video_source_nodes(graph, library, &execution_node_ids);
         self.video_handler
-            .set_playback_for_paths(&executing_video_paths, context.playback_running);
+            .set_playback_for_nodes(&executing_video_nodes, context.playback_running);
 
         // Execute each node in order
         let live_node_ids: HashSet<EngineNodeId> = order.iter().copied().collect();
@@ -314,7 +296,6 @@ impl GraphExecutor {
         let mut has_shader_commands = false;
 
         for &node_id in &execution_node_ids {
-
             let instance = graph
                 .get_instance(node_id)
                 .ok_or(ExecutionError::NodeNotFound(node_id))?;
@@ -343,6 +324,7 @@ impl GraphExecutor {
                     )?
                 }
                 NodeExecutionPlan::BuiltIn(handler) => self.execute_builtin_node(
+                    node_id,
                     handler,
                     &resolved_inputs,
                     device,
@@ -583,6 +565,7 @@ impl GraphExecutor {
     /// Execute a built-in node
     fn execute_builtin_node(
         &mut self,
+        node_id: EngineNodeId,
         handler_type: &BuiltInHandler,
         inputs: &HashMap<String, NodeValue>,
         device: &wgpu::Device,
@@ -592,13 +575,15 @@ impl GraphExecutor {
     ) -> Result<HashMap<String, NodeValue>, ExecutionError> {
         let output_values = match *handler_type {
             BuiltInHandler::ImageSource => self.image_handler.execute(
+                node_id,
                 inputs,
                 device,
                 queue,
                 &mut self.upload_stager,
                 context,
             )?,
-            BuiltInHandler::VideoSource => self.video_handler.execute(
+            BuiltInHandler::VideoSource => self.video_handler.execute_for_node(
+                node_id,
                 inputs,
                 device,
                 queue,
@@ -608,10 +593,6 @@ impl GraphExecutor {
             BuiltInHandler::MidiSource => return Err(ExecutionError::InvalidInputType),
         };
 
-        // Map the Vec<NodeValue> to HashMap<String, NodeValue> using output names from definition
-        // I wanted this to be more generic because so in the future maybe we have more outputs
-        // Would require some changes to NodeHandlers to supply the outputs on the other hand
-        // However those kinds of nodes would likely not be user defined so I think this is acceptable
         let mut outputs = HashMap::new();
         for (i, value) in output_values.into_iter().enumerate() {
             if let Some(output_def) = definition.node.outputs.get(i) {

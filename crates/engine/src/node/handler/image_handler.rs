@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use crate::gpu_frame::GpuFrame;
 use crate::graph_executor::{ExecutionContext, ExecutionError, NodeValue};
 use crate::node::handler::node_handler::NodeHandler;
+use crate::node_graph::EngineNodeId;
 use crate::upload_stager::UploadStager;
 
 /// Loads an image file to GPU texture with caching
@@ -32,6 +33,7 @@ impl Default for ImageSourceHandler {
 impl NodeHandler for ImageSourceHandler {
     fn execute(
         &mut self,
+        _node_id: EngineNodeId,
         inputs: &HashMap<String, NodeValue>,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
