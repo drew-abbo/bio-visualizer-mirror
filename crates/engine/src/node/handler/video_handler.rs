@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use media::fps::Fps;
+use media::frame::Frame;
 use media::frame::streams::{FrameStream, FrameStreamError, VideoFrameStream};
-use media::frame::{Frame, Uid};
 use util::channels::request_channel::Request;
 
 use crate::gpu_frame::GpuFrame;
@@ -13,11 +13,8 @@ use crate::upload_stager::UploadStager;
 
 #[derive(Default)]
 struct VideoPlaybackState {
-    last_frame_uid: Option<Uid>,
     last_gpu_frame: Option<GpuFrame>,
     is_playing: bool,
-    cached_fps: Option<Fps>,
-    cached_duration_secs: Option<f64>,
 }
 
 /// Video source with stream caching (must be kept alive between executions)
@@ -88,46 +85,25 @@ impl VideoSourceHandler {
         }
     }
 
-    pub fn fetch_frame(&mut self, path: &PathBuf) -> Result<Frame, ExecutionError> {
+    pub fn fetch_frame(&mut self, path: &PathBuf) -> Result<(Frame, bool), ExecutionError> {
         let Some(stream) = self.try_get_or_create_stream(path)? else {
             return Err(ExecutionError::VideoStreamNotReady(path.clone()));
         };
 
-        stream.fetch().map_err(|e| {
+        let frame = stream.fetch().map_err(|e| {
             ExecutionError::VideoFetchError(path.clone(), format!("Failed to fetch frame: {:?}", e))
-        })
+        })?;
+        let is_distinct = stream.last_frame_is_distinct_from_previous();
+
+        Ok((frame, is_distinct))
     }
 
-    pub fn get_stats(&mut self, path: &PathBuf) -> Result<(Fps, f64), ExecutionError> {
+    pub fn get_target_fps(&mut self, path: &PathBuf) -> Result<Fps, ExecutionError> {
         let Some(stream) = self.try_get_or_create_stream(path)? else {
             return Err(ExecutionError::VideoStreamNotReady(path.clone()));
         };
 
-        let fps = stream.target_fps();
-        let fps_float = fps.as_float();
-
-        let duration_secs = stream
-            .seek_controls()
-            .map(|seek| {
-                seek.unclipped_stream_duration() as f64 / fps_float
-            })
-            .unwrap_or(0.0);
-
-        Ok((fps, duration_secs))
-    }
-
-    fn get_cached_stats(&mut self, path: &PathBuf) -> Result<(Fps, f64), ExecutionError> {
-        if let Some(state) = self.playback_state.get(path)
-            && let (Some(fps), Some(duration_secs)) = (state.cached_fps, state.cached_duration_secs)
-        {
-            return Ok((fps, duration_secs));
-        }
-
-        let (fps, duration_secs) = self.get_stats(path)?;
-        let state = self.playback_state.entry(path.clone()).or_default();
-        state.cached_fps = Some(fps);
-        state.cached_duration_secs = Some(duration_secs);
-        Ok((fps, duration_secs))
+        Ok(stream.target_fps())
     }
 
     fn recycle_frame(&mut self, path: &PathBuf, frame: Frame) {
@@ -162,17 +138,7 @@ impl NodeHandler for VideoSourceHandler {
             if let Some(state) = self.playback_state.get(path)
                 && let Some(frame) = &state.last_gpu_frame
             {
-                return Ok(vec![
-                    NodeValue::Frame(frame.clone()),
-                    NodeValue::Float(
-                        state
-                            .cached_fps
-                            .map(|fps| fps.as_float() as f32)
-                            .unwrap_or(0.0),
-                    ),
-                    NodeValue::Float(state.cached_duration_secs.unwrap_or(0.0) as f32),
-                    NodeValue::Bool(false),
-                ]);
+                return Ok(vec![NodeValue::Frame(frame.clone())]);
             }
 
             return Err(ExecutionError::VideoStreamNotReady(path.clone()));
@@ -199,39 +165,27 @@ impl NodeHandler for VideoSourceHandler {
             state.is_playing = context.playback_running;
         }
 
-        let (native_fps, duration_secs) = self.get_cached_stats(path)?;
-        let native_fps_float = native_fps.as_float() as f32;
-
         // If we are not advancing playback, return the already-uploaded frame.
         if !context.advance_frame
             && let Some(state) = self.playback_state.get(path)
             && let Some(frame) = &state.last_gpu_frame
         {
-            return Ok(vec![
-                NodeValue::Frame(frame.clone()),
-                NodeValue::Float(native_fps_float),
-                NodeValue::Float(duration_secs as f32),
-                NodeValue::Bool(true),
-            ]);
+            return Ok(vec![NodeValue::Frame(frame.clone())]);
         }
 
         // Fetch and upload only when we need a new frame.
-        let frame = self.fetch_frame(path)?;
-        let frame_uid = frame.uid();
+        let (frame, is_distinct) = self.fetch_frame(path)?;
 
-        // If the stream gave us the same frame again, avoid re-uploading.
-        if let Some(cached_gpu_frame) = self.playback_state.get(path).and_then(|state| {
-            (state.last_frame_uid == Some(frame_uid))
-                .then(|| state.last_gpu_frame.clone())
-                .flatten()
-        }) {
+        // Stream says this frame is unchanged from the previous one, so reuse
+        // the cached GPU upload when available.
+        if !is_distinct
+            && let Some(cached_gpu_frame) = self
+                .playback_state
+                .get(path)
+                .and_then(|state| state.last_gpu_frame.clone())
+        {
             self.recycle_frame(path, frame);
-            return Ok(vec![
-                NodeValue::Frame(cached_gpu_frame),
-                NodeValue::Float(native_fps_float),
-                NodeValue::Float(duration_secs as f32),
-                NodeValue::Bool(true),
-            ]);
+            return Ok(vec![NodeValue::Frame(cached_gpu_frame)]);
         }
 
         let width = frame.dimensions().width();
@@ -256,15 +210,8 @@ impl NodeHandler for VideoSourceHandler {
         self.recycle_frame(path, frame);
 
         let state = self.playback_state.entry(path.clone()).or_default();
-        state.last_frame_uid = Some(frame_uid);
         state.last_gpu_frame = Some(gpu_frame.clone());
 
-        // Return outputs in the order defined in node.json: Output, Fps, Duration, Ready
-        Ok(vec![
-            NodeValue::Frame(gpu_frame),
-            NodeValue::Float(native_fps_float),
-            NodeValue::Float(duration_secs as f32),
-            NodeValue::Bool(true),
-        ])
+        Ok(vec![NodeValue::Frame(gpu_frame)])
     }
 }

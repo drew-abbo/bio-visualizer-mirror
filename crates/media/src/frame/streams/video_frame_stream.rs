@@ -196,6 +196,8 @@ pub struct VideoFrameStream {
 
     // Local State:
     fetch_timeout: Option<Duration>,
+    last_frame_distinct_from_previous: bool,
+    has_fetched_frame: bool,
 
     // Keep this field last. Channels must be dropped before joining thread.
     _worker: DropJoinHandle<()>,
@@ -262,6 +264,8 @@ impl VideoFrameStream {
                     native_fps: ffmpeg_video.src_fps(),
                     unclipped_duration: ffmpeg_video.resampled_duration_non_zero(),
                     fetch_timeout: builder.fetch_timeout,
+                    last_frame_distinct_from_previous: true,
+                    has_fetched_frame: false,
 
                     _worker: drop_join_thread::spawn(move || {
                         Worker::new(ffmpeg_video).run(frame_outbox, worker_server);
@@ -317,6 +321,7 @@ impl VideoFrameStream {
 
 impl PlaybackStream<Frame, FrameStreamError> for VideoFrameStream {
     fn fetch(&mut self) -> Result<Frame, FrameStreamError> {
+        let previous_playhead = self.playhead;
         let (frame, new_state) = match self.fetch_timeout {
             Some(timeout) => match self.frame_inbox.wait_timeout(timeout) {
                 Err(e) if e.is_any_timeout_error() => return Err(e.into()),
@@ -326,6 +331,10 @@ impl PlaybackStream<Frame, FrameStreamError> for VideoFrameStream {
             None => self.frame_inbox.wait(),
         }
         .expect(EXPECT_WORKER)?;
+
+        self.last_frame_distinct_from_previous =
+            !self.has_fetched_frame || new_state.playhead != previous_playhead;
+        self.has_fetched_frame = true;
 
         self.apply_state(new_state);
         Ok(frame)
@@ -397,6 +406,10 @@ impl FrameStream for VideoFrameStream {
 
     fn native_dimensions(&self) -> Dimensions {
         self.native_dimensions
+    }
+
+    fn last_frame_is_distinct_from_previous(&self) -> bool {
+        self.last_frame_distinct_from_previous
     }
 }
 

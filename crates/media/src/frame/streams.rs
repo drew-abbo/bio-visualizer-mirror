@@ -50,6 +50,15 @@ pub trait FrameStream: PlaybackStream<Frame, FrameStreamError> {
     fn reset_dimensions(&mut self) {
         self.set_dimensions(self.native_dimensions(), RescaleMethod::default());
     }
+
+    /// Whether the last frame returned by [PlaybackStream::fetch] is visually
+    /// distinct from the previously fetched frame.
+    ///
+    /// The default implementation returns `true` so callers remain correct even
+    /// when a stream does not provide a distinctness signal.
+    fn last_frame_is_distinct_from_previous(&self) -> bool {
+        true
+    }
 }
 
 /// Indicates something went wrong with [FrameStream] (a [PlaybackStream] of

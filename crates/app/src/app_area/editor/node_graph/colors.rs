@@ -1,6 +1,6 @@
+use egui;
 use engine::node::engine_node::NodeOutputKind;
 use engine::node::{NodeInputKind, input_kind_to_output_kind};
-use egui;
 
 /// Get the color for a node input pin based on its type
 pub fn input_kind_color(kind: &NodeInputKind) -> egui::Color32 {

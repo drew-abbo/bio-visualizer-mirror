@@ -1,6 +1,7 @@
 //! Communication utilities for sending messages back to the launcher.
 
 use std::process::Command;
+use std::sync::OnceLock;
 
 /// Notify the launcher that a project failed to open.
 ///
@@ -31,7 +32,13 @@ fn try_notify_project_open_failed() -> Result<(), std::io::Error> {
 /// This assumes the launcher is in the same directory as the current executable
 /// and is named "launcher" (or "launcher.exe" on Windows).
 fn get_launcher_path() -> Result<std::path::PathBuf, std::io::Error> {
+    static LAUNCHER_PATH: OnceLock<std::path::PathBuf> = OnceLock::new();
+    if let Some(path) = LAUNCHER_PATH.get() {
+        return Ok(path.clone());
+    }
+
     let current_exe = std::env::current_exe()?;
+    let current_exe = std::fs::canonicalize(current_exe)?;
     let exe_dir = current_exe.parent().ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -44,7 +51,9 @@ fn get_launcher_path() -> Result<std::path::PathBuf, std::io::Error> {
     #[cfg(not(windows))]
     let launcher_name = "launcher";
 
-    Ok(exe_dir.join(launcher_name))
+    let launcher_path = exe_dir.join(launcher_name);
+    let _ = LAUNCHER_PATH.set(launcher_path.clone());
+    Ok(launcher_path)
 }
 
 #[cfg(test)]

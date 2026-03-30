@@ -1,5 +1,3 @@
-use egui;
-
 use super::command::Command;
 use super::save_button::SaveButton;
 use super::toolbar_button::ToolBarButton;

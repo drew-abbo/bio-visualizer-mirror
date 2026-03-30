@@ -43,8 +43,7 @@ impl SwitchTimer {
         };
 
         let elapsed_nanos = now.duration_since(start_time).as_nanos();
-        let frames_elapsed = elapsed_nanos
-            .saturating_mul(self.target_fps.num() as u128)
+        let frames_elapsed = elapsed_nanos.saturating_mul(self.target_fps.num() as u128)
             / ((self.target_fps.den() as u128) * 1_000_000_000u128);
         let frame_intervals_since_start = frames_elapsed.min(usize::MAX as u128) as usize;
 

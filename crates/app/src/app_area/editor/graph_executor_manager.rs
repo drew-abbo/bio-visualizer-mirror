@@ -72,7 +72,7 @@ impl GraphExecutorManager {
             selected_engine_node,
             context,
         )?;
-        
+
         Ok(result.outputs.values().find_map(|value| match value {
             NodeValue::Frame(_) => Some(value.clone()),
             _ => None,

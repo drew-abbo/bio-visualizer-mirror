@@ -1,5 +1,3 @@
-use egui;
-
 pub struct OutputControls {
     playback_enabled: bool,
     show_info: bool,

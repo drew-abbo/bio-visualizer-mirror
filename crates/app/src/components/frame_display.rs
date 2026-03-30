@@ -1,8 +1,7 @@
 use std::collections::VecDeque;
 
-use egui::load::SizedTexture;
 use eframe::wgpu;
-use egui;
+use egui::load::SizedTexture;
 
 const MAX_TEXTURE_CACHE_SIZE: usize = 3;
 

@@ -181,9 +181,8 @@ impl GraphExecutor {
         })?;
 
         self.video_handler
-            .get_stats(path)
+            .get_target_fps(path)
             .ok()
-            .map(|(fps, _duration)| fps)
     }
 
     /// Execute the node graph with an execution context.

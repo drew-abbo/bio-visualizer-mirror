@@ -1,7 +1,6 @@
 use super::output_controls::OutputControls;
 use super::output_window::OutputWindow;
 use engine::graph_executor::NodeValue;
-use egui;
 use media::fps::Fps;
 
 pub struct MainOutputArea {

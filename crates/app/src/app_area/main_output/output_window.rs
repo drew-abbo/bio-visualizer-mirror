@@ -1,7 +1,6 @@
 use super::output_controls::OutputControls;
 use crate::components::FrameDisplay;
 use engine::graph_executor::NodeValue;
-use egui;
 use media::fps::Fps;
 
 /// Main output window for displaying frames with native FPS tracking

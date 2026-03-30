@@ -6,6 +6,8 @@ mod input_widgets;
 mod sync;
 mod validation;
 
+use egui;
+use egui::emath::TSTransform;
 use egui_snarl::ui::{PinInfo, SnarlViewer};
 use egui_snarl::{InPin, NodeId as SnarlNodeId, OutPin, Snarl};
 use engine::node::{NodeLibrary, input_kind_to_output_kind};
@@ -13,8 +15,6 @@ use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use egui;
-use egui::emath::TSTransform;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub struct GraphViewState {

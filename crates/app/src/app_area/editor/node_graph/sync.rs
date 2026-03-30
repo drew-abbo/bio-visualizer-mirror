@@ -1,6 +1,7 @@
+use egui_snarl::InPinId;
 use egui_snarl::{NodeId as SnarlNodeId, Snarl};
 use engine::node::engine_node::NodeInput;
-use engine::node::{NodeInputKind, NodeLibrary};
+use engine::node::{NodeInputKind, NodeLibrary, input_kind_to_output_kind};
 use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
 use std::collections::{HashMap, HashSet};
 
@@ -13,7 +14,9 @@ pub fn sync_to_engine(
     engine_graph: &mut NodeGraph,
     node_library: &NodeLibrary,
 ) -> bool {
-    let mut changes_made = false;
+    // Remove wires that reference pins which no longer exist in node definitions
+    // (for example after output pin removals in updated node schemas).
+    let mut changes_made = prune_invalid_wires(state, node_library);
 
     // Collect all snarl node IDs (must do this before mutating)
     let all_node_ids: Vec<SnarlNodeId> = state.snarl.node_ids().map(|(id, _)| id).collect();
@@ -142,6 +145,51 @@ pub fn sync_to_engine(
     }
 
     changes_made
+}
+
+fn prune_invalid_wires(state: &mut NodeGraphState, node_library: &NodeLibrary) -> bool {
+    let mut invalid_inputs: Vec<InPinId> = Vec::new();
+
+    for (wire_from, wire_to) in state.snarl.wires() {
+        let from_node = &state.snarl[wire_from.node];
+        let to_node = &state.snarl[wire_to.node];
+
+        let Some(from_def) = node_library.get_definition(&from_node.definition_name) else {
+            invalid_inputs.push(wire_to);
+            continue;
+        };
+        let Some(to_def) = node_library.get_definition(&to_node.definition_name) else {
+            invalid_inputs.push(wire_to);
+            continue;
+        };
+
+        let Some(from_output) = from_def.node.outputs.get(wire_from.output) else {
+            invalid_inputs.push(wire_to);
+            continue;
+        };
+        let Some(to_input) = to_def.node.inputs.get(wire_to.input) else {
+            invalid_inputs.push(wire_to);
+            continue;
+        };
+
+        let expected_kind = input_kind_to_output_kind(&to_input.kind);
+        if from_output.kind != expected_kind {
+            invalid_inputs.push(wire_to);
+        }
+    }
+
+    if invalid_inputs.is_empty() {
+        return false;
+    }
+
+    invalid_inputs.sort_by_key(|pin| (pin.node.0, pin.input));
+    invalid_inputs.dedup();
+
+    for input_pin in invalid_inputs {
+        state.snarl.drop_inputs(input_pin);
+    }
+
+    true
 }
 
 /// Sync a node to the engine if it should be active

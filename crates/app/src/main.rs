@@ -22,7 +22,9 @@ fn main() -> Result<(), eframe::Error> {
 
     let native_options = eframe::NativeOptions {
         viewport,
-        persist_window: true,
+        // Native window persistence can restore stale minimized/tiny sizes on
+        // some platforms; keep this off so startup min-size constraints win.
+        persist_window: false,
         centered: true,
         ..Default::default()
     };

@@ -3,18 +3,21 @@ use super::graph_executor_manager::GraphExecutorManager;
 use super::node_graph::{NodeGraphState, NodeGraphViewer};
 use super::snarl_style;
 use crate::app_area::main_output::MainOutputArea;
+use eframe;
+use egui;
 use engine::graph_executor::NodeValue;
 use engine::node::NodeLibrary;
 use media::fps::{Fps, SwitchTimer};
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use eframe;
-use egui;
 use util::ui::ErrorPopup;
 
 // While dragging controls, coalesce graph re-exec requests to roughly one UI frame.
 const GRAPH_INTERACTION_MIN_INTERVAL: Duration = Duration::from_millis(16);
+// Native file dialogs block the UI thread; after a long stall, resume playback
+// from "now" instead of trying to rapidly catch up missed frame switches.
+const PLAYBACK_STALL_RESET_THRESHOLD: Duration = Duration::from_millis(250);
 
 /// Manages all editor-related state: node graph, output display, and playback
 pub struct EditorArea {
@@ -28,6 +31,8 @@ pub struct EditorArea {
     last_fps_output: Option<Fps>,
     // Anchored playback timing (uses a fixed start time to avoid drift).
     playback_timer: Option<SwitchTimer>,
+    // Last time playback_due() was polled while playback was enabled.
+    last_playback_poll: Option<Instant>,
     // Last time we ran a graph execute triggered by graph edits.
     last_graph_execute_request: Instant,
     // Set when graph topology/parameters changed and a preview execute is pending.
@@ -57,6 +62,7 @@ impl EditorArea {
             displayed_frame: None,
             last_fps_output: None,
             playback_timer: None,
+            last_playback_poll: None,
             last_graph_execute_request: Instant::now(),
             pending_graph_execute: false,
             playback_enabled: true,
@@ -81,6 +87,7 @@ impl EditorArea {
     fn set_playback_enabled(&mut self, enabled: bool) {
         if self.playback_enabled != enabled {
             self.playback_timer = None;
+            self.last_playback_poll = None;
         }
         self.playback_enabled = enabled;
     }
@@ -90,18 +97,29 @@ impl EditorArea {
     fn playback_due(&mut self) -> bool {
         if !self.playback_enabled {
             self.playback_timer = None;
+            self.last_playback_poll = None;
             return false;
         }
 
         let Some(target_fps) = self.last_fps_output else {
             self.playback_timer = None;
+            self.last_playback_poll = None;
             return false;
         };
 
+        let now = Instant::now();
         let timer = self
             .playback_timer
             .get_or_insert_with(|| SwitchTimer::new(target_fps));
         timer.set_target_fps(target_fps);
+
+        if let Some(last_poll) = self.last_playback_poll
+            && now.duration_since(last_poll) > PLAYBACK_STALL_RESET_THRESHOLD
+        {
+            timer.reset();
+        }
+
+        self.last_playback_poll = Some(now);
         timer.is_switch_time()
     }
 
