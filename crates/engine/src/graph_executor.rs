@@ -4,6 +4,7 @@ mod enums;
 mod errors;
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 use crate::gpu_frame::GpuFrame;
 use crate::node::NodeDefinition;
@@ -104,6 +105,69 @@ impl Default for ExecutionContext {
 }
 
 impl GraphExecutor {
+    fn collect_required_nodes_for_target(
+        graph: &NodeGraph,
+        target: EngineNodeId,
+    ) -> HashSet<EngineNodeId> {
+        let mut required = HashSet::new();
+        let mut stack = vec![target];
+
+        while let Some(node_id) = stack.pop() {
+            if !required.insert(node_id) {
+                continue;
+            }
+
+            let Some(instance) = graph.get_instance(node_id) else {
+                continue;
+            };
+
+            for input in instance.input_values.values() {
+                if let InputValue::Connection { from_node, .. } = input {
+                    stack.push(*from_node);
+                }
+            }
+        }
+
+        required
+    }
+
+    fn collect_active_video_paths(
+        graph: &NodeGraph,
+        library: &NodeLibrary,
+        node_ids: &[EngineNodeId],
+    ) -> HashSet<PathBuf> {
+        let mut paths = HashSet::new();
+
+        for &node_id in node_ids {
+            let Some(instance) = graph.get_instance(node_id) else {
+                continue;
+            };
+
+            let Some(definition) = library.get_definition(&instance.definition_name) else {
+                continue;
+            };
+
+            if !matches!(
+                definition.node.executor,
+                NodeExecutionPlan::BuiltIn(BuiltInHandler::VideoSource)
+            ) {
+                continue;
+            }
+
+            if let Some(path) = instance.input_values.values().find_map(|input| {
+                if let InputValue::File(path) = input {
+                    Some(path.clone())
+                } else {
+                    None
+                }
+            }) {
+                paths.insert(path);
+            }
+        }
+
+        paths
+    }
+
     pub fn new(format: wgpu::TextureFormat) -> Self {
         Self {
             upload_stager: UploadStager::new(),
@@ -211,11 +275,33 @@ impl GraphExecutor {
             .execution_order()
             .map_err(ExecutionError::GraphError)?;
 
+        let active_video_paths = Self::collect_active_video_paths(graph, library, &order);
+        self.video_handler.retain_paths(&active_video_paths);
+
         if let Some(target) = target_node_id
             && !order.contains(&target)
         {
             return Err(ExecutionError::TargetNodeNotInExecutionOrder(target));
         }
+
+        let required_nodes = target_node_id.map(|target| {
+            Self::collect_required_nodes_for_target(graph, target)
+        });
+
+        let execution_node_ids: Vec<EngineNodeId> = order
+            .iter()
+            .copied()
+            .filter(|node_id| {
+                required_nodes
+                    .as_ref()
+                    .is_none_or(|required| required.contains(node_id))
+            })
+            .collect();
+
+        let executing_video_paths =
+            Self::collect_active_video_paths(graph, library, &execution_node_ids);
+        self.video_handler
+            .set_playback_for_paths(&executing_video_paths, context.playback_running);
 
         // Execute each node in order
         let live_node_ids: HashSet<EngineNodeId> = order.iter().copied().collect();
@@ -227,7 +313,8 @@ impl GraphExecutor {
         });
         let mut has_shader_commands = false;
 
-        for &node_id in &order {
+        for &node_id in &execution_node_ids {
+
             let instance = graph
                 .get_instance(node_id)
                 .ok_or(ExecutionError::NodeNotFound(node_id))?;

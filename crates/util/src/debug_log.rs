@@ -78,17 +78,6 @@ macro_rules! debug_log_error {
     }};
 }
 
-/// A macro I think is helpful I you just want to print a line in debug mode without all the extra info that the other macros add
-/// I needed this for listing but could be of some value somwhere else just in case
-#[macro_export]
-macro_rules! debug_println {
-    ($($arg:tt)*) => {{
-        if ::std::cfg!(debug_assertions) && $crate::debug_log::enabled() {
-            ::std::println!("{}", format!($($arg)*));
-        }
-    }};
-}
-
 /// Whether logging is enabled or not.
 ///
 /// Logging cannot be enabled when `cfg!(debug_assertions)` is false, otherwise

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use media::fps::Fps;
@@ -43,6 +44,46 @@ impl VideoSourceHandler {
         self.stream_cache.clear();
         self.pending_stream_requests.clear();
         self.playback_state.clear();
+    }
+
+    /// Keep cache entries only for paths still referenced by the current graph.
+    ///
+    /// This prevents stale streams/worker threads from accumulating when nodes
+    /// are deleted or videos are replaced.
+    pub fn retain_paths(&mut self, active_paths: &HashSet<PathBuf>) {
+        self.stream_cache
+            .retain(|path, _| active_paths.contains(path));
+        self.pending_stream_requests
+            .retain(|path, _| active_paths.contains(path));
+        self.playback_state
+            .retain(|path, _| active_paths.contains(path));
+    }
+
+    /// Apply playback mode based on current execution scope.
+    ///
+    /// Streams in `active_paths` follow `playback_running`; all others are
+    /// explicitly paused.
+    pub fn set_playback_for_paths(
+        &mut self,
+        active_paths: &HashSet<PathBuf>,
+        playback_running: bool,
+    ) {
+        let cached_paths: Vec<PathBuf> = self.stream_cache.keys().cloned().collect();
+
+        for path in cached_paths {
+            let should_play = active_paths.contains(&path) && playback_running;
+
+            if let Some(stream) = self.stream_cache.get_mut(&path) {
+                if should_play {
+                    stream.play();
+                } else {
+                    stream.pause();
+                }
+            }
+
+            let state = self.playback_state.entry(path).or_default();
+            state.is_playing = should_play;
+        }
     }
 
     fn try_get_or_create_stream(
