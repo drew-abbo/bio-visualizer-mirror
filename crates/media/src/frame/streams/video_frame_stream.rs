@@ -382,6 +382,12 @@ impl PlaybackStream<Frame, FrameStreamError> for VideoFrameStream {
 }
 
 impl FrameStream for VideoFrameStream {
+    fn fetched_frame_changed(&self) -> bool {
+        // TODO: Add logic so that we can skip copying frames to the GPU when
+        // paused or when repeating the same src frame for multiple dest frames.
+        true
+    }
+
     fn dimensions(&self) -> Dimensions {
         self.dimensions
     }

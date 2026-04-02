@@ -19,6 +19,13 @@ pub use video_frame_stream::*;
 
 /// A [PlaybackStream] of [Frame]s.
 pub trait FrameStream: PlaybackStream<Frame, FrameStreamError> {
+    /// Whether or not the last frame that was fetched is the same as the frame
+    /// that was fetched before it.
+    ///
+    /// `true` should always be returned after the first call to
+    /// [PlaybackStream::fetch].
+    fn fetched_frame_changed(&self) -> bool;
+
     /// The dimensions of the [Frame]s that are produced.
     fn dimensions(&self) -> Dimensions;
 
