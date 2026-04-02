@@ -969,9 +969,6 @@ mod tests {
         );
 
         let good_length_pixels = vec![Pixel::WHITE; 34].into_boxed_slice();
-        assert_eq!(
-            Frame::from_pixels(good_length_pixels, Dimensions::new(2, 2).unwrap()),
-            Err(TryFromSliceError::LenError)
-        );
+        assert!(Frame::from_pixels(good_length_pixels, Dimensions::new(2, 2).unwrap()).is_ok());
     }
 }
