@@ -55,6 +55,9 @@ pub struct StillFrameStream {
     dimensions: Dimensions,
     rescale_method: RescaleMethod,
 
+    // Local State:
+    frames_since_change: usize,
+
     // Src Info (Final):
     native_dimensions: Dimensions,
 
@@ -86,6 +89,7 @@ impl StillFrameStream {
             paused,
             dimensions,
             rescale_method: RescaleMethod::default(),
+            frames_since_change: 0,
             native_dimensions: dimensions,
             _worker: worker,
         }
@@ -112,6 +116,8 @@ impl PlaybackStream<Frame, FrameStreamError> for StillFrameStream {
     fn fetch(&mut self) -> Result<Frame, FrameStreamError> {
         debug_assert!(self.frame_inbox.is_send_blocked() != Ok(true));
 
+        self.frames_since_change += 1;
+
         Ok(self.frame_inbox.wait().expect(EXPECT_WORKER))
     }
 
@@ -122,6 +128,8 @@ impl PlaybackStream<Frame, FrameStreamError> for StillFrameStream {
 
         self.worker_alert(WorkerRequest::SetTargetFps(new_target_fps));
         self.target_fps = new_target_fps;
+
+        self.frames_since_change = 0;
     }
 
     fn target_fps(&self) -> Fps {
@@ -149,6 +157,10 @@ impl PlaybackStream<Frame, FrameStreamError> for StillFrameStream {
 }
 
 impl FrameStream for StillFrameStream {
+    fn fetched_frame_changed(&self) -> bool {
+        self.frames_since_change <= 1
+    }
+
     fn dimensions(&self) -> Dimensions {
         self.dimensions
     }
@@ -162,6 +174,8 @@ impl FrameStream for StillFrameStream {
 
         self.worker_request_and_wait(WorkerRequest::SetDimensions(new_dimensions, rescale_method));
         self.dimensions = new_dimensions;
+
+        self.frames_since_change = 0;
     }
 
     fn rescale_method(&self) -> Option<RescaleMethod> {
