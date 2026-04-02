@@ -121,7 +121,9 @@ def windows() -> None:
         # We'll use `vs_installer` to query installed components. The result
         # will be written to a JSON config file we can read.
 
-        temp_vs_installer_config_path = f"{tempfile.gettempdir()}\\config.vsconfig"
+        temp_vs_installer_config_path = (
+            f"{tempfile.gettempdir()}\\config.vsconfig"
+        )
 
         vs_installer_err_msg = (
             "Failed to export installed Visual Studio components."
@@ -172,7 +174,9 @@ def windows() -> None:
                 + "Trying to opening the Visual Studio Installer..."
             )
 
-        log.info(f"The `{component_name}` Visual Studio component is installed.")
+        log.info(
+            f"The `{component_name}` Visual Studio component is installed."
+        )
 
     # At a minimum, rust needs C++ build tools and a Windows 11 SDK.
     ensure_vs_component_is_installed(
@@ -205,7 +209,9 @@ def windows() -> None:
     # bindings for FFmpeg.
     def try_to_get_clang_include_dir() -> Optional[str]:
         try:
-            clang_dir = f"{vs_installation_dir}\\VC\\Tools\\LLVM\\x64\\lib\\clang"
+            clang_dir = (
+                f"{vs_installation_dir}\\VC\\Tools\\LLVM\\x64\\lib\\clang"
+            )
 
             newest_clang_version = sorted(
                 version
@@ -218,7 +224,9 @@ def windows() -> None:
 
             log.info("Found Clang include directory.")
         except (FileNotFoundError, IndexError, sh.DoesntExistException):
-            log.warning("Failed to find Clang include directory. Compilation may fail.")
+            log.warning(
+                "Failed to find Clang include directory. Compilation may fail."
+            )
             clang_include_dir = None
 
         return clang_include_dir
@@ -395,7 +403,8 @@ def windows() -> None:
         # so that it doesn't get confused and try to build using mingw headers
         # or something else weird.
         cargo_config += (
-            "BINDGEN_EXTRA_CLANG_ARGS = " + f'"-I{to_unix_path(clang_include_dir)}"\n'
+            "BINDGEN_EXTRA_CLANG_ARGS = "
+            + f'"-I{to_unix_path(clang_include_dir)}"\n'
         )
 
     create_cargo_config(cargo_config)
@@ -434,7 +443,9 @@ def mac_os() -> None:
 
     last_installed_pkgs: Optional[list[dict[str, Any]]] = None
 
-    def is_installed_with_brew(pkg_name: str, ask_to_install: bool = False) -> bool:
+    def is_installed_with_brew(
+        pkg_name: str, ask_to_install: bool = False
+    ) -> bool:
         nonlocal last_installed_pkgs
         if last_installed_pkgs is None:
             last_installed_pkgs = typing.cast(
@@ -466,7 +477,8 @@ def mac_os() -> None:
             return ret
 
         is_already_installed = any(
-            pkg_name in names_from_pkg_dict(pkg_dict) for pkg_dict in installed_pkgs
+            pkg_name in names_from_pkg_dict(pkg_dict)
+            for pkg_dict in installed_pkgs
         )
 
         if is_already_installed or not ask_to_install:
