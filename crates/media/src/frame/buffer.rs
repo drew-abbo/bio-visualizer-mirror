@@ -955,3 +955,20 @@ fn get_pixel_clamped(frame: &Frame, row: isize, col: isize) -> Pixel {
     let col = col.clamp(0, frame.dimensions().width() as isize - 1) as usize;
     frame[row][col]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_pixels_works() {
+        let bad_length_pixels = vec![Pixel::WHITE; 3].into_boxed_slice();
+        assert_eq!(
+            Frame::from_pixels(bad_length_pixels, Dimensions::new(2, 2).unwrap()),
+            Err(TryFromSliceError::LenError)
+        );
+
+        let good_length_pixels = vec![Pixel::WHITE; 4].into_boxed_slice();
+        assert!(Frame::from_pixels(good_length_pixels, Dimensions::new(2, 2).unwrap()).is_ok());
+    }
+}
