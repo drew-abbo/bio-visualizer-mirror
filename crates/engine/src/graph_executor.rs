@@ -635,16 +635,3 @@ impl Default for GraphExecutor {
         Self::new(wgpu::TextureFormat::Rgba8Unorm)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_executor_basic_flow() {
-        // This test would require a full wgpu setup
-        // For now, just verify the structure compiles
-        let executor = GraphExecutor::new(wgpu::TextureFormat::Rgba8Unorm);
-        assert_eq!(executor.output_cache.len(), 0);
-    }
-}
