@@ -629,7 +629,7 @@ mod tests {
     #[test]
     fn from_frac_works() {
         assert_eq!(Fps::from_frac(0, 1), Err(FpsError::NonPositiveNum));
-        assert_eq!(Fps::from_frac(1, 0), Err(FpsError::NonPositiveNum));
+        assert_eq!(Fps::from_frac(1, 0), Err(FpsError::NonPositiveDen));
         assert!(Fps::from_frac(1, 1).is_ok());
     }
 
