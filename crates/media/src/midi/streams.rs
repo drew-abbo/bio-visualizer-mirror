@@ -1,4 +1,4 @@
-//!
+//! Exports all kinds of [MidiStream]s.
 
 use super::MidiPacket;
 use crate::playback_stream::PlaybackStream;
@@ -14,5 +14,10 @@ impl<T: PlaybackStream<MidiPacket, MidiStreamError>> MidiStream for T {}
 /// [MidiPacket]s).
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum MidiStreamError {
+    #[error("Failed to read MIDI port")]
     PortError,
+    #[error("Failed to connect to a port")]
+    ConnectError,
+    #[error("Failed to parse MIDI data")]
+    DataError,
 }

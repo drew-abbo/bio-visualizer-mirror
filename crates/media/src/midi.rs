@@ -1,6 +1,6 @@
-//!
+//! This module exports everything that has to do with MIDI and [streams] of it.
 
-pub mod steams;
+pub mod streams;
 
 use std::collections::HashMap;
 use thiserror::Error;
@@ -27,7 +27,7 @@ impl MidiPacket {
         let mut sum = 0.0;
 
         for (key, _) in self.key_velocities() {
-            sum += key.as_frequency() as f64;
+            sum += key.as_frequency();
             count += 1;
         }
 
@@ -70,8 +70,12 @@ impl MidiPacket {
         }
     }
 
-    pub(crate) fn hashmap_capacity(&self) -> usize {
-        self.keys.capacity()
+    pub(crate) fn hashmap_mut(&mut self) -> &mut HashMap<Key, u8> {
+        &mut self.keys
+    }
+
+    pub(crate) fn hashmap(&self) -> &HashMap<Key, u8> {
+        &self.keys
     }
 }
 
