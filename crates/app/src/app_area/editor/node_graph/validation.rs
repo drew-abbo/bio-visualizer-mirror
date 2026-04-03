@@ -6,6 +6,8 @@ use std::collections::HashSet;
 
 use super::NodeData;
 
+const VIRTUAL_OUTPUT_SINK_NAME: &str = "__virtual_output_sink__";
+
 /// Check if a node has all its required inputs satisfied (connected or with defaults)
 /// This is RECURSIVE - it checks that source nodes are also satisfied
 pub fn are_inputs_satisfied(
@@ -14,6 +16,12 @@ pub fn are_inputs_satisfied(
     node_library: &NodeLibrary,
 ) -> bool {
     let node = &snarl[node_id];
+    if node.definition_name == VIRTUAL_OUTPUT_SINK_NAME {
+        return snarl
+            .wires()
+            .any(|(_, wire_to)| wire_to.node == node_id && wire_to.input == 0);
+    }
+
     let Some(definition) = node_library.get_definition(&node.definition_name) else {
         return false;
     };
@@ -83,6 +91,10 @@ pub fn is_active_source(
     node_library: &NodeLibrary,
 ) -> bool {
     let node = &snarl[node_id];
+    if node.definition_name == VIRTUAL_OUTPUT_SINK_NAME {
+        return false;
+    }
+
     let Some(definition) = node_library.get_definition(&node.definition_name) else {
         return false;
     };

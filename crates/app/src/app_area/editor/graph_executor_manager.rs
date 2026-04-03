@@ -1,7 +1,7 @@
 //! Manager for the node graph and its execution, separate from the UI state in EditorArea
 //! This module defines the GraphExecutorManager, which holds the engine graph and the GraphExecutor instance.
 //! It provides methods to check for changes, execute the graph, and determine which node's output to display based on selection or graph structure.
-use engine::graph_executor::{ExecutionContext, ExecutionError, GraphExecutor, NodeValue};
+use engine::graph_executor::{ExecutionError, GraphExecutor, NodeValue};
 use engine::node::NodeLibrary;
 use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
 use media::fps::Fps;
@@ -12,6 +12,7 @@ pub struct GraphExecutorManager {
     engine_graph: NodeGraph,
     graph_executor: GraphExecutor,
     last_selected_engine_node: Option<EngineNodeId>,
+    output_source_engine_node: Option<EngineNodeId>,
     graph_changed: bool,
 }
 
@@ -21,6 +22,7 @@ impl GraphExecutorManager {
             engine_graph: NodeGraph::default(),
             graph_executor: GraphExecutor::default(),
             last_selected_engine_node: None,
+            output_source_engine_node: None,
             graph_changed: false,
         }
     }
@@ -50,6 +52,10 @@ impl GraphExecutorManager {
         self.last_selected_engine_node = node;
     }
 
+    pub fn set_output_source_engine_node(&mut self, node: Option<EngineNodeId>) {
+        self.output_source_engine_node = node;
+    }
+
     /// Check if the selection has changed since the last execution
     /// Used to determine if we need to re-execute the graph when the user selects a different node
     pub fn selection_changed(&self, new_selection: Option<EngineNodeId>) -> bool {
@@ -62,15 +68,19 @@ impl GraphExecutorManager {
         node_library: &NodeLibrary,
         render_state: &egui_wgpu::RenderState,
         selected_engine_node: Option<EngineNodeId>,
-        context: ExecutionContext,
     ) -> Result<Option<NodeValue>, ExecutionError> {
+        let target_node_id = selected_engine_node.or(self.output_source_engine_node);
+
+        let Some(target_node_id) = target_node_id else {
+            return Ok(None);
+        };
+
         let result = self.graph_executor.execute(
             &self.engine_graph,
             node_library,
             &render_state.device,
             &render_state.queue,
-            selected_engine_node,
-            context,
+            Some(target_node_id),
         )?;
 
         Ok(result.outputs.values().find_map(|value| match value {
@@ -130,19 +140,16 @@ impl GraphExecutorManager {
         best_fps
     }
 
-    pub fn get_output_node_id(&self) -> EngineNodeId {
-        self.graph_executor.get_output_node_id()
+    pub fn pause_streams(&mut self) {
+        self.graph_executor.pause_streams();
     }
 
-    /// Find the best node to display output from when none is selected.
-    /// Looks for nodes with no outgoing connections (sink nodes).
-    /// Returns the last one found, or the default output node if none exist.
-    pub fn find_display_node(&self) -> EngineNodeId {
-        self.engine_graph
-            .find_output_nodes()
-            .last()
-            .copied()
-            .unwrap_or_else(|| self.get_output_node_id())
+    pub fn play_streams(&mut self) {
+        self.graph_executor.play_streams();
+    }
+
+    pub fn set_global_stream_target_fps(&mut self, target_fps: Fps) {
+        self.graph_executor.set_global_stream_target_fps(target_fps);
     }
 }
 

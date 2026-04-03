@@ -79,6 +79,10 @@ pub enum NodeOutputKind {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum NodeInputKind {
+    // Device {
+    //     #[serde(default)]
+    //     input_ui: DeviceInputUiMode,
+    // },
     Frame,
     Midi,
     Bool {
@@ -167,6 +171,12 @@ pub enum NumberInputUiMode {
     #[default]
     TextInput,
     Slider,
+}
+
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Default)]
+pub enum DeviceInputUiMode {
+    #[default]
+    Dropdown,
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Default)]

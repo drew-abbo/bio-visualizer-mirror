@@ -18,7 +18,7 @@ fn main() -> Result<(), eframe::Error> {
         .with_resizable(true)
         .with_inner_size([1280.0, 720.0])
         .with_min_inner_size([800.0, 600.0])
-        .with_maximized(false);
+        .with_fullscreen(true);
 
     let native_options = eframe::NativeOptions {
         viewport,

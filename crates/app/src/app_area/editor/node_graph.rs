@@ -10,11 +10,13 @@ use egui;
 use egui::emath::TSTransform;
 use egui_snarl::ui::{PinInfo, SnarlViewer};
 use egui_snarl::{InPin, NodeId as SnarlNodeId, OutPin, Snarl};
-use engine::node::{NodeLibrary, input_kind_to_output_kind};
+use engine::node::{NodeInputKind, NodeLibrary, input_kind_to_output_kind};
 use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+
+const VIRTUAL_OUTPUT_SINK_NAME: &str = "__virtual_output_sink__";
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub struct GraphViewState {
@@ -76,11 +78,48 @@ impl PartialEq for NodeGraphState {
 
 impl NodeGraphState {
     pub fn new() -> Self {
-        Self {
+        let mut state = Self {
             snarl: Snarl::new(),
             graph_view: None,
             legacy_graph_view_zoom: None,
+        };
+
+        state.ensure_output_sink();
+        state
+    }
+
+    pub fn ensure_output_sink(&mut self) {
+        let has_sink = self
+            .snarl
+            .node_ids()
+            .any(|(node_id, _)| self.snarl[node_id].definition_name == VIRTUAL_OUTPUT_SINK_NAME);
+
+        if has_sink {
+            return;
         }
+
+        self.snarl.insert_node(
+            egui::pos2(880.0, 220.0),
+            NodeData {
+                definition_name: VIRTUAL_OUTPUT_SINK_NAME.to_string(),
+                input_values: HashMap::new(),
+                engine_node_id: None,
+            },
+        );
+    }
+
+    pub fn output_sink_node(&self) -> Option<SnarlNodeId> {
+        self.snarl
+            .node_ids()
+            .map(|(node_id, _)| node_id)
+            .find(|node_id| self.snarl[*node_id].definition_name == VIRTUAL_OUTPUT_SINK_NAME)
+    }
+
+    pub fn output_source_snarl_node(&self) -> Option<SnarlNodeId> {
+        let sink = self.output_sink_node()?;
+        self.snarl
+            .wires()
+            .find_map(|(from, to)| (to.node == sink).then_some(from.node))
     }
 }
 
@@ -179,6 +218,10 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
     }
 
     fn title(&mut self, node: &NodeData) -> String {
+        if node.definition_name == VIRTUAL_OUTPUT_SINK_NAME {
+            return "Output".to_string();
+        }
+
         self.node_library
             .get_definition(&node.definition_name)
             .map(|def| def.node.name.clone())
@@ -186,6 +229,10 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
     }
 
     fn inputs(&mut self, node: &NodeData) -> usize {
+        if node.definition_name == VIRTUAL_OUTPUT_SINK_NAME {
+            return 1;
+        }
+
         self.node_library
             .get_definition(&node.definition_name)
             .map(|def| def.node.inputs.len())
@@ -193,6 +240,10 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
     }
 
     fn outputs(&mut self, node: &NodeData) -> usize {
+        if node.definition_name == VIRTUAL_OUTPUT_SINK_NAME {
+            return 0;
+        }
+
         self.node_library
             .get_definition(&node.definition_name)
             .map(|def| def.node.outputs.len())
@@ -206,6 +257,11 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
         snarl: &mut Snarl<NodeData>,
     ) -> impl egui_snarl::ui::SnarlPin + 'static {
         let node_name = snarl[pin.id.node].definition_name.clone();
+        if node_name == VIRTUAL_OUTPUT_SINK_NAME {
+            ui.label("Output");
+            return PinInfo::circle().with_fill(colors::input_kind_color(&NodeInputKind::Frame));
+        }
+
         if let Some(def) = self.node_library.get_definition(&node_name)
             && let Some(input_def) = def.node.inputs.get(pin.id.input)
         {
@@ -266,6 +322,11 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
         snarl: &mut Snarl<NodeData>,
     ) -> impl egui_snarl::ui::SnarlPin + 'static {
         let node_name = &snarl[pin.id.node].definition_name;
+        if node_name == VIRTUAL_OUTPUT_SINK_NAME {
+            ui.label("output");
+            return PinInfo::circle();
+        }
+
         if let Some(def) = self.node_library.get_definition(node_name)
             && let Some(output_def) = def.node.outputs.get(pin.id.output)
         {
@@ -329,6 +390,11 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
         ui: &mut egui::Ui,
         snarl: &mut Snarl<NodeData>,
     ) {
+        if snarl[node_id].definition_name == VIRTUAL_OUTPUT_SINK_NAME {
+            ui.label("This node is reserved as the graph output.");
+            return;
+        }
+
         if ui.button("Delete Node").clicked() {
             snarl.remove_node(node_id);
             ui.close();
@@ -354,26 +420,54 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
         let Some(from_def) = self.node_library.get_definition(&from_node.definition_name) else {
             return;
         };
-        let Some(to_def) = self.node_library.get_definition(&to_node.definition_name) else {
-            return;
+
+        let sink_target = to_node.definition_name == VIRTUAL_OUTPUT_SINK_NAME;
+        let to_def = if sink_target {
+            None
+        } else {
+            self.node_library.get_definition(&to_node.definition_name)
         };
+
+        if !sink_target && to_def.is_none() {
+            return;
+        }
 
         let Some(from_output) = from_def.node.outputs.get(from.id.output) else {
             return;
         };
-        let Some(to_input) = to_def.node.inputs.get(to.id.input) else {
-            return;
+
+        let to_input_kind = if sink_target {
+            if to.id.input != 0 {
+                return;
+            }
+            NodeInputKind::Frame
+        } else {
+            let to_def = to_def.expect("checked above");
+            let Some(to_input) = to_def.node.inputs.get(to.id.input) else {
+                return;
+            };
+            to_input.kind.clone()
+        };
+
+        let to_input_name = if sink_target {
+            "Output".to_string()
+        } else {
+            let to_def = to_def.expect("checked above");
+            let Some(to_input) = to_def.node.inputs.get(to.id.input) else {
+                return;
+            };
+            to_input.name.clone()
         };
 
         // Check if types are compatible
         let output_kind = &from_output.kind;
-        let expected_output_kind = input_kind_to_output_kind(&to_input.kind);
+        let expected_output_kind = input_kind_to_output_kind(&to_input_kind);
 
         // Only allow connection if types match
         if output_kind != &expected_output_kind {
             self.push_error(format!(
                 "Cannot connect '{}' to '{}': incompatible pin types.",
-                from_output.name, to_input.name
+                from_output.name, to_input_name
             ));
             return;
         }

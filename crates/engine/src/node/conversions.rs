@@ -16,6 +16,7 @@ pub fn input_kind_to_output_kind(input_kind: &NodeInputKind) -> NodeOutputKind {
         NodeInputKind::Text { .. } => NodeOutputKind::Text,
         NodeInputKind::Enum { .. } => NodeOutputKind::Int, // Enum uses int for selection
         NodeInputKind::File { .. } => NodeOutputKind::Text, // File paths as text
+        // NodeInputKind::Device { .. } => NodeOutputKind::Midi
     }
 }
 
@@ -32,5 +33,6 @@ pub fn default_value_for_input_kind(input_kind: &NodeInputKind) -> NodeValue {
         NodeInputKind::Text { default, .. } => NodeValue::Text(default.clone()),
         NodeInputKind::Enum { default_idx, .. } => NodeValue::Enum(default_idx.unwrap_or(0)),
         NodeInputKind::File { default, .. } => NodeValue::File(default.clone().unwrap_or_default()),
+        // NodeInputKind::Device { input_ui,..} => NodeValue::Device(input_ui.clone())
     }
 }

@@ -15,9 +15,6 @@ use util::ui::ErrorPopup;
 
 // While dragging controls, coalesce graph re-exec requests to roughly one UI frame.
 const GRAPH_INTERACTION_MIN_INTERVAL: Duration = Duration::from_millis(16);
-// Native file dialogs block the UI thread; after a long stall, resume playback
-// from "now" instead of trying to rapidly catch up missed frame switches.
-const PLAYBACK_STALL_RESET_THRESHOLD: Duration = Duration::from_millis(250);
 
 /// Manages all editor-related state: node graph, output display, and playback
 pub struct EditorArea {
@@ -31,8 +28,6 @@ pub struct EditorArea {
     last_fps_output: Option<Fps>,
     // Anchored playback timing (uses a fixed start time to avoid drift).
     playback_timer: Option<SwitchTimer>,
-    // Last time playback_due() was polled while playback was enabled.
-    last_playback_poll: Option<Instant>,
     // Last time we ran a graph execute triggered by graph edits.
     last_graph_execute_request: Instant,
     // Set when graph topology/parameters changed and a preview execute is pending.
@@ -62,7 +57,6 @@ impl EditorArea {
             displayed_frame: None,
             last_fps_output: None,
             playback_timer: None,
-            last_playback_poll: None,
             last_graph_execute_request: Instant::now(),
             pending_graph_execute: false,
             playback_enabled: true,
@@ -87,7 +81,11 @@ impl EditorArea {
     fn set_playback_enabled(&mut self, enabled: bool) {
         if self.playback_enabled != enabled {
             self.playback_timer = None;
-            self.last_playback_poll = None;
+            if enabled {
+                self.executor_manager.play_streams();
+            } else {
+                self.executor_manager.pause_streams();
+            }
         }
         self.playback_enabled = enabled;
     }
@@ -97,29 +95,18 @@ impl EditorArea {
     fn playback_due(&mut self) -> bool {
         if !self.playback_enabled {
             self.playback_timer = None;
-            self.last_playback_poll = None;
             return false;
         }
 
         let Some(target_fps) = self.last_fps_output else {
             self.playback_timer = None;
-            self.last_playback_poll = None;
             return false;
         };
 
-        let now = Instant::now();
         let timer = self
             .playback_timer
             .get_or_insert_with(|| SwitchTimer::new(target_fps));
         timer.set_target_fps(target_fps);
-
-        if let Some(last_poll) = self.last_playback_poll
-            && now.duration_since(last_poll) > PLAYBACK_STALL_RESET_THRESHOLD
-        {
-            timer.reset();
-        }
-
-        self.last_playback_poll = Some(now);
         timer.is_switch_time()
     }
 
@@ -211,6 +198,7 @@ impl EditorArea {
                 let mut reset_view_requested = false;
                 {
                     let node_graph = self.active_node_graph_mut();
+                    node_graph.ensure_output_sink();
                     viewer.set_initial_graph_view(
                         node_graph.graph_view,
                         node_graph.legacy_graph_view_zoom,
@@ -325,9 +313,19 @@ impl EditorArea {
         };
 
         // Get the snarl node's associated engine node id
-        let node_graph = self.active_node_graph_mut();
-        let selected_engine_node =
-            selected_snarl_node.and_then(|snarl_id| node_graph.snarl[snarl_id].engine_node_id);
+        let (selected_engine_node, output_source_engine_node) = {
+            let node_graph = self.active_node_graph_mut();
+            let selected_engine_node =
+                selected_snarl_node.and_then(|snarl_id| node_graph.snarl[snarl_id].engine_node_id);
+            let output_source_engine_node = node_graph
+                .output_source_snarl_node()
+                .and_then(|snarl_id| node_graph.snarl[snarl_id].engine_node_id);
+
+            (selected_engine_node, output_source_engine_node)
+        };
+
+        self.executor_manager
+            .set_output_source_engine_node(output_source_engine_node);
 
         let selection_changed = self
             .executor_manager
@@ -350,13 +348,25 @@ impl EditorArea {
             return;
         }
 
-        let node_to_execute =
-            selected_engine_node.unwrap_or_else(|| self.executor_manager.find_display_node());
+        let node_to_execute = selected_engine_node.or(output_source_engine_node);
+
+        let Some(node_to_execute) = node_to_execute else {
+            self.displayed_frame = None;
+            self.last_fps_output = None;
+            self.playback_timer = None;
+            self.pending_graph_execute = false;
+            return;
+        };
 
         if self.last_fps_output.is_none() || selection_changed || graph_changed {
             self.last_fps_output = self
                 .executor_manager
                 .get_target_fps_for_display_node(&self.node_library, node_to_execute);
+        }
+
+        if let Some(global_fps) = self.last_fps_output {
+            self.executor_manager
+                .set_global_stream_target_fps(global_fps);
         }
 
         if graph_changed {
@@ -381,19 +391,16 @@ impl EditorArea {
         };
 
         let should_advance = self.playback_due();
-        let should_execute = graph_execute_due || self.displayed_frame.is_none() || should_advance;
+        let should_execute = graph_execute_due
+            || self.displayed_frame.is_none()
+            || should_advance
+            || !self.playback_enabled;
 
         if should_execute {
-            let context = engine::graph_executor::ExecutionContext {
-                advance_frame: should_advance,
-                playback_running: self.playback_enabled,
-            };
-
             match self.executor_manager.execute(
                 &self.node_library,
                 render_state,
                 Some(node_to_execute),
-                context,
             ) {
                 Ok(Some(frame_output)) => {
                     self.displayed_frame = Some(frame_output);

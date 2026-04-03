@@ -9,14 +9,13 @@ use crate::gpu_frame::GpuFrame;
 use crate::node::NodeDefinition;
 use crate::node::NodeLibrary;
 use crate::node::engine_node::{BuiltInHandler, NodeExecutionPlan, NodeOutputKind};
-use crate::node::handler::ImageSourceHandler;
-use crate::node::handler::NodeHandler;
-use crate::node::handler::VideoSourceHandler;
+use crate::node::handler::{FrameStreamHandler, NodeFrameStreamRequest, StreamKind};
 use crate::node_graph::EngineNodeId;
 use crate::node_graph::{InputValue, NodeGraph, NodeInstance};
 use crate::node_render_pipeline::NodeRenderPipeline;
 use crate::node_render_pipeline::PipelineBase;
 use crate::upload_stager::UploadStager;
+use media::fps::Fps;
 
 pub use enums::*;
 pub use errors::*;
@@ -44,11 +43,8 @@ pub struct GraphExecutor {
     /// Target texture format for rendering
     target_format: wgpu::TextureFormat,
 
-    /// Handler for video sources (maintains producer cache)
-    video_handler: VideoSourceHandler,
-
-    /// Handler for image sources (maintains frame cache)
-    image_handler: ImageSourceHandler,
+    /// Handles any nodes that need frames including images and videos
+    frame_stream_handler: FrameStreamHandler,
 
     /// Cached execution order to avoid recomputing topology every frame
     cached_execution_order: Option<Vec<EngineNodeId>>,
@@ -130,36 +126,13 @@ impl GraphExecutor {
         required
     }
 
-    fn collect_video_source_nodes(
-        graph: &NodeGraph,
-        library: &NodeLibrary,
-        node_ids: &[EngineNodeId],
-    ) -> HashSet<EngineNodeId> {
-        node_ids
-            .iter()
-            .copied()
-            .filter(|&id| {
-                graph
-                    .get_instance(id)
-                    .and_then(|inst| library.get_definition(&inst.definition_name))
-                    .is_some_and(|def| {
-                        matches!(
-                            def.node.executor,
-                            NodeExecutionPlan::BuiltIn(BuiltInHandler::VideoSource)
-                        )
-                    })
-            })
-            .collect()
-    }
-
     pub fn new(format: wgpu::TextureFormat) -> Self {
         Self {
             upload_stager: UploadStager::new(),
             output_cache: HashMap::new(),
             pipeline_cache: HashMap::new(),
             render_target_cache: HashMap::new(),
-            video_handler: VideoSourceHandler::new(),
-            image_handler: ImageSourceHandler::new(),
+            frame_stream_handler: FrameStreamHandler::new(),
             target_format: format,
             cached_execution_order: None,
             output_node_id: EngineNodeId::default(),
@@ -175,12 +148,12 @@ impl GraphExecutor {
 
     /// Clear producer cache to release video files
     pub fn clear_producer_cache(&mut self) {
-        self.video_handler.clear_cache();
+        self.frame_stream_handler.clear_cache();
     }
 
     /// Clear image cache to release textures
     pub fn clear_image_cache(&mut self) {
-        self.image_handler.clear_cache();
+        self.frame_stream_handler.clear_cache();
     }
 
     /// Invalidate cached execution order (call when graph structure changes)
@@ -228,20 +201,26 @@ impl GraphExecutor {
             }
         })?;
 
-        // Pass node_id so the handler looks up the right stream.
-        self.video_handler.get_target_fps(node_id, path).ok()
+        let request = NodeFrameStreamRequest {
+            node_id,
+            file_path: path.clone(),
+            stream_kind: StreamKind::Video,
+        };
+
+        self.frame_stream_handler.get_target_fps(&request).ok()
     }
 
     /// Execute the node graph with an execution context.
     /// Supply an optional target node id to execute only up to that node (for partial execution).
+    /// You should always be calling this no matter what is happening
+    /// if you want to pause use [GraphExecutor::pause_streams]
     pub fn execute<'a>(
         &'a mut self,
         graph: &NodeGraph,
         library: &NodeLibrary,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        target_node_id: Option<EngineNodeId>,
-        context: ExecutionContext,
+        target_node_id: Option<EngineNodeId>, // runs a graph up to this node
     ) -> Result<ExecutionResult<'a>, ExecutionError> {
         // Clear cache from previous execution
         self.output_cache.clear();
@@ -257,9 +236,6 @@ impl GraphExecutor {
         let order = graph
             .execution_order()
             .map_err(ExecutionError::GraphError)?;
-
-        let active_video_nodes = Self::collect_video_source_nodes(graph, library, &order);
-        self.video_handler.retain_nodes(&active_video_nodes);
 
         if let Some(target) = target_node_id
             && !order.contains(&target)
@@ -279,11 +255,6 @@ impl GraphExecutor {
                     .is_none_or(|required| required.contains(node_id))
             })
             .collect();
-
-        let executing_video_nodes =
-            Self::collect_video_source_nodes(graph, library, &execution_node_ids);
-        self.video_handler
-            .set_playback_for_nodes(&executing_video_nodes, context.playback_running);
 
         // Execute each node in order
         let live_node_ids: HashSet<EngineNodeId> = order.iter().copied().collect();
@@ -330,7 +301,6 @@ impl GraphExecutor {
                     device,
                     queue,
                     definition,
-                    &context,
                 )?,
             };
 
@@ -369,6 +339,22 @@ impl GraphExecutor {
             output_node_id,
             outputs,
         })
+    }
+
+    /// Tell the executor to pause all video streams
+    /// Will be called if the user want to stop on a frame.
+    /// This is different from stopping graph execution.
+    /// Graph execution should still happen to keep the UI responsive, but video frames should not advance.
+    pub fn pause_streams(&mut self) {
+        self.frame_stream_handler.pause_all_streams();
+    }
+
+    pub fn play_streams(&mut self) {
+        self.frame_stream_handler.play_all_streams();
+    }
+
+    pub fn set_global_stream_target_fps(&mut self, target_fps: Fps) {
+        self.frame_stream_handler.set_target_fps_all(target_fps);
     }
 
     /// Resolve all inputs for a node instance
@@ -563,6 +549,7 @@ impl GraphExecutor {
     }
 
     /// Execute a built-in node
+    ///
     fn execute_builtin_node(
         &mut self,
         node_id: EngineNodeId,
@@ -571,25 +558,48 @@ impl GraphExecutor {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         definition: &NodeDefinition,
-        context: &ExecutionContext,
     ) -> Result<HashMap<String, NodeValue>, ExecutionError> {
+        let path = inputs
+            .values()
+            .find_map(|v| match v {
+                NodeValue::File(p) => Some(p),
+                _ => None,
+            })
+            .ok_or(ExecutionError::InvalidInputType)?;
+
         let output_values = match *handler_type {
-            BuiltInHandler::ImageSource => self.image_handler.execute(
-                node_id,
-                inputs,
-                device,
-                queue,
-                &mut self.upload_stager,
-                context,
-            )?,
-            BuiltInHandler::VideoSource => self.video_handler.execute_for_node(
-                node_id,
-                inputs,
-                device,
-                queue,
-                &mut self.upload_stager,
-                context,
-            )?,
+            BuiltInHandler::ImageSource => {
+                let request = NodeFrameStreamRequest {
+                    node_id,
+                    file_path: path.clone(),
+                    stream_kind: StreamKind::Image,
+                };
+
+                self.frame_stream_handler
+                    .execute_handler(&request, device, queue, &mut self.upload_stager)
+                    .map_err(|e| {
+                        ExecutionError::TextureUploadError(format!(
+                            "Image source stream execution failed: {:?}",
+                            e
+                        ))
+                    })?
+            }
+            BuiltInHandler::VideoSource => {
+                let request = NodeFrameStreamRequest {
+                    node_id,
+                    file_path: path.clone(),
+                    stream_kind: StreamKind::Video,
+                };
+
+                self.frame_stream_handler
+                    .execute_handler(&request, device, queue, &mut self.upload_stager)
+                    .map_err(|e| {
+                        ExecutionError::VideoStreamError(
+                            path.clone(),
+                            format!("Video source stream execution failed: {:?}", e),
+                        )
+                    })?
+            }
             BuiltInHandler::MidiSource => return Err(ExecutionError::InvalidInputType),
         };
 

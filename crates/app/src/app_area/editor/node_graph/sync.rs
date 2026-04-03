@@ -6,6 +6,7 @@ use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
 use std::collections::{HashMap, HashSet};
 
 use super::{NodeData, NodeGraphState, validation};
+const VIRTUAL_OUTPUT_SINK_NAME: &str = "__virtual_output_sink__";
 
 /// Sync the entire node graph to the engine
 /// Returns true if any changes were made to the engine graph
@@ -43,6 +44,9 @@ pub fn sync_to_engine(
 
     for node_id in &all_node_ids {
         let node = &state.snarl[*node_id];
+        if node.definition_name == VIRTUAL_OUTPUT_SINK_NAME {
+            continue;
+        }
         let is_in_engine = node.engine_node_id.is_some();
 
         // Check if this node should be in the engine
@@ -96,6 +100,9 @@ pub fn sync_to_engine(
     // Preserve existing connection inputs so we don't clobber them
     for node_id in &all_node_ids {
         let node = &state.snarl[*node_id];
+        if node.definition_name == VIRTUAL_OUTPUT_SINK_NAME {
+            continue;
+        }
         if let Some(engine_id) = node.engine_node_id
             && let Some(instance) = engine_graph.get_instance_mut(engine_id)
         {
@@ -151,6 +158,12 @@ fn prune_invalid_wires(state: &mut NodeGraphState, node_library: &NodeLibrary) -
     let mut invalid_inputs: Vec<InPinId> = Vec::new();
 
     for (wire_from, wire_to) in state.snarl.wires() {
+        if state.snarl[wire_from.node].definition_name == VIRTUAL_OUTPUT_SINK_NAME
+            || state.snarl[wire_to.node].definition_name == VIRTUAL_OUTPUT_SINK_NAME
+        {
+            continue;
+        }
+
         let from_node = &state.snarl[wire_from.node];
         let to_node = &state.snarl[wire_to.node];
 
@@ -288,6 +301,9 @@ fn sync_wires_for_node(
     let mut changes_made = false;
 
     let node = &state.snarl[node_id];
+    if node.definition_name == VIRTUAL_OUTPUT_SINK_NAME {
+        return false;
+    }
     let Some(to_engine_id) = node.engine_node_id else {
         return false;
     };
@@ -302,6 +318,12 @@ fn sync_wires_for_node(
     let mut desired_connections: HashMap<String, (EngineNodeId, String)> = HashMap::new();
     for (wire_from, wire_to) in state.snarl.wires() {
         if wire_to.node != node_id {
+            continue;
+        }
+
+        if state.snarl[wire_from.node].definition_name == VIRTUAL_OUTPUT_SINK_NAME
+            || state.snarl[wire_to.node].definition_name == VIRTUAL_OUTPUT_SINK_NAME
+        {
             continue;
         }
 
@@ -406,6 +428,10 @@ fn connected_input_names(
     node_id: SnarlNodeId,
     definition: &engine::node::NodeDefinition,
 ) -> HashSet<String> {
+    if snarl[node_id].definition_name == VIRTUAL_OUTPUT_SINK_NAME {
+        return HashSet::new();
+    }
+
     snarl
         .wires()
         .filter_map(|(_, wire_to)| {
