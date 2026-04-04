@@ -11,6 +11,16 @@ const APP_NAME: &str = util::version::APP_NAME;
 fn main() -> Result<(), eframe::Error> {
     let args = args::Args::parse();
 
+    #[cfg(debug_assertions)]
+    {
+        use util::debug_log;
+        if args.no_debug_logging {
+            debug_log::disable();
+        } else if !args.debug_error_log_panics {
+            debug_log::panic_on_errors::disable();
+        }
+    }
+
     // Configure the native window with custom title bar
     let viewport = egui::ViewportBuilder::default()
         .with_title(APP_NAME)
