@@ -67,18 +67,19 @@
         }
     ],
     "executor": {
-        "Shader": {
-            "source": "shader.wgsl",
-            "passes": [
+        "Algorithm": {
+            "kind": "PixelSort",
+            "stages": [
                 {
-                    "source": "mask.wgsl"
+                    "backend": "compute",
+                    "source": "pixel_sort_compute.wgsl"
                 }
             ]
         }
     },
-    "short_description": "Threshold-based scanline pixel sorting",
-    "long_description": "Creates a pixel-sorting inspired effect by scanning along rows or columns, detecting bright segments above a threshold, and shifting them toward the segment boundary. This is an approximation of the classic ASDFPixelSort style effect that works within the current single-pass shader pipeline.",
+    "short_description": "Threshold-based pixel sorting algorithm",
+    "long_description": "Creates a pixel-sorting inspired effect by scanning along rows or columns, detecting segments above a threshold, and shifting them toward the segment boundary using a staged algorithm pipeline.",
     "category": "Glitch",
     "subcategories": [],
-    "search_keywords": ["pixel sort", "pixelsort", "glitch", "threshold", "scanline", "sort", "streak", "asdf"]
+    "search_keywords": ["pixel sort", "pixelsort", "glitch", "threshold", "scanline", "sort", "streak", "asdf", "algorithm"]
 }

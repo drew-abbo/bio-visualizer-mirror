@@ -159,6 +159,13 @@ pub enum NodeExecutionPlan {
         #[serde(default)]
         passes: Vec<ShaderPass>,
     },
+    Algorithm {
+        /// Effect family or algorithm identifier (for example: PixelSort, OpticalFlow, Datamosh).
+        kind: String,
+        /// Ordered list of stages that make up this algorithm.
+        #[serde(default)]
+        stages: Vec<AlgorithmStage>,
+    },
     BuiltIn(BuiltInHandler),
 }
 
@@ -166,6 +173,26 @@ pub enum NodeExecutionPlan {
 pub struct ShaderPass {
     /// Path of a shader file relative to the node.json file.
     pub source: PathBuf,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct AlgorithmStage {
+    /// Backend used to execute the stage.
+    pub backend: AlgorithmStageBackend,
+
+    /// Path of a shader file relative to the node.json file.
+    pub source: PathBuf,
+
+    /// Number of previous stage outputs this stage should receive as additional frame inputs.
+    #[serde(default)]
+    pub extra_frame_inputs: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum AlgorithmStageBackend {
+    Render,
+    Compute,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]

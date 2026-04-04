@@ -6,10 +6,11 @@ use std::any::Any;
 use std::collections::{HashMap, HashSet};
 
 use crate::gpu_frame::GpuFrame;
+use crate::graph_executor_effects::EffectStage;
 use crate::node::NodeDefinition;
 use crate::node::NodeLibrary;
 use crate::node::engine_node::{
-    BuiltInHandler, NodeExecutionPlan, NodeInput, NodeInputKind, NodeOutputKind,
+    AlgorithmStageBackend, BuiltInHandler, NodeExecutionPlan, NodeOutputKind,
 };
 use crate::node::handler::{
     FrameStreamHandler, NodeFrameStreamRequest, NodeNoiseStreamRequest, NoiseStreamHandler,
@@ -17,8 +18,7 @@ use crate::node::handler::{
 };
 use crate::node_graph::EngineNodeId;
 use crate::node_graph::{InputValue, NodeGraph, NodeInstance};
-use crate::node_render_pipeline::NodeRenderPipeline;
-use crate::node_render_pipeline::PipelineBase;
+use crate::node_render_pipeline::{ComputePipeline, PipelineBase};
 use crate::upload_stager::UploadStager;
 use media::fps::Fps;
 
@@ -40,13 +40,16 @@ pub struct GraphExecutor {
 
     /// Cache of compiled pipelines
     /// Maps: definition_name -> compiled pipeline
-    pipeline_cache: HashMap<String, Box<dyn PipelineBase>>,
+    pub(crate) pipeline_cache: HashMap<String, Box<dyn PipelineBase>>,
+
+    /// Cache of compiled compute pipelines for algorithm stages
+    pub(crate) compute_pipeline_cache: HashMap<String, ComputePipeline>,
 
     /// Cache of shader output targets reused per node instance.
     render_target_cache: HashMap<EngineNodeId, CachedRenderTarget>,
 
     /// Target texture format for rendering
-    target_format: wgpu::TextureFormat,
+    pub(crate) target_format: wgpu::TextureFormat,
 
     /// Handles any nodes that need frames including images and videos
     frame_stream_handler: FrameStreamHandler,
@@ -142,6 +145,7 @@ impl GraphExecutor {
             upload_stager: UploadStager::new(),
             output_cache: HashMap::new(),
             pipeline_cache: HashMap::new(),
+            compute_pipeline_cache: HashMap::new(),
             render_target_cache: HashMap::new(),
             frame_stream_handler: FrameStreamHandler::new(),
             noise_stream_handler: NoiseStreamHandler::new(),
@@ -321,6 +325,17 @@ impl GraphExecutor {
                         &resolved_inputs,
                     )?
                 }
+                NodeExecutionPlan::Algorithm { .. } => {
+                    has_shader_commands = true;
+                    self.execute_algorithm_node(
+                        node_id,
+                        device,
+                        queue,
+                        &mut graph_encoder,
+                        definition,
+                        &resolved_inputs,
+                    )?
+                }
                 NodeExecutionPlan::BuiltIn(handler) => self.execute_builtin_node(
                     node_id,
                     handler,
@@ -460,8 +475,22 @@ impl GraphExecutor {
         };
 
         if !passes.is_empty() {
-            return self.execute_multi_pass_shader_node(
-                node_id, device, queue, encoder, definition, inputs, source, passes,
+            let mut stages = Vec::with_capacity(passes.len() + 1);
+            for (index, pass) in passes.iter().enumerate() {
+                stages.push(EffectStage {
+                    backend: AlgorithmStageBackend::Render,
+                    source: pass.source.as_path(),
+                    extra_frame_inputs: index,
+                });
+            }
+            stages.push(EffectStage {
+                backend: AlgorithmStageBackend::Render,
+                source: source.as_path(),
+                extra_frame_inputs: passes.len(),
+            });
+
+            return self.execute_effect_stages(
+                node_id, device, queue, encoder, definition, inputs, &stages,
             );
         }
 
@@ -560,188 +589,6 @@ impl GraphExecutor {
         Ok(outputs)
     }
 
-    fn execute_multi_pass_shader_node(
-        &mut self,
-        node_id: EngineNodeId,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        encoder: &mut wgpu::CommandEncoder,
-        definition: &NodeDefinition,
-        inputs: &HashMap<String, NodeValue>,
-        source: &std::path::Path,
-        passes: &[crate::node::engine_node::ShaderPass],
-    ) -> Result<HashMap<String, NodeValue>, ExecutionError> {
-        let frame_inputs = self.collect_frame_inputs(definition, inputs)?;
-        let primary_frame = frame_inputs
-            .first()
-            .ok_or(ExecutionError::NoFrameInput(definition.node.name.clone()))?;
-        let additional_inputs: Vec<&wgpu::TextureView> = frame_inputs
-            .iter()
-            .skip(1)
-            .map(|frame| frame.view())
-            .collect();
-
-        let output_size = primary_frame.size();
-        let final_output_view = self.get_or_create_render_target(device, node_id, output_size);
-
-        let params = self.inputs_to_shader_params(inputs)?;
-        let mut intermediate_views: Vec<std::sync::Arc<wgpu::TextureView>> = Vec::new();
-        let target_format = self.target_format;
-
-        for stage_index in 0..=passes.len() {
-            let stage_name = format!("{}::stage{stage_index}", definition.node.name);
-            let (stage_source, stage_extra_inputs) = if stage_index < passes.len() {
-                (passes[stage_index].source.as_path(), stage_index)
-            } else {
-                (source, passes.len())
-            };
-
-            let mut stage_additional_inputs = additional_inputs.clone();
-            stage_additional_inputs.extend(intermediate_views.iter().map(|view| view.as_ref()));
-
-            let stage_definition =
-                self.build_shader_stage_definition(definition, &stage_name, stage_extra_inputs);
-            let shader_code =
-                self.load_shader_source(definition, stage_source, &format!("{stage_name} shader"))?;
-            let cache_key = format!("{}::{}", stage_name, stage_source.display());
-            let pipeline = self.get_or_create_cached_shader_pipeline(
-                cache_key,
-                device,
-                &shader_code,
-                &stage_definition,
-            )?;
-
-            let is_final_stage = stage_index == passes.len();
-            let stage_output_view = if is_final_stage {
-                final_output_view.clone()
-            } else {
-                let texture = device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("multi_pass_intermediate"),
-                    size: output_size,
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: target_format,
-                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                        | wgpu::TextureUsages::TEXTURE_BINDING,
-                    view_formats: &[],
-                });
-                let view = std::sync::Arc::new(
-                    texture.create_view(&wgpu::TextureViewDescriptor::default()),
-                );
-                view
-            };
-
-            pipeline
-                .apply(
-                    device,
-                    queue,
-                    encoder,
-                    primary_frame.view(),
-                    &stage_additional_inputs,
-                    &stage_output_view,
-                    params.as_ref(),
-                )
-                .map_err(ExecutionError::RenderError)?;
-
-            if !is_final_stage {
-                intermediate_views.push(stage_output_view);
-            }
-        }
-
-        let output_frame = GpuFrame {
-            view: final_output_view.clone(),
-            size: output_size,
-        };
-
-        let mut outputs = HashMap::new();
-        for output_def in &definition.node.outputs {
-            match output_def.kind {
-                NodeOutputKind::Frame => {
-                    outputs.insert(
-                        output_def.name.clone(),
-                        NodeValue::Frame(output_frame.clone()),
-                    );
-                }
-                _ => return Err(ExecutionError::UnsupportedOutputType(output_def.kind)),
-            }
-        }
-
-        Ok(outputs)
-    }
-
-    fn collect_frame_inputs<'a>(
-        &self,
-        definition: &'a NodeDefinition,
-        inputs: &'a HashMap<String, NodeValue>,
-    ) -> Result<Vec<&'a GpuFrame>, ExecutionError> {
-        let mut frame_inputs = Vec::new();
-
-        for input_def in &definition.node.inputs {
-            if matches!(input_def.kind, NodeInputKind::Frame)
-                && let Some(NodeValue::Frame(frame)) = inputs.get(&input_def.name)
-            {
-                frame_inputs.push(frame);
-            }
-        }
-
-        if frame_inputs.is_empty() {
-            return Err(ExecutionError::NoFrameInput(definition.node.name.clone()));
-        }
-
-        Ok(frame_inputs)
-    }
-
-    fn build_shader_stage_definition(
-        &self,
-        definition: &NodeDefinition,
-        stage_name: &str,
-        extra_frame_inputs: usize,
-    ) -> NodeDefinition {
-        let mut stage_definition = definition.clone();
-        stage_definition.node.name = stage_name.to_string();
-
-        for index in 0..extra_frame_inputs {
-            stage_definition.node.inputs.push(NodeInput {
-                name: format!("Pass Input {}", index + 1),
-                kind: NodeInputKind::Frame,
-                show_pin: false,
-            });
-        }
-
-        stage_definition
-    }
-
-    fn load_shader_source(
-        &self,
-        definition: &NodeDefinition,
-        source: &std::path::Path,
-        context: &str,
-    ) -> Result<String, ExecutionError> {
-        let shader_path = definition.folder_path.join(source);
-        std::fs::read_to_string(&shader_path)
-            .map_err(|e| ExecutionError::ShaderLoadError(shader_path, format!("{context}: {e}")))
-    }
-
-    fn get_or_create_cached_shader_pipeline<'a>(
-        &'a mut self,
-        cache_key: String,
-        device: &wgpu::Device,
-        shader_code: &str,
-        definition: &NodeDefinition,
-    ) -> Result<&'a dyn PipelineBase, ExecutionError> {
-        if !self.pipeline_cache.contains_key(&cache_key) {
-            let pipeline = self.create_shader_pipeline(device, shader_code, definition)?;
-            self.pipeline_cache.insert(cache_key.clone(), pipeline);
-        }
-
-        Ok(self
-            .pipeline_cache
-            .get(&cache_key)
-            .expect("pipeline inserted above")
-            .as_ref())
-    }
-
     /// Execute a built-in node
     ///
     fn execute_builtin_node(
@@ -825,19 +672,7 @@ impl GraphExecutor {
         Ok(outputs)
     }
 
-    /// Create a shader pipeline dynamically from shader code
-    fn create_shader_pipeline(
-        &self,
-        device: &wgpu::Device,
-        shader_code: &str,
-        definition: &NodeDefinition,
-    ) -> Result<Box<dyn PipelineBase>, ExecutionError> {
-        NodeRenderPipeline::from_shader(device, shader_code, definition, self.target_format)
-            .map(|pipeline| Box::new(pipeline) as Box<dyn PipelineBase>)
-            .map_err(ExecutionError::PipelineCreationError)
-    }
-
-    fn get_or_create_render_target(
+    pub(crate) fn get_or_create_render_target(
         &mut self,
         device: &wgpu::Device,
         node_id: EngineNodeId,
@@ -883,7 +718,7 @@ impl GraphExecutor {
     }
 
     /// Convert resolved inputs into shader parameters
-    fn inputs_to_shader_params(
+    pub(crate) fn inputs_to_shader_params(
         &self,
         inputs: &HashMap<String, NodeValue>,
     ) -> Result<Box<dyn Any>, ExecutionError> {

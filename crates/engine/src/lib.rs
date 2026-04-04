@@ -68,6 +68,7 @@
 //! bindings and entry points.
 pub mod engine_errors;
 pub mod graph_executor;
+mod graph_executor_effects;
 pub mod node;
 pub mod node_graph;
 pub mod node_render_pipeline;

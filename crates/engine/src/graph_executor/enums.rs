@@ -20,7 +20,7 @@ pub enum NodeValue {
     Enum(usize),
     /// File path (inputs only)
     File(PathBuf),
-    Device // THIS WILL TAKE THE DEVICE OBJECT FROM THE NEW MIDI CODE
+    Device, // THIS WILL TAKE THE DEVICE OBJECT FROM THE NEW MIDI CODE
 }
 
 impl Default for NodeValue {

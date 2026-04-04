@@ -16,7 +16,7 @@ pub fn input_kind_to_output_kind(input_kind: &NodeInputKind) -> NodeOutputKind {
         NodeInputKind::Text { .. } => NodeOutputKind::Text,
         NodeInputKind::Enum { .. } => NodeOutputKind::Int, // Enum uses int for selection
         NodeInputKind::File { .. } => NodeOutputKind::Text, // File paths as text
-        // NodeInputKind::Device { .. } => NodeOutputKind::Midi
+                                                            // NodeInputKind::Device { .. } => NodeOutputKind::Midi
     }
 }
 
