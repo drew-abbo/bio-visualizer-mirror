@@ -155,8 +155,17 @@ pub enum NodeExecutionPlan {
     Shader {
         /// Path of a shader file relative to the node.json file
         source: PathBuf,
+        /// Optional pre-passes that render into temporary textures before the final shader.
+        #[serde(default)]
+        passes: Vec<ShaderPass>,
     },
     BuiltIn(BuiltInHandler),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ShaderPass {
+    /// Path of a shader file relative to the node.json file.
+    pub source: PathBuf,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
