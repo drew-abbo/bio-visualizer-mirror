@@ -32,6 +32,7 @@ pub struct EditorArea {
     // Set when graph topology/parameters changed and a preview execute is pending.
     pending_graph_execute: bool,
     playback_enabled: bool,
+    fps_override: Option<Fps>,
     last_warned_disconnected_selected_node: Option<engine::node_graph::EngineNodeId>,
     snarl_view_generation: u64,
     apply_saved_graph_zoom_once: bool,
@@ -60,6 +61,7 @@ impl EditorArea {
             last_graph_execute_request: Instant::now(),
             pending_graph_execute: false,
             playback_enabled: true,
+            fps_override: None,
             last_warned_disconnected_selected_node: None,
             snarl_view_generation: 0,
             apply_saved_graph_zoom_once: true,
@@ -99,7 +101,7 @@ impl EditorArea {
             return false;
         }
 
-        let Some(target_fps) = self.last_fps_output else {
+        let Some(target_fps) = self.fps_override.or(self.last_fps_output) else {
             self.playback_timer = None;
             return false;
         };
@@ -138,6 +140,7 @@ impl EditorArea {
         main_output: &mut MainOutputArea,
     ) {
         self.set_playback_enabled(main_output.playback_enabled());
+        self.fps_override = main_output.fps_override();
         self.show(ctx, frame, main_output.preview_selected_node_enabled());
         self.sync_main_output(frame, main_output);
     }
@@ -170,7 +173,7 @@ impl EditorArea {
 
         main_output.update_from_editor(
             self.displayed_frame.as_ref(),
-            self.last_fps_output,
+            self.fps_override.or(self.last_fps_output),
             render_state,
         );
     }
@@ -405,9 +408,9 @@ impl EditorArea {
                 .get_target_fps_for_display_node(&self.node_library, node_to_execute);
         }
 
-        if let Some(global_fps) = self.last_fps_output {
+        if let Some(global_fps) = self.fps_override.or(self.last_fps_output) {
             self.executor_manager
-                .set_global_stream_target_fps_for_target(global_fps, node_to_execute);
+                .set_global_stream_target_fps(global_fps);
         }
 
         if graph_changed {
@@ -442,11 +445,6 @@ impl EditorArea {
             ) {
                 Ok(Some(frame_output)) => {
                     self.displayed_frame = Some(frame_output);
-
-                    if graph_execute_due {
-                        self.pending_graph_execute = false;
-                        self.last_graph_execute_request = Instant::now();
-                    }
                 }
                 Ok(None) => {
                     // No frame output available
@@ -457,6 +455,13 @@ impl EditorArea {
                 Err(err) => {
                     util::debug_log_error!("Graph execution error: {}", err);
                 }
+            }
+
+            if graph_execute_due {
+                // Mark the queued graph update as handled even if execution failed,
+                // otherwise we can get stuck in a tight retry/logging loop.
+                self.pending_graph_execute = false;
+                self.last_graph_execute_request = Instant::now();
             }
         }
 

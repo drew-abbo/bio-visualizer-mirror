@@ -3,8 +3,10 @@
 //! It provides methods to check for changes, execute the graph, and determine which node's output to display based on selection or graph structure.
 use engine::graph_executor::{ExecutionError, GraphExecutor, NodeValue};
 use engine::node::NodeLibrary;
+use engine::node::engine_node::{BuiltInHandler, NodeExecutionPlan};
 use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
 use media::fps::Fps;
+use media::fps::consts::{FPS_1, FPS_30};
 use std::collections::HashSet;
 
 /// Manager for the node graph and its execution, separate from the UI state in EditorArea
@@ -132,33 +134,49 @@ impl GraphExecutorManager {
             .get_target_fps_for_node(&self.engine_graph, node_library, node_id)
     }
 
-    /// Resolve playback FPS for a display node by checking the node itself first,
-    /// then traversing upstream connections for video sources.
+    /// Resolve a recommended global playback FPS for the display node subgraph.
+    ///
+    /// Policy:
+    /// - If any upstream video source exists, use the max measured video FPS.
+    /// - Else if any upstream noise source exists, default to 30 FPS.
+    /// - Else if any upstream image source exists, default to 1 FPS.
+    /// - Else return None.
     pub fn get_target_fps_for_display_node(
         &mut self,
         node_library: &NodeLibrary,
         node_id: EngineNodeId,
     ) -> Option<Fps> {
-        if let Some(fps) = self.get_target_fps_for_node(node_library, node_id) {
-            return Some(fps);
-        }
-
         let mut visited = HashSet::new();
         let mut stack = vec![node_id];
-        let mut best_fps: Option<Fps> = None;
+        let mut best_video_fps: Option<Fps> = None;
+        let mut has_noise_source = false;
+        let mut has_image_source = false;
 
         while let Some(current) = stack.pop() {
             if !visited.insert(current) {
                 continue;
             }
 
-            if current != node_id
-                && let Some(fps) = self.get_target_fps_for_node(node_library, current)
+            if let Some(instance) = self.engine_graph.get_instance(current)
+                && let Some(definition) = node_library.get_definition(&instance.definition_name)
             {
-                best_fps = Some(match best_fps {
-                    Some(existing) => existing.max(fps),
-                    None => fps,
-                });
+                match definition.node.executor {
+                    NodeExecutionPlan::BuiltIn(BuiltInHandler::VideoSource) => {
+                        if let Some(fps) = self.get_target_fps_for_node(node_library, current) {
+                            best_video_fps = Some(match best_video_fps {
+                                Some(existing) => existing.max(fps),
+                                None => fps,
+                            });
+                        }
+                    }
+                    NodeExecutionPlan::BuiltIn(BuiltInHandler::Noise(_)) => {
+                        has_noise_source = true;
+                    }
+                    NodeExecutionPlan::BuiltIn(BuiltInHandler::ImageSource) => {
+                        has_image_source = true;
+                    }
+                    _ => {}
+                }
             }
 
             if let Some(instance) = self.engine_graph.get_instance(current) {
@@ -170,7 +188,17 @@ impl GraphExecutorManager {
             }
         }
 
-        best_fps
+        if let Some(fps) = best_video_fps {
+            return Some(fps);
+        }
+        if has_noise_source {
+            return Some(FPS_30);
+        }
+        if has_image_source {
+            return Some(FPS_1);
+        }
+
+        None
     }
 
     pub fn pause_streams(&mut self) {
@@ -181,16 +209,8 @@ impl GraphExecutorManager {
         self.graph_executor.play_streams();
     }
 
-    pub fn set_global_stream_target_fps_for_target(
-        &mut self,
-        target_fps: Fps,
-        target_node_id: EngineNodeId,
-    ) {
-        self.graph_executor.set_global_stream_target_fps_for_target(
-            &self.engine_graph,
-            target_node_id,
-            target_fps,
-        );
+    pub fn set_global_stream_target_fps(&mut self, target_fps: Fps) {
+        self.graph_executor.set_global_stream_target_fps(target_fps);
     }
 }
 

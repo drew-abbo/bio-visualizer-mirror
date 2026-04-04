@@ -159,11 +159,66 @@ pub enum NodeExecutionPlan {
     BuiltIn(BuiltInHandler),
 }
 
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum NoiseKind {
+    Perlin,
+    Random,
+    Sin,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum BuiltInHandler {
     ImageSource,
     VideoSource,
     MidiSource,
+    Noise(NoiseKind),
+}
+
+impl Serialize for BuiltInHandler {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let name = match self {
+            BuiltInHandler::ImageSource => "ImageSource",
+            BuiltInHandler::VideoSource => "VideoSource",
+            BuiltInHandler::MidiSource => "MidiSource",
+            BuiltInHandler::Noise(NoiseKind::Perlin) => "PerlinNoise",
+            BuiltInHandler::Noise(NoiseKind::Random) => "RandomNoise",
+            BuiltInHandler::Noise(NoiseKind::Sin) => "SinNoise",
+        };
+
+        serializer.serialize_str(name)
+    }
+}
+
+impl<'de> Deserialize<'de> for BuiltInHandler {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+
+        match value.as_str() {
+            "ImageSource" => Ok(BuiltInHandler::ImageSource),
+            "VideoSource" => Ok(BuiltInHandler::VideoSource),
+            "MidiSource" => Ok(BuiltInHandler::MidiSource),
+            "PerlinNoise" | "Perlin" => Ok(BuiltInHandler::Noise(NoiseKind::Perlin)),
+            "RandomNoise" | "Random" => Ok(BuiltInHandler::Noise(NoiseKind::Random)),
+            "SinNoise" | "Sin" => Ok(BuiltInHandler::Noise(NoiseKind::Sin)),
+            other => Err(serde::de::Error::unknown_variant(
+                other,
+                &[
+                    "ImageSource",
+                    "VideoSource",
+                    "MidiSource",
+                    "PerlinNoise",
+                    "RandomNoise",
+                    "SinNoise",
+                ],
+            )),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Default)]

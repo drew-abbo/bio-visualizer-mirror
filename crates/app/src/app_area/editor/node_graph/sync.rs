@@ -225,21 +225,10 @@ pub fn sync_node_to_engine(
         return;
     };
 
-    let is_source = definition
-        .node
-        .inputs
-        .iter()
-        .any(|input| matches!(input.kind, NodeInputKind::File { .. }));
-
-    let has_file = input_values
-        .values()
-        .any(|v| matches!(v, InputValue::File(_)));
-
-    let should_add = if is_source {
-        has_file
-    } else {
-        validation::is_connected_to_source(&state.snarl, node_id, node_library)
-    };
+    // Use the same recursive rule as the main sync pass.
+    // This allows procedural generators (no file input) to activate when their
+    // own required inputs are satisfied.
+    let should_add = validation::are_inputs_satisfied(&state.snarl, node_id, node_library);
 
     if !should_add {
         return;

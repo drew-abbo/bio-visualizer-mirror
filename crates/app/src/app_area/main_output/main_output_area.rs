@@ -24,6 +24,10 @@ impl MainOutputArea {
         self.controls.preview_selected_node()
     }
 
+    pub fn fps_override(&self) -> Option<Fps> {
+        self.controls.fps_override()
+    }
+
     /// Update the output window with frame and FPS data
     pub fn update_from_editor(
         &mut self,

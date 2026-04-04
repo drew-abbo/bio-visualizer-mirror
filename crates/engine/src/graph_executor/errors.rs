@@ -44,6 +44,9 @@ pub enum ExecutionError {
     #[error("Failed to load shader from {0:?}: {1}")]
     ShaderLoadError(PathBuf, String),
 
+    #[error("Noise execution error: {0}")]
+    NoiseExecutionError(String),
+
     #[error("Render error: {0:?}")]
     RenderError(crate::engine_errors::EngineError),
 

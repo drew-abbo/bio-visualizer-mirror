@@ -9,7 +9,10 @@ use crate::gpu_frame::GpuFrame;
 use crate::node::NodeDefinition;
 use crate::node::NodeLibrary;
 use crate::node::engine_node::{BuiltInHandler, NodeExecutionPlan, NodeOutputKind};
-use crate::node::handler::{FrameStreamHandler, NodeFrameStreamRequest, StreamKind};
+use crate::node::handler::{
+    FrameStreamHandler, NodeFrameStreamRequest, NodeNoiseStreamRequest, NoiseStreamHandler,
+    StreamKind,
+};
 use crate::node_graph::EngineNodeId;
 use crate::node_graph::{InputValue, NodeGraph, NodeInstance};
 use crate::node_render_pipeline::NodeRenderPipeline;
@@ -45,6 +48,12 @@ pub struct GraphExecutor {
 
     /// Handles any nodes that need frames including images and videos
     frame_stream_handler: FrameStreamHandler,
+
+    /// Handles built-in noise nodes
+    noise_stream_handler: NoiseStreamHandler,
+
+    /// Last globally requested target FPS for stream handlers.
+    global_stream_target_fps: Option<Fps>,
 
     /// Cached execution order to avoid recomputing topology every frame
     cached_execution_order: Option<Vec<EngineNodeId>>,
@@ -133,6 +142,8 @@ impl GraphExecutor {
             pipeline_cache: HashMap::new(),
             render_target_cache: HashMap::new(),
             frame_stream_handler: FrameStreamHandler::new(),
+            noise_stream_handler: NoiseStreamHandler::new(),
+            global_stream_target_fps: None,
             target_format: format,
             cached_execution_order: None,
             output_node_id: EngineNodeId::default(),
@@ -172,7 +183,7 @@ impl GraphExecutor {
         self.output_node_id
     }
 
-    /// Return the target FPS for a specific node when it is a video source.
+    /// Return the measured target FPS for a specific node when it is a video source.
     ///
     /// This intentionally avoids relying on runtime output-name matching.
     /// Instead, it inspects the node definition and queries the video handler
@@ -207,7 +218,7 @@ impl GraphExecutor {
             stream_kind: StreamKind::Video,
         };
 
-        self.frame_stream_handler.get_target_fps(&request).ok()
+        self.frame_stream_handler.get_recommended_fps(&request).ok()
     }
 
     /// Execute the node graph with an execution context.
@@ -259,6 +270,16 @@ impl GraphExecutor {
         let active_nodes: HashSet<EngineNodeId> = execution_node_ids.iter().copied().collect();
         self.frame_stream_handler
             .set_playback_for_nodes(&active_nodes);
+        self.noise_stream_handler
+            .set_playback_for_nodes(&active_nodes);
+
+        // Keep newly created active streams aligned with the last global FPS.
+        if let Some(target_fps) = self.global_stream_target_fps {
+            self.frame_stream_handler
+                .set_target_fps_for_nodes_non_video(target_fps, &active_nodes);
+            self.noise_stream_handler
+                .set_target_fps_for_nodes(target_fps, &active_nodes);
+        }
 
         // Execute each node in order
         let live_node_ids: HashSet<EngineNodeId> = order.iter().copied().collect();
@@ -351,25 +372,23 @@ impl GraphExecutor {
     /// Graph execution should still happen to keep the UI responsive, but video frames should not advance.
     pub fn pause_streams(&mut self) {
         self.frame_stream_handler.pause_all_streams();
+        self.noise_stream_handler.pause_all_streams();
     }
 
     pub fn play_streams(&mut self) {
         self.frame_stream_handler.play_all_streams();
+        self.noise_stream_handler.play_all_streams();
     }
 
     pub fn set_global_stream_target_fps(&mut self, target_fps: Fps) {
-        self.frame_stream_handler.set_target_fps_all(target_fps);
-    }
+        if self.global_stream_target_fps == Some(target_fps) {
+            return;
+        }
 
-    pub fn set_global_stream_target_fps_for_target(
-        &mut self,
-        graph: &NodeGraph,
-        target_node_id: EngineNodeId,
-        target_fps: Fps,
-    ) {
-        let required_nodes = Self::collect_required_nodes_for_target(graph, target_node_id);
+        self.global_stream_target_fps = Some(target_fps);
         self.frame_stream_handler
-            .set_target_fps_for_nodes(target_fps, &required_nodes);
+            .set_target_fps_all_non_video(target_fps);
+        self.noise_stream_handler.set_target_fps_all(target_fps);
     }
 
     /// Resolve all inputs for a node instance
@@ -574,16 +593,16 @@ impl GraphExecutor {
         queue: &wgpu::Queue,
         definition: &NodeDefinition,
     ) -> Result<HashMap<String, NodeValue>, ExecutionError> {
-        let path = inputs
-            .values()
-            .find_map(|v| match v {
-                NodeValue::File(p) => Some(p),
-                _ => None,
-            })
-            .ok_or(ExecutionError::InvalidInputType)?;
-
         let output_values = match *handler_type {
             BuiltInHandler::ImageSource => {
+                let path = inputs
+                    .values()
+                    .find_map(|v| match v {
+                        NodeValue::File(p) => Some(p),
+                        _ => None,
+                    })
+                    .ok_or(ExecutionError::InvalidInputType)?;
+
                 let request = NodeFrameStreamRequest {
                     node_id,
                     file_path: path.clone(),
@@ -600,6 +619,14 @@ impl GraphExecutor {
                     })?
             }
             BuiltInHandler::VideoSource => {
+                let path = inputs
+                    .values()
+                    .find_map(|v| match v {
+                        NodeValue::File(p) => Some(p),
+                        _ => None,
+                    })
+                    .ok_or(ExecutionError::InvalidInputType)?;
+
                 let request = NodeFrameStreamRequest {
                     node_id,
                     file_path: path.clone(),
@@ -614,6 +641,17 @@ impl GraphExecutor {
                             format!("Video source stream execution failed: {:?}", e),
                         )
                     })?
+            }
+            BuiltInHandler::Noise(noise_kind) => {
+                let request = NodeNoiseStreamRequest {
+                    node_id,
+                    noise_kind,
+                    inputs,
+                };
+
+                self.noise_stream_handler
+                    .execute_handler(&request)
+                    .map_err(|error| ExecutionError::NoiseExecutionError(error.to_string()))?
             }
             BuiltInHandler::MidiSource => return Err(ExecutionError::InvalidInputType),
         };

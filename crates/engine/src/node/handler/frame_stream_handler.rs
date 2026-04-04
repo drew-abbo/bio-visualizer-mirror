@@ -7,6 +7,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use util::channels::ChannelError;
 
+use super::timed_stream_handler::TimedStreamHandler;
+
 #[derive(Debug, thiserror::Error)]
 pub enum FrameStreamHandlerError {
     #[error("Failed waiting for video stream request for '{path}': {source}")]
@@ -71,22 +73,29 @@ impl FrameStreamHandler {
     }
 
     pub fn pause_all_streams(&mut self) {
-        self.paused = true;
-        for stream in self.stream_cache.values_mut() {
-            stream.pause();
-        }
+        <Self as TimedStreamHandler>::pause_all_streams(self);
     }
 
     pub fn play_all_streams(&mut self) {
-        self.paused = false;
+        <Self as TimedStreamHandler>::play_all_streams(self);
     }
 
     pub fn clear_cache(&mut self) {
-        self.stream_cache.clear();
+        <Self as TimedStreamHandler>::clear_cache(self);
     }
 
     pub fn set_target_fps_all(&mut self, target_fps: Fps) {
-        for stream in self.stream_cache.values_mut() {
+        <Self as TimedStreamHandler>::set_target_fps_all(self, target_fps);
+    }
+
+    /// Apply target FPS to non-video frame streams only.
+    ///
+    /// Video streams keep their own internal timing/resampling behavior.
+    pub fn set_target_fps_all_non_video(&mut self, target_fps: Fps) {
+        for (key, stream) in self.stream_cache.iter_mut() {
+            if matches!(key.stream_kind, StreamKind::Video) {
+                continue;
+            }
             stream.set_target_fps(target_fps);
         }
     }
@@ -96,22 +105,28 @@ impl FrameStreamHandler {
         target_fps: Fps,
         active_nodes: &HashSet<EngineNodeId>,
     ) {
+        <Self as TimedStreamHandler>::set_target_fps_for_nodes(self, target_fps, active_nodes);
+    }
+
+    /// Apply target FPS to active non-video frame streams only.
+    pub fn set_target_fps_for_nodes_non_video(
+        &mut self,
+        target_fps: Fps,
+        active_nodes: &HashSet<EngineNodeId>,
+    ) {
         for (key, stream) in self.stream_cache.iter_mut() {
-            if active_nodes.contains(&key.node_id) {
-                stream.set_target_fps(target_fps);
+            if !active_nodes.contains(&key.node_id) {
+                continue;
             }
+            if matches!(key.stream_kind, StreamKind::Video) {
+                continue;
+            }
+            stream.set_target_fps(target_fps);
         }
     }
 
     pub fn set_playback_for_nodes(&mut self, active_nodes: &HashSet<EngineNodeId>) {
-        for (key, stream) in self.stream_cache.iter_mut() {
-            let should_play = !self.paused && active_nodes.contains(&key.node_id);
-            if should_play {
-                stream.play();
-            } else {
-                stream.pause();
-            }
-        }
+        <Self as TimedStreamHandler>::set_playback_for_nodes(self, active_nodes);
     }
 
     pub fn get_target_fps(
@@ -119,6 +134,20 @@ impl FrameStreamHandler {
         request: &NodeFrameStreamRequest,
     ) -> Result<Fps, FrameStreamHandlerError> {
         let stream = self.create_stream(request)?;
+        Ok(stream.target_fps())
+    }
+
+    pub fn get_recommended_fps(
+        &mut self,
+        request: &NodeFrameStreamRequest,
+    ) -> Result<Fps, FrameStreamHandlerError> {
+        let stream = self.create_stream(request)?;
+        let any = stream.as_ref() as &dyn std::any::Any;
+
+        if let Some(video_stream) = any.downcast_ref::<VideoFrameStream>() {
+            return Ok(video_stream.native_fps());
+        }
+
         Ok(stream.target_fps())
     }
 
@@ -238,5 +267,42 @@ impl FrameStreamHandler {
                 Ok(Box::new(StillFrameStream::new(frame, FPS_30)))
             }
         }
+    }
+}
+
+impl TimedStreamHandler for FrameStreamHandler {
+    type Stream = Box<dyn FrameStream>;
+
+    fn for_each_stream_mut<F>(&mut self, mut f: F)
+    where
+        F: FnMut(EngineNodeId, &mut Self::Stream),
+    {
+        for (key, stream) in self.stream_cache.iter_mut() {
+            f(key.node_id, stream);
+        }
+    }
+
+    fn set_paused_state(&mut self, paused: bool) {
+        self.paused = paused;
+    }
+
+    fn is_paused_state(&self) -> bool {
+        self.paused
+    }
+
+    fn clear_stream_cache(&mut self) {
+        self.stream_cache.clear();
+    }
+
+    fn stream_pause(stream: &mut Self::Stream) {
+        stream.pause();
+    }
+
+    fn stream_play(stream: &mut Self::Stream) {
+        stream.play();
+    }
+
+    fn stream_set_target_fps(stream: &mut Self::Stream, target_fps: Fps) {
+        stream.set_target_fps(target_fps);
     }
 }
