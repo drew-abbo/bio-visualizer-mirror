@@ -26,13 +26,13 @@ pub struct EditorArea {
     editor_state_context: EditorStateContext,
     displayed_frame: Option<NodeValue>,
     last_fps_output: Option<Fps>,
-    // Anchored playback timing (uses a fixed start time to avoid drift).
     playback_timer: Option<SwitchTimer>,
     // Last time we ran a graph execute triggered by graph edits.
     last_graph_execute_request: Instant,
     // Set when graph topology/parameters changed and a preview execute is pending.
     pending_graph_execute: bool,
     playback_enabled: bool,
+    last_warned_disconnected_selected_node: Option<engine::node_graph::EngineNodeId>,
     snarl_view_generation: u64,
     apply_saved_graph_zoom_once: bool,
     last_synced_content_hash: Option<u64>,
@@ -60,6 +60,7 @@ impl EditorArea {
             last_graph_execute_request: Instant::now(),
             pending_graph_execute: false,
             playback_enabled: true,
+            last_warned_disconnected_selected_node: None,
             snarl_view_generation: 0,
             apply_saved_graph_zoom_once: true,
             last_synced_content_hash: None,
@@ -137,16 +138,26 @@ impl EditorArea {
         main_output: &mut MainOutputArea,
     ) {
         self.set_playback_enabled(main_output.playback_enabled());
-        self.show(ctx, frame);
+        self.show(ctx, frame, main_output.preview_selected_node_enabled());
         self.sync_main_output(frame, main_output);
     }
 
     /// Render the entire editor area
-    pub fn show(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        frame: &eframe::Frame,
+        preview_selected_node_enabled: bool,
+    ) {
         // Render graph UI, then update preview/output from current selection.
         let selected_nodes = self.show_node_graph(ctx);
         let selected_snarl_node = self.update_output_selection(&selected_nodes);
-        self.update_output_from_graph(ctx, frame, selected_snarl_node);
+        self.update_output_from_graph(
+            ctx,
+            frame,
+            selected_snarl_node,
+            preview_selected_node_enabled,
+        );
 
         self.show_any_error_popups(ctx);
     }
@@ -307,6 +318,7 @@ impl EditorArea {
         ctx: &egui::Context,
         frame: &eframe::Frame,
         selected_snarl_node: Option<egui_snarl::NodeId>,
+        preview_selected_node_enabled: bool,
     ) {
         let Some(render_state) = frame.wgpu_render_state() else {
             return;
@@ -327,14 +339,43 @@ impl EditorArea {
         self.executor_manager
             .set_output_source_engine_node(output_source_engine_node);
 
-        let selection_changed = self
-            .executor_manager
-            .selection_changed(selected_engine_node);
+        if !preview_selected_node_enabled {
+            if let (Some(selected), Some(output)) =
+                (selected_engine_node, output_source_engine_node)
+            {
+                if !self
+                    .executor_manager
+                    .node_in_output_subgraph(selected, output)
+                {
+                    if self.last_warned_disconnected_selected_node != Some(selected) {
+                        self.error_popup_queue.push_back(
+                            "Selected node is outside the output-connected graph. Enable 'Preview Selected Node' to view it."
+                                .to_string(),
+                        );
+                        self.last_warned_disconnected_selected_node = Some(selected);
+                    }
+                } else {
+                    self.last_warned_disconnected_selected_node = None;
+                }
+            } else {
+                self.last_warned_disconnected_selected_node = None;
+            }
+        } else {
+            self.last_warned_disconnected_selected_node = None;
+        }
+
+        let preview_target_node = if preview_selected_node_enabled {
+            selected_engine_node
+        } else {
+            None
+        };
+
+        let selection_changed = self.executor_manager.selection_changed(preview_target_node);
         let graph_changed = self.executor_manager.consume_graph_changed();
 
         if selection_changed {
             self.executor_manager
-                .set_last_selected_engine_node(selected_engine_node);
+                .set_last_selected_engine_node(preview_target_node);
             self.last_fps_output = None;
             self.pending_graph_execute = false;
         }
@@ -348,7 +389,7 @@ impl EditorArea {
             return;
         }
 
-        let node_to_execute = selected_engine_node.or(output_source_engine_node);
+        let node_to_execute = preview_target_node.or(output_source_engine_node);
 
         let Some(node_to_execute) = node_to_execute else {
             self.displayed_frame = None;
@@ -366,7 +407,7 @@ impl EditorArea {
 
         if let Some(global_fps) = self.last_fps_output {
             self.executor_manager
-                .set_global_stream_target_fps(global_fps);
+                .set_global_stream_target_fps_for_target(global_fps, node_to_execute);
         }
 
         if graph_changed {
@@ -391,10 +432,7 @@ impl EditorArea {
         };
 
         let should_advance = self.playback_due();
-        let should_execute = graph_execute_due
-            || self.displayed_frame.is_none()
-            || should_advance
-            || !self.playback_enabled;
+        let should_execute = graph_execute_due || self.displayed_frame.is_none() || should_advance;
 
         if should_execute {
             match self.executor_manager.execute(

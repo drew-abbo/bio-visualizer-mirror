@@ -256,6 +256,10 @@ impl GraphExecutor {
             })
             .collect();
 
+        let active_nodes: HashSet<EngineNodeId> = execution_node_ids.iter().copied().collect();
+        self.frame_stream_handler
+            .set_playback_for_nodes(&active_nodes);
+
         // Execute each node in order
         let live_node_ids: HashSet<EngineNodeId> = order.iter().copied().collect();
         self.render_target_cache
@@ -355,6 +359,17 @@ impl GraphExecutor {
 
     pub fn set_global_stream_target_fps(&mut self, target_fps: Fps) {
         self.frame_stream_handler.set_target_fps_all(target_fps);
+    }
+
+    pub fn set_global_stream_target_fps_for_target(
+        &mut self,
+        graph: &NodeGraph,
+        target_node_id: EngineNodeId,
+        target_fps: Fps,
+    ) {
+        let required_nodes = Self::collect_required_nodes_for_target(graph, target_node_id);
+        self.frame_stream_handler
+            .set_target_fps_for_nodes(target_fps, &required_nodes);
     }
 
     /// Resolve all inputs for a node instance

@@ -1,6 +1,7 @@
 pub struct OutputControls {
     playback_enabled: bool,
     show_info: bool,
+    preview_selected_node: bool,
 }
 
 impl OutputControls {
@@ -8,6 +9,7 @@ impl OutputControls {
         Self {
             playback_enabled: true,
             show_info: true,
+            preview_selected_node: false,
         }
     }
 
@@ -17,6 +19,10 @@ impl OutputControls {
 
     pub fn show_info(&self) -> bool {
         self.show_info
+    }
+
+    pub fn preview_selected_node(&self) -> bool {
+        self.preview_selected_node
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui) {
@@ -33,6 +39,8 @@ impl OutputControls {
 
             ui.separator();
             ui.checkbox(&mut self.show_info, "Info");
+            ui.separator();
+            ui.checkbox(&mut self.preview_selected_node, "Preview Selected Node");
         });
     }
 }

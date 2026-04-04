@@ -3,7 +3,7 @@ use crate::{gpu_frame::GpuFrame, graph_executor::NodeValue, upload_stager::Uploa
 use media::fps::{Fps, consts::FPS_30};
 use media::frame::streams::{FrameStream, FrameStreamError, StillFrameStream, VideoFrameStream};
 use media::frame::{Frame, FromImgFileError};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use util::channels::ChannelError;
 
@@ -79,9 +79,6 @@ impl FrameStreamHandler {
 
     pub fn play_all_streams(&mut self) {
         self.paused = false;
-        for stream in self.stream_cache.values_mut() {
-            stream.play();
-        }
     }
 
     pub fn clear_cache(&mut self) {
@@ -91,6 +88,29 @@ impl FrameStreamHandler {
     pub fn set_target_fps_all(&mut self, target_fps: Fps) {
         for stream in self.stream_cache.values_mut() {
             stream.set_target_fps(target_fps);
+        }
+    }
+
+    pub fn set_target_fps_for_nodes(
+        &mut self,
+        target_fps: Fps,
+        active_nodes: &HashSet<EngineNodeId>,
+    ) {
+        for (key, stream) in self.stream_cache.iter_mut() {
+            if active_nodes.contains(&key.node_id) {
+                stream.set_target_fps(target_fps);
+            }
+        }
+    }
+
+    pub fn set_playback_for_nodes(&mut self, active_nodes: &HashSet<EngineNodeId>) {
+        for (key, stream) in self.stream_cache.iter_mut() {
+            let should_play = !self.paused && active_nodes.contains(&key.node_id);
+            if should_play {
+                stream.play();
+            } else {
+                stream.pause();
+            }
         }
     }
 

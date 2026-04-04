@@ -56,6 +56,39 @@ impl GraphExecutorManager {
         self.output_source_engine_node = node;
     }
 
+    pub fn node_in_output_subgraph(
+        &self,
+        selected_node: EngineNodeId,
+        output_node: EngineNodeId,
+    ) -> bool {
+        if selected_node == output_node {
+            return true;
+        }
+
+        let mut visited = HashSet::new();
+        let mut stack = vec![output_node];
+
+        while let Some(current) = stack.pop() {
+            if !visited.insert(current) {
+                continue;
+            }
+
+            if current == selected_node {
+                return true;
+            }
+
+            if let Some(instance) = self.engine_graph.get_instance(current) {
+                for input in instance.input_values.values() {
+                    if let InputValue::Connection { from_node, .. } = input {
+                        stack.push(*from_node);
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
     /// Check if the selection has changed since the last execution
     /// Used to determine if we need to re-execute the graph when the user selects a different node
     pub fn selection_changed(&self, new_selection: Option<EngineNodeId>) -> bool {
@@ -148,8 +181,16 @@ impl GraphExecutorManager {
         self.graph_executor.play_streams();
     }
 
-    pub fn set_global_stream_target_fps(&mut self, target_fps: Fps) {
-        self.graph_executor.set_global_stream_target_fps(target_fps);
+    pub fn set_global_stream_target_fps_for_target(
+        &mut self,
+        target_fps: Fps,
+        target_node_id: EngineNodeId,
+    ) {
+        self.graph_executor.set_global_stream_target_fps_for_target(
+            &self.engine_graph,
+            target_node_id,
+            target_fps,
+        );
     }
 }
 

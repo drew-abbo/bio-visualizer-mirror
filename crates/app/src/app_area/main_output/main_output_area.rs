@@ -20,6 +20,10 @@ impl MainOutputArea {
         self.controls.playback_enabled()
     }
 
+    pub fn preview_selected_node_enabled(&self) -> bool {
+        self.controls.preview_selected_node()
+    }
+
     /// Update the output window with frame and FPS data
     pub fn update_from_editor(
         &mut self,
