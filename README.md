@@ -1,6 +1,4 @@
-# Bio Visualizer
-
-We really need a better name...
+# Substrate
 
 ---
 

@@ -4,14 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-clap = { version = "4.5.51", features = ["derive"] }
-thiserror = "2"
-serde = { version = "1" }
-serde_json = "1"
-util = { path = "../util" }
+clap = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+util = { workspace = true }
 eframe = { version = "0.33" }
-egui = { version = "0.33", features = ["serde"] }
-egui_extras = { version = "0.33.3", features = ["image"] }
+egui = { workspace = true }
+egui_extras = { workspace = true, features = ["image"] }
 
 [features]
 # Disables the console that automatically opens when you run an executable on

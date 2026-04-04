@@ -1,6 +1,6 @@
 //! Exports utilities for determining when you should switch frames.
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use super::Fps;
 
@@ -36,14 +36,16 @@ impl SwitchTimer {
     /// should already be ready when this is called so that it can immediately
     /// be switched to.
     pub fn is_switch_time(&mut self) -> bool {
+        let now = Instant::now();
         let Some(start_time) = self.start_time else {
-            self.start_time = Some(Instant::now());
+            self.start_time = Some(now);
             return true;
         };
 
-        let time_since_start = Instant::now().duration_since(start_time).as_secs_f64();
-        let frame_interval = self.target_fps.interval_float();
-        let frame_intervals_since_start = (time_since_start / frame_interval) as usize;
+        let elapsed_nanos = now.duration_since(start_time).as_nanos();
+        let frames_elapsed = elapsed_nanos.saturating_mul(self.target_fps.num() as u128)
+            / ((self.target_fps.den() as u128) * 1_000_000_000u128);
+        let frame_intervals_since_start = frames_elapsed.min(usize::MAX as u128) as usize;
 
         if frame_intervals_since_start > self.frame_idx {
             self.frame_idx += 1;
@@ -51,6 +53,29 @@ impl SwitchTimer {
         } else {
             false
         }
+    }
+
+    /// Returns how long until the next switch should happen.
+    ///
+    /// Returns [Duration::ZERO] if the timer has not started yet or if the
+    /// next switch is already due.
+    pub fn time_until_next_switch(&self) -> Duration {
+        let Some(start_time) = self.start_time else {
+            return Duration::ZERO;
+        };
+
+        let now = Instant::now();
+        let elapsed_nanos = now.duration_since(start_time).as_nanos();
+        let next_frame_idx = self.frame_idx.saturating_add(1) as u128;
+        let next_switch_nanos = next_frame_idx
+            .saturating_mul(self.target_fps.den() as u128)
+            .saturating_mul(1_000_000_000u128)
+            / (self.target_fps.num() as u128);
+        let remaining_nanos = next_switch_nanos.saturating_sub(elapsed_nanos);
+
+        let secs = (remaining_nanos / 1_000_000_000u128).min(u64::MAX as u128) as u64;
+        let nanos = (remaining_nanos % 1_000_000_000u128) as u32;
+        Duration::new(secs, nanos)
     }
 
     /// Resets the clock. This means the next call to [Self::is_switch_time]

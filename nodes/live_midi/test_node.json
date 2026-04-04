@@ -1,0 +1,27 @@
+{
+  "name": "Video",
+  "inputs": [
+    {
+      "name": "Device",
+      "kind": {
+        "Device": {},
+        "input_ui": "Dropdown"
+      },
+      "show_pin": false
+    }
+  ],
+  "outputs": [
+    {
+      "name": "Output",
+      "kind": "MidiPacket"
+    }
+  ],
+  "executor": {
+    "BuiltIn": "MidiSource"
+  },
+  "short_description": "Loads midi packets from a midi source",
+  "long_description": "Opens a midi source and outputs midi packets as they are received. The node will attempt to automatically connect to a live midi source (e.g. a connected midi keyboard) if available, but can also be configured to connect to a specific source if multiple are present.",
+  "category": "Input",
+  "subcategories": [],
+  "search_keywords": ["midi", "load", "source", "input", "keyboard", "controller"]
+}

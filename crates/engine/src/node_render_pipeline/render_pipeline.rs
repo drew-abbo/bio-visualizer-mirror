@@ -21,9 +21,9 @@ use std::any::Any;
 use std::collections::HashMap;
 
 use crate::engine_errors::EngineError;
-use crate::graph_executor::ResolvedInput;
+use crate::graph_executor::NodeValue;
 use crate::node::NodeDefinition;
-use crate::node::node::NodeInputKind;
+use crate::node::engine_node::NodeInputKind;
 use crate::node_render_pipeline::helpers::create_linear_sampler;
 use crate::node_render_pipeline::pipeline_base::PipelineBase;
 
@@ -31,7 +31,7 @@ use crate::node_render_pipeline::pipeline_base::PipelineBase;
 /// Responsibilities:
 /// - Build a [wgpu::RenderPipeline] from WGSL source and the node's name.
 /// - Create a bind group layout and bind group for sampler, input textures and params.
-/// - Marshal non-texture inputs [ResolvedInput] into a contiguous uniform buffer.
+/// - Marshal non-texture inputs [NodeValue] into a contiguous uniform buffer.
 /// - Validate input counts and run a fullscreen draw to produce the output texture.
 ///
 /// Runtime GPU render pipeline constructed from WGSL and a [NodeDefinition].
@@ -76,7 +76,7 @@ impl PipelineBase for NodeRenderPipeline {
         //
         // - Validates that the number of [additional_inputs] matches the node's
         //   declared [NodeInputKind::Frame] inputs (primary input + additional inputs).
-        // - Writes the [params] (expected to be [HashMap<String, ResolvedInput>]) into
+        // - Writes the [params] (expected to be [HashMap<String, NodeValue>]) into
         //   the uniform buffer using [param_layout] rules.
         // - Builds a bind group and issues the render pass that draws into [output].
         // Validate input count
@@ -89,7 +89,7 @@ impl PipelineBase for NodeRenderPipeline {
         }
 
         // Update uniform buffer
-        if let Some(param_map) = params.downcast_ref::<HashMap<String, ResolvedInput>>() {
+        if let Some(param_map) = params.downcast_ref::<HashMap<String, NodeValue>>() {
             let params_size = Self::calculate_params_size(&self.param_layout);
             let mut buffer = vec![0u8; params_size];
             for param in &self.param_layout {
@@ -101,7 +101,7 @@ impl PipelineBase for NodeRenderPipeline {
         } else {
             return Err(EngineError::InvalidParamType {
                 pipeline: self.name.clone(),
-                expected: "HashMap<String, ResolvedInput>".to_string(),
+                expected: "HashMap<String, NodeValue>".to_string(),
                 actual: std::any::type_name_of_val(params).to_string(),
             });
         }
@@ -150,7 +150,6 @@ impl PipelineBase for NodeRenderPipeline {
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
-            ..Default::default()
         });
         rpass.set_pipeline(&self.pipeline);
         rpass.set_bind_group(0, &bind_group, &[]);
@@ -220,7 +219,7 @@ impl NodeRenderPipeline {
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             cache: None,
-            multiview_mask: None,
+            multiview: None,
         });
 
         // Build parameter layout from node definition
@@ -247,41 +246,41 @@ impl NodeRenderPipeline {
     }
 
     /// Write parameter to buffer at correct offset with proper alignment
-    fn write_param_to_buffer(buffer: &mut [u8], param: &ShaderParam, value: &ResolvedInput) {
-        // Encode a single [ResolvedInput] value into the provided [buffer] at
+    fn write_param_to_buffer(buffer: &mut [u8], param: &ShaderParam, value: &NodeValue) {
+        // Encode a single [NodeValue] value into the provided [buffer] at
         // [param.offset] using the expected encoding for WGSL uniforms.
         //
         // Only simple scalar/vector types are supported here (bool/int/float/pixel/dimensions/enum).
         let offset = param.offset;
 
         match (&param.kind, value) {
-            (NodeInputKind::Bool { .. }, ResolvedInput::Bool(b)) => {
+            (NodeInputKind::Bool { .. }, NodeValue::Bool(b)) => {
                 let val = if *b { 1u32 } else { 0u32 };
                 buffer[offset..offset + 4].copy_from_slice(&val.to_le_bytes());
             }
-            (NodeInputKind::Int { .. }, ResolvedInput::Int(i)) => {
+            (NodeInputKind::Int { .. }, NodeValue::Int(i)) => {
                 buffer[offset..offset + 4].copy_from_slice(&i.to_le_bytes());
             }
-            (NodeInputKind::Float { .. }, ResolvedInput::Float(f)) => {
+            (NodeInputKind::Float { .. }, NodeValue::Float(f)) => {
                 buffer[offset..offset + 4].copy_from_slice(&f.to_le_bytes());
             }
-            (NodeInputKind::Pixel { .. }, ResolvedInput::Pixel(p)) => {
+            (NodeInputKind::Pixel { .. }, NodeValue::Pixel(p)) => {
                 for (i, &component) in p.iter().enumerate() {
                     let bytes = component.to_le_bytes();
                     buffer[offset + i * 4..offset + i * 4 + 4].copy_from_slice(&bytes);
                 }
             }
-            (NodeInputKind::Dimensions { .. }, ResolvedInput::Dimensions(w, h)) => {
+            (NodeInputKind::Dimensions { .. }, NodeValue::Dimensions(w, h)) => {
                 buffer[offset..offset + 4].copy_from_slice(&w.to_le_bytes());
                 buffer[offset + 4..offset + 8].copy_from_slice(&h.to_le_bytes());
             }
-            (NodeInputKind::Enum { .. }, ResolvedInput::Enum(idx)) => {
+            (NodeInputKind::Enum { .. }, NodeValue::Enum(idx)) => {
                 let idx_u32 = *idx as u32;
                 buffer[offset..offset + 4].copy_from_slice(&idx_u32.to_le_bytes());
             }
             _ => {
                 // Type mismatch or unsupported type
-                eprintln!("Warning: Type mismatch for parameter {}", param.name);
+                util::debug_log_warning!("Warning: Type mismatch for parameter {}", param.name);
             }
         }
     }
@@ -339,7 +338,7 @@ impl NodeRenderPipeline {
     }
 
     /// Extract non-texture parameters and calculate their buffer offsets
-    fn build_param_layout(inputs: &[crate::node::node::NodeInput]) -> Vec<ShaderParam> {
+    fn build_param_layout(inputs: &[crate::node::engine_node::NodeInput]) -> Vec<ShaderParam> {
         // Convert node [inputs] into a list of [ShaderParam] describing the
         // order and byte offsets of parameters placed in the uniform buffer.
         // Frame and Midi inputs are skipped (they are bound as textures or handled elsewhere).
