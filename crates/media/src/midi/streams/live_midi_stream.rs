@@ -15,17 +15,16 @@ use crate::playback_stream::{PlaybackStream, SeekablePlaybackStream};
 /// A [MidiStream](super::MidiStream) that comes from live MIDI input data. See
 /// [list_ports].
 pub struct LiveMidiStream {
-    inbox: Inbox<Msg>,
-    recycled_packet: Option<MidiPacket>,
+    inbox: Inbox<Result<(Key, u8), MidiStreamError>>,
     target_fps: Fps,
     paused: bool,
-    _connection: MidiInputConnection<Outbox<Msg>>,
+    _connection: MidiInputConnection<Outbox<Result<(Key, u8), MidiStreamError>>>,
 }
 
 impl LiveMidiStream {
     /// Create a new [LiveMidiStream]. See [list_ports].
     pub fn new(port: Port, target_fps: Fps, paused: bool) -> Result<Self, MidiStreamError> {
-        let (inbox, outbox) = message_channel::new::<Msg>();
+        let (inbox, outbox) = message_channel::new::<Result<(Key, u8), MidiStreamError>>();
 
         let input =
             MidiInput::new("New Live Midi Stream").map_err(|_| MidiStreamError::PortError)?;
@@ -38,28 +37,31 @@ impl LiveMidiStream {
             .find_port_by_id(port_id)
             .ok_or(MidiStreamError::PortError)?;
 
-        let callback = |_timestamp: u64, message_bytes: &[u8], outbox: &mut Outbox<Msg>| {
-            let event = match LiveEvent::parse(message_bytes) {
-                Ok(event) => event,
-                Err(_) => {
-                    _ = outbox.send(Err(MidiStreamError::DataError));
+        let callback =
+            |_timestamp: u64,
+             message_bytes: &[u8],
+             outbox: &mut Outbox<Result<(Key, u8), MidiStreamError>>| {
+                let event = match LiveEvent::parse(message_bytes) {
+                    Ok(event) => event,
+                    Err(_) => {
+                        _ = outbox.send(Err(MidiStreamError::DataError));
+                        return;
+                    }
+                };
+
+                let LiveEvent::Midi { message, .. } = event else {
                     return;
-                }
-            };
+                };
 
-            let LiveEvent::Midi { message, .. } = event else {
-                return;
-            };
+                let (key, vel) = match message {
+                    MidiMessage::NoteOff { key, .. } => (key, 0),
+                    MidiMessage::NoteOn { key, vel } => (key, vel.as_int()),
+                    _ => return,
+                };
+                let key = key.as_int().try_into().expect("u7 can't be over 127");
 
-            let (key, note_state) = match message {
-                MidiMessage::NoteOff { key, .. } => (key, MidiNoteState::Off),
-                MidiMessage::NoteOn { key, vel } => (key, MidiNoteState::On { vel: vel.as_int() }),
-                _ => return,
+                _ = outbox.send(Ok((key, vel)));
             };
-            let key = key.as_int().try_into().expect("u7 can't be over 127");
-
-            _ = outbox.send(Ok((key, note_state)));
-        };
 
         let connection = input
             .connect(&port, &port_name, callback, outbox)
@@ -67,7 +69,6 @@ impl LiveMidiStream {
 
         Ok(Self {
             inbox,
-            recycled_packet: None,
             target_fps,
             paused,
             _connection: connection,
@@ -77,20 +78,13 @@ impl LiveMidiStream {
 
 impl PlaybackStream<MidiPacket, MidiStreamError> for LiveMidiStream {
     fn fetch(&mut self) -> Result<MidiPacket, MidiStreamError> {
-        let mut packet = self
-            .recycled_packet
-            .take()
-            .map(|mut packet| {
-                packet.hashmap_mut().clear();
-                packet
-            })
-            .unwrap_or_default();
+        let mut packet = MidiPacket::default();
 
         let check_result = self
             .inbox
             .check_in_place(|msg_queue| {
                 for msg in msg_queue.drain(..) {
-                    let (key, note_state) = match msg {
+                    let (key, vel) = match msg {
                         Ok(msg) => msg,
                         Err(e) => return Err(e),
                     };
@@ -99,10 +93,7 @@ impl PlaybackStream<MidiPacket, MidiStreamError> for LiveMidiStream {
                         continue;
                     }
 
-                    match note_state {
-                        MidiNoteState::On { vel } => packet.hashmap_mut().insert(key, vel),
-                        MidiNoteState::Off => packet.hashmap_mut().remove(&key),
-                    };
+                    packet.set_key_velocity(key, vel);
                 }
 
                 Ok(())
@@ -138,22 +129,6 @@ impl PlaybackStream<MidiPacket, MidiStreamError> for LiveMidiStream {
     ) -> Option<&mut dyn SeekablePlaybackStream<MidiPacket, MidiStreamError>> {
         None
     }
-
-    fn recycle(&mut self, new_packet: MidiPacket) {
-        let use_new_packet = match &self.recycled_packet {
-            Some(old_packet)
-                if new_packet.hashmap().capacity() > old_packet.hashmap().capacity() =>
-            {
-                true
-            }
-            None => true,
-            Some(_) => false,
-        };
-
-        if use_new_packet {
-            self.recycled_packet = Some(new_packet);
-        }
-    }
 }
 
 /// A MIDI input port. See [list_ports].
@@ -183,15 +158,7 @@ pub fn list_ports() -> Result<impl Iterator<Item = Port>, MidiStreamError> {
             name: input
                 .port_name(&port)
                 .map_err(|_| MidiStreamError::PortError)?,
-        })
+        });
     }
     Ok(ret.into_iter())
-}
-
-type Msg = Result<(Key, MidiNoteState), MidiStreamError>;
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-enum MidiNoteState {
-    On { vel: u8 },
-    Off,
 }
