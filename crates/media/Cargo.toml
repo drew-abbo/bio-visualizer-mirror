@@ -11,3 +11,5 @@ image = { version = "0.25", default-features = false, features = [
     "default-formats",
 ] }
 util = { workspace = true }
+midir = "0.10.3"
+midly = "0.5.3"
