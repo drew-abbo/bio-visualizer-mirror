@@ -554,7 +554,6 @@ impl AsMut<[u8]> for Pixel {
 // Pixels must remain 4 bytes (32 bits) no matter what.
 const _: () = assert!(size_of::<Pixel>() == 4);
 
-
 #[cfg(test)]
 mod tests {
     use crate::frame::Pixel;
@@ -566,9 +565,9 @@ mod tests {
         // D1=false, D2=false, D3=false, D4=false, D5=false, D6=false, D7=false
         // All digits valid, length 9 (#RRGGBBAA) -> alpha parsed from string
         let p = Pixel::from_hex_str("#AA5500FF").unwrap();
-        assert_eq!(p.red(),   0xAA);
+        assert_eq!(p.red(), 0xAA);
         assert_eq!(p.green(), 0x55);
-        assert_eq!(p.blue(),  0x00);
+        assert_eq!(p.blue(), 0x00);
         assert_eq!(p.alpha(), 0xFF);
     }
 
@@ -576,9 +575,9 @@ mod tests {
     fn test_from_hex_str_valid_6_digit() {
         // D6=true -> alpha defaults to 0xFF, no alpha digits parsed
         let p = Pixel::from_hex_str("#AA5500").unwrap();
-        assert_eq!(p.red(),   0xAA);
+        assert_eq!(p.red(), 0xAA);
         assert_eq!(p.green(), 0x55);
-        assert_eq!(p.blue(),  0x00);
+        assert_eq!(p.blue(), 0x00);
         assert_eq!(p.alpha(), 0xFF);
     }
 
@@ -677,7 +676,7 @@ mod tests {
         let brightness = p.perceptual_brightness_normalized();
         let c = 128.0_f64 / 255.0;
         let linear = ((c + 0.055) / 1.055_f64).powf(2.4);
-        let expected = (0.2126 + 0.7152 + 0.0722) * linear; 
+        let expected = (0.2126 + 0.7152 + 0.0722) * linear;
         assert!((brightness - expected).abs() < 1e-6);
     }
 

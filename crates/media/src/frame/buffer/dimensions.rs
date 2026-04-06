@@ -257,7 +257,6 @@ impl From<Dimensions> for (NonZeroU32, NonZeroU32) {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
 

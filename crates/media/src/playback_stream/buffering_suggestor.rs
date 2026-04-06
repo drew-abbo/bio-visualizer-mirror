@@ -128,7 +128,6 @@ impl BufferingSuggestor {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,7 +137,7 @@ mod tests {
     #[test]
     fn test_first_sample_normal_speed() {
         // Covers: D1=true, D2=false (prod*1.1 <= interval), D3=false (multiplier==1.0), D4=false (count==1)
-        let fps = Fps::from_int(30).unwrap(); 
+        let fps = Fps::from_int(30).unwrap();
         let mut s = BufferingSuggestor::new(fps);
 
         // Production time well within interval = no emergency
@@ -166,7 +165,7 @@ mod tests {
     #[test]
     fn test_emergency_spike() {
         // Covers: D2=true (production_time * 1.1 > consumer_interval)
-        let fps = Fps::from_int(30).unwrap(); 
+        let fps = Fps::from_int(30).unwrap();
         let mut s = BufferingSuggestor::new(fps);
 
         // 31ms * 1.1 = 34.1ms > 33.3ms, this triggers emergency
