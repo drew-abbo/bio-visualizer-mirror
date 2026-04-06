@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 // The structure of the node is still evolving and might change in the future.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Node {
+pub struct EngineNode {
     /// The name of this node
     pub name: String,
 
@@ -25,9 +25,13 @@ pub struct Node {
     #[serde(default)]
     pub long_description: String,
 
-    /// Sub-folders (in the UI) that this node should appear under
+    /// Category / Folder this node belongs under
     #[serde(default)]
-    pub sub_folders: Vec<String>,
+    pub category: String,
+
+    /// Sub-categories this node belongs under
+    #[serde(default)]
+    pub subcategories: Vec<String>,
 
     /// Keywords used to help find this node when searching
     #[serde(default)]
@@ -41,6 +45,11 @@ pub struct NodeInput {
 
     /// The kind of input
     pub kind: NodeInputKind,
+
+    /// Show Pin
+    /// Default to true because that is the most common case
+    #[serde(default = "default_show_pin")]
+    pub show_pin: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -50,6 +59,10 @@ pub struct NodeOutput {
 
     /// The kind of output
     pub kind: NodeOutputKind,
+
+    /// Show Pin
+    #[serde(default = "default_show_pin")]
+    pub show_pin: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,6 +79,10 @@ pub enum NodeOutputKind {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum NodeInputKind {
+    // Device {
+    //     #[serde(default)]
+    //     input_ui: DeviceInputUiMode,
+    // },
     Frame,
     Midi,
     Bool {
@@ -157,12 +174,17 @@ pub enum NumberInputUiMode {
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Default)]
+pub enum DeviceInputUiMode {
+    #[default]
+    Dropdown,
+}
+
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Default)]
 pub enum FileKind {
     #[default]
     Any,
     Video,
     Image,
-    Midi,
 }
 
 fn default_step_i32() -> i32 {
@@ -173,4 +195,8 @@ fn default_step_f32() -> f32 {
 }
 fn default_ui_lines() -> u64 {
     1
+}
+
+fn default_show_pin() -> bool {
+    true
 }

@@ -2,15 +2,15 @@
     "name": "Overlay",
     "inputs": [
         {
-            "name": "background",
+            "name": "Background",
             "kind": "Frame"
         },
         {
-            "name": "foreground", 
+            "name": "Foreground", 
             "kind": "Frame"
         },
         {
-            "name": "opacity",
+            "name": "Opacity",
             "kind": {
                 "Float": {
                     "default": 0.5,
@@ -22,7 +22,7 @@
     ],
     "outputs": [
         {
-            "name": "output",
+            "name": "Output",
             "kind": "Frame"
         }
     ],
@@ -30,5 +30,10 @@
         "Shader": {
             "source": "shader.wgsl"
         }
-    }
+    },
+    "short_description": "Blends two frames together using opacity",
+    "long_description": "Composites a foreground frame over a background frame using alpha blending. The opacity parameter controls how much of the foreground is visible (0.0 = fully transparent, 1.0 = fully opaque). Perfect for layering effects and transitions.",
+    "category": "Compositing",
+    "subcategories": [],
+    "search_keywords": ["overlay", "blend", "composite", "layer", "alpha", "opacity", "mix", "combine"]
 }

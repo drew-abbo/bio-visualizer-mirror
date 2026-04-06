@@ -22,10 +22,16 @@
 //! let mut executor = GraphExecutor::new(wgpu::TextureFormat::Rgba8Unorm);
 //! ```
 //!
-//! - Run the graph (returns first output node's results):
+//! - Run the graph with execution context:
 //!
 //! ```ignore
-//! let result = executor.execute(&graph, &library, &device, &queue)?;
+//! let context = ExecutionContext {
+//!     advance_frame: true,
+//!     playback_running: true,
+//! };
+//! let result = executor.execute(&graph, &library, &device, &queue, None, context)?;
+//! Or target a specific node:
+//! let result = executor.execute(&graph, &library, &device, &queue, Some(node_id), context)?;
 //! ```
 //!
 //! - Manage caches between runs:
@@ -53,7 +59,7 @@
 //!   - bindings 1..N: `texture_2d` views corresponding to each `Frame` input (primary input is binding 1)
 //!   - binding (N+1): a uniform buffer containing non-texture parameters (bool/int/float/pixel/dimensions/enum)
 //!
-//! Parameters are passed as a `HashMap<String, ResolvedInput>` by name and packed into a uniform buffer
+//! Parameters are passed as a `HashMap<String, NodeValue>` by name and packed into a uniform buffer
 //! using a simple std140-like alignment. Text/file inputs are not passed to the shader; `Frame` inputs
 //! are provided as texture views in the order declared by the node definition.
 //!
@@ -61,12 +67,12 @@
 //! --------
 //! See the `nodes/` folder at the repository root for example `shader.wgsl` files demonstrating
 //! bindings and entry points.
+pub mod engine_errors;
 pub mod graph_executor;
 pub mod node;
 pub mod node_graph;
 pub mod node_render_pipeline;
 
-mod engine_errors;
 mod gpu_frame;
 mod upload_stager;
 

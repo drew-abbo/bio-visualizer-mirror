@@ -2,13 +2,13 @@ use std::path::PathBuf;
 
 use crate::gpu_frame::GpuFrame;
 
-/// Resolved input value after [crate::graph_executor::GraphExecutor] resolves [crate::node_graph::InputValue] references.
-/// This type represents the concrete value passed to node handlers and
-/// shader pipelines. It contains owned or cloned data where appropriate so
-/// downstream code does not need to reference the original graph.
-#[derive(Debug, Clone)]
-pub enum ResolvedInput {
-    /// A GPU-backed frame/texture returned from another node
+/// A value in the node graph execution system.
+/// Represents both input values consumed by nodes and output values produced by nodes.
+/// This type is used throughout the execution pipeline, from initial input resolution
+/// to final output collection.
+#[derive(Debug, Clone, PartialEq)]
+pub enum NodeValue {
+    /// A GPU-backed frame/texture
     Frame(GpuFrame),
     Bool(bool),
     Int(i32),
@@ -16,23 +16,15 @@ pub enum ResolvedInput {
     Dimensions(u32, u32),
     Pixel([f32; 4]),
     Text(String),
-    /// Enum selection index
+    /// Enum selection index (inputs only)
     Enum(usize),
-    /// File path (used by source nodes)
+    /// File path (inputs only)
     File(PathBuf),
+    Device // THIS WILL TAKE THE DEVICE OBJECT FROM THE NEW MIDI CODE
 }
 
-/// Output value produced by a node execution.
-/// Note: shader-based nodes currently only produce [OutputValue::Frame]
-/// outputs. Other variants are used by built-in handlers (image/video
-/// producers, etc.).
-#[derive(Debug, Clone)]
-pub enum OutputValue {
-    Frame(GpuFrame),
-    Bool(bool),
-    Int(i32),
-    Float(f32),
-    Dimensions(u32, u32),
-    Pixel([f32; 4]),
-    Text(String),
+impl Default for NodeValue {
+    fn default() -> Self {
+        NodeValue::Float(0.0)
+    }
 }

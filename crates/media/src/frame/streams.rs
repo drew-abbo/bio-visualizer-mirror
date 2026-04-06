@@ -19,6 +19,13 @@ pub use video_frame_stream::*;
 
 /// A [PlaybackStream] of [Frame]s.
 pub trait FrameStream: PlaybackStream<Frame, FrameStreamError> {
+    /// Whether or not the last frame that was fetched is the same as the frame
+    /// that was fetched before it.
+    ///
+    /// `true` should always be returned after the first call to
+    /// [PlaybackStream::fetch].
+    fn fetched_frame_changed(&self) -> bool;
+
     /// The dimensions of the [Frame]s that are produced.
     fn dimensions(&self) -> Dimensions;
 
@@ -49,6 +56,15 @@ pub trait FrameStream: PlaybackStream<Frame, FrameStreamError> {
     /// that no rescaling is required.
     fn reset_dimensions(&mut self) {
         self.set_dimensions(self.native_dimensions(), RescaleMethod::default());
+    }
+
+    /// Whether the last frame returned by [PlaybackStream::fetch] is visually
+    /// distinct from the previously fetched frame.
+    ///
+    /// The default implementation returns `true` so callers remain correct even
+    /// when a stream does not provide a distinctness signal.
+    fn last_frame_is_distinct_from_previous(&self) -> bool {
+        true
     }
 }
 

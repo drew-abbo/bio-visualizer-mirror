@@ -10,7 +10,7 @@ pub trait PipelineBase {
     /// - `device`/`queue` are used to prepare GPU resources [wgpu::Device], [wgpu::Queue]).
     /// - `encoder` is a [wgpu::CommandEncoder] used to record the render pass that writes into `output` [wgpu::TextureView].
     /// - `primary_input` and `additional_inputs` are input texture views [wgpu::TextureView].
-    /// - `params` is expected to be a `HashMap<String, ResolvedInput>`; implementations should
+    /// - `params` is expected to be a `HashMap<String, NodeValue>`; implementations should
     ///   validate and return [crate::engine_errors::EngineError::InvalidParamType] on mismatch.
     fn apply(
         &self,

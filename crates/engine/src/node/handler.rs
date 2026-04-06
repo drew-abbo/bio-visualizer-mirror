@@ -1,7 +1,3 @@
-mod image_handler;
-mod node_handler;
-mod video_handler;
+mod frame_stream_handler;
 
-pub use image_handler::ImageSourceHandler;
-pub use node_handler::NodeHandler;
-pub use video_handler::VideoSourceHandler;
+pub use frame_stream_handler::{FrameStreamHandler, NodeFrameStreamRequest, StreamKind};

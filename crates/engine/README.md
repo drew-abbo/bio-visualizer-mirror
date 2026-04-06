@@ -18,17 +18,15 @@ Usage
 
   let mut executor = GraphExecutor::new(wgpu::TextureFormat::Rgba8Unorm);
 
-- Run the graph (returns first output node's results):
+- Run the graph, stops executing and returns the texture of the target node provided. If no id is provided then it will execute the whole graph.
 
-  let result = executor.execute(&graph, &library, &device, &queue)?;
+  let result = executor.execute(&graph, &library, &device, &queue, target_node_id, context)?;
 
 - Manage caches between runs:
 
   executor.clear_producer_cache();
   executor.clear_image_cache();
   executor.invalidate_execution_order();
-
-View the `render_testing` crate for examples.
 
 Errors
 ------
@@ -44,7 +42,7 @@ The engine loads WGSL shaders from node definitions and expects a small conventi
   - bindings 1..N: `texture_2d` views corresponding to each `Frame` input (primary input is binding 1)
   - binding (N+1): a uniform buffer containing non-texture parameters (bool/int/float/pixel/dimensions/enum)
 
-Parameters are passed as a `HashMap<String, ResolvedInput>` by name and packed into a uniform buffer
+Parameters are passed as a `HashMap<String, NodeValue>` by name and packed into a uniform buffer
 using a simple std140-like alignment. Text/file inputs are not passed to the shader; `Frame` inputs
 are provided as texture views in the order declared by the node definition.
 

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 /// GPU frame handle with its dimensions. Holds a texture view plus its size so
 /// downstream consumers can size new textures correctly.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GpuFrame {
     pub view: Arc<wgpu::TextureView>,
     pub size: wgpu::Extent3d,
