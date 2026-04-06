@@ -52,6 +52,25 @@ pub fn projects_path() -> &'static Path {
     &LOCAL_DATA_PROJECTS
 }
 
+/// The path to the directory where the app stores node definitions, unique for each
+/// user.
+///
+/// This value will only be computed the first time this function is called.
+/// Once computed, subsequent calls are significantly cheaper.
+///
+/// The directory will be created if it doesn't exist.
+pub fn nodes_path() -> &'static Path {
+    static LOCAL_DATA_NODES: LazyLock<PathBuf> = LazyLock::new(|| {
+        let mut local_data_nodes = PathBuf::from(root_path());
+        local_data_nodes.push(NODES_DIR_NAME);
+
+        ensure_dirs_exist(&local_data_nodes);
+        local_data_nodes
+    });
+
+    &LOCAL_DATA_NODES
+}
+
 const ROOT_DIR_NAME: &str = version::APP_NAME;
 const PROJECTS_DIR_NAME: &str = "Projects";
 const NODES_DIR_NAME: &str = "Nodes";
@@ -73,25 +92,6 @@ const LOCAL_APP_DATA_SUFFIX: &[&str] = &["Library", "Application Support", ROOT_
 
 #[cfg(target_os = "linux")]
 const LOCAL_APP_DATA_SUFFIX: &[&str] = &[".local", "share", ROOT_DIR_NAME];
-
-/// The path to the directory where the app stores node definitions, unique for each
-/// user.
-///
-/// This value will only be computed the first time this function is called.
-/// Once computed, subsequent calls are significantly cheaper.
-///
-/// The directory will be created if it doesn't exist.
-pub fn nodes_path() -> &'static Path {
-    static LOCAL_DATA_NODES: LazyLock<PathBuf> = LazyLock::new(|| {
-        let mut local_data_nodes = PathBuf::from(root_path());
-        local_data_nodes.push(NODES_DIR_NAME);
-
-        ensure_dirs_exist(&local_data_nodes);
-        local_data_nodes
-    });
-
-    &LOCAL_DATA_NODES
-}
 
 fn ensure_dirs_exist(path: &Path) {
     if !path.exists() {
