@@ -553,3 +553,144 @@ impl AsMut<[u8]> for Pixel {
 
 // Pixels must remain 4 bytes (32 bits) no matter what.
 const _: () = assert!(size_of::<Pixel>() == 4);
+
+
+#[cfg(test)]
+mod tests {
+    use crate::frame::Pixel;
+
+    // --- from_hex_str() ---
+
+    #[test]
+    fn test_from_hex_str_valid_8_digit() {
+        // D1=false, D2=false, D3=false, D4=false, D5=false, D6=false, D7=false
+        // All digits valid, length 9 (#RRGGBBAA) -> alpha parsed from string
+        let p = Pixel::from_hex_str("#AA5500FF").unwrap();
+        assert_eq!(p.red(),   0xAA);
+        assert_eq!(p.green(), 0x55);
+        assert_eq!(p.blue(),  0x00);
+        assert_eq!(p.alpha(), 0xFF);
+    }
+
+    #[test]
+    fn test_from_hex_str_valid_6_digit() {
+        // D6=true -> alpha defaults to 0xFF, no alpha digits parsed
+        let p = Pixel::from_hex_str("#AA5500").unwrap();
+        assert_eq!(p.red(),   0xAA);
+        assert_eq!(p.green(), 0x55);
+        assert_eq!(p.blue(),  0x00);
+        assert_eq!(p.alpha(), 0xFF);
+    }
+
+    #[test]
+    fn test_from_hex_str_invalid_length() {
+        // D1=true -> wrong length returns None immediately
+        assert!(Pixel::from_hex_str("#ABC").is_none());
+        assert!(Pixel::from_hex_str("#AABBCCDD11").is_none());
+    }
+
+    #[test]
+    fn test_from_hex_str_missing_hash() {
+        // D1=true -> no leading '#' returns None immediately
+        assert!(Pixel::from_hex_str("AA5500FF").is_none());
+    }
+
+    #[test]
+    fn test_from_hex_str_invalid_red_first_nibble() {
+        // D1=false, D2=true -> bad first nibble of red returns None
+        assert!(Pixel::from_hex_str("#ZZ5500FF").is_none());
+    }
+
+    #[test]
+    fn test_from_hex_str_invalid_red_second_nibble() {
+        // D1=false, D2=false, D3=true -> bad second nibble of red returns None
+        assert!(Pixel::from_hex_str("#AZ5500FF").is_none());
+    }
+
+    #[test]
+    fn test_from_hex_str_invalid_green() {
+        // D1=false, D2=false, D3=false, D4=true -> bad green nibble returns None
+        assert!(Pixel::from_hex_str("#AA ZZ00FF").is_none());
+        // Use a valid-length string with invalid green chars
+        assert!(Pixel::from_hex_str("#AAZZ00FF").is_none());
+    }
+
+    #[test]
+    fn test_from_hex_str_invalid_blue() {
+        // D1=false..D4=false, D5=true -> bad blue nibble returns None
+        assert!(Pixel::from_hex_str("#AA55ZZFF").is_none());
+    }
+
+    #[test]
+    fn test_from_hex_str_invalid_alpha() {
+        // D6=false (length 9), D7=true -> bad alpha nibble returns None
+        assert!(Pixel::from_hex_str("#AA5500ZZ").is_none());
+    }
+
+    // --- is_transparent / is_opaque / is_translucent ---
+
+    #[test]
+    fn test_is_transparent() {
+        // D9=true (alpha == 0x00)
+        let p = Pixel::from_rgba(100, 100, 100, 0x00);
+        assert!(p.is_transparent());
+        assert!(!p.is_opaque());
+        assert!(!p.is_translucent());
+    }
+
+    #[test]
+    fn test_is_opaque() {
+        // D9=false, D10=true (alpha == 0xFF)
+        let p = Pixel::from_rgba(100, 100, 100, 0xFF);
+        assert!(!p.is_transparent());
+        assert!(p.is_opaque());
+        assert!(!p.is_translucent());
+    }
+
+    #[test]
+    fn test_is_translucent() {
+        // D9=false, D10=false, D11=true (0x00 < alpha < 0xFF)
+        let p = Pixel::from_rgba(100, 100, 100, 0x80);
+        assert!(!p.is_transparent());
+        assert!(!p.is_opaque());
+        assert!(p.is_translucent());
+    }
+
+    // --- perceptual_brightness_normalized() (srgb_to_linear branches) ---
+
+    #[test]
+    fn test_perceptual_brightness_linear_branch() {
+        // D8=true for all channels: values <= 0.04045 use the linear path (channel / 12.92)
+        // Channel value 10 → normalized ≈ 0.0392, which is <= 0.04045
+        let p = Pixel::from_rgba(10, 10, 10, 0xFF);
+        let brightness = p.perceptual_brightness_normalized();
+        // All channels equal so brightness ≈ normalized value / 12.92
+        let expected = (10.0_f64 / 255.0) / 12.92;
+        assert!((brightness - expected).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_perceptual_brightness_gamma_branch() {
+        // D8=false for all channels: values > 0.04045 use the gamma path (powf(2.4))
+        // Channel value 128 -> normalized ≈ 0.502, which is > 0.04045
+        let p = Pixel::from_rgba(128, 128, 128, 0xFF);
+        let brightness = p.perceptual_brightness_normalized();
+        let c = 128.0_f64 / 255.0;
+        let linear = ((c + 0.055) / 1.055_f64).powf(2.4);
+        let expected = (0.2126 + 0.7152 + 0.0722) * linear; 
+        assert!((brightness - expected).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_perceptual_brightness_mixed_branches() {
+        // D8=true for red (value 5, normalized about 0.0196 <= 0.04045)
+        // D8=false for green and blue (value 200, normalized about 0.784 > 0.04045)
+        let p = Pixel::from_rgba(5, 200, 200, 0xFF);
+        let brightness = p.perceptual_brightness_normalized();
+        let red_linear = (5.0_f64 / 255.0) / 12.92;
+        let gb_c = 200.0_f64 / 255.0;
+        let gb_linear = ((gb_c + 0.055) / 1.055_f64).powf(2.4);
+        let expected = 0.2126 * red_linear + 0.7152 * gb_linear + 0.0722 * gb_linear;
+        assert!((brightness - expected).abs() < 1e-6);
+    }
+}
