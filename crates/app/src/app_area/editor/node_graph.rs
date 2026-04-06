@@ -6,6 +6,8 @@ mod input_widgets;
 mod sync;
 mod validation;
 
+pub use input_widgets::InputWidgetState;
+
 use egui;
 use egui::emath::TSTransform;
 use egui_snarl::ui::{PinInfo, SnarlViewer};
@@ -129,9 +131,10 @@ impl Default for NodeGraphState {
     }
 }
 
-pub struct NodeGraphViewer {
+pub struct NodeGraphViewer<'a> {
     node_library: Arc<NodeLibrary>,
     pending_errors: Vec<String>,
+    input_widget_state: &'a mut input_widgets::InputWidgetState,
     initial_graph_view: Option<GraphViewState>,
     initial_graph_view_zoom: Option<f32>,
     apply_initial_graph_view: bool,
@@ -139,11 +142,15 @@ pub struct NodeGraphViewer {
     reset_view_requested: bool,
 }
 
-impl NodeGraphViewer {
-    pub fn new(node_library: Arc<NodeLibrary>) -> Self {
+impl<'a> NodeGraphViewer<'a> {
+    pub fn new(
+        node_library: Arc<NodeLibrary>,
+        input_widget_state: &'a mut input_widgets::InputWidgetState,
+    ) -> Self {
         Self {
             node_library,
             pending_errors: Vec::new(),
+            input_widget_state,
             initial_graph_view: None,
             initial_graph_view_zoom: None,
             apply_initial_graph_view: false,
@@ -203,7 +210,7 @@ impl NodeGraphViewer {
     }
 }
 
-impl SnarlViewer<NodeData> for NodeGraphViewer {
+impl SnarlViewer<NodeData> for NodeGraphViewer<'_> {
     fn current_transform(&mut self, to_global: &mut TSTransform, _snarl: &mut Snarl<NodeData>) {
         if self.apply_initial_graph_view {
             if let Some(saved_view) = self.initial_graph_view {
@@ -295,6 +302,8 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
                     input_def,
                     &node_name,
                     &self.node_library,
+                    pin.id.node,
+                    &mut self.input_widget_state,
                 );
             } else if let Some(remote) = pin.remotes.first() {
                 // Show connected value

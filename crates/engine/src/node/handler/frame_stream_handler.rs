@@ -64,6 +64,12 @@ pub struct FrameStreamHandler {
     paused: bool,
 }
 
+impl Default for FrameStreamHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FrameStreamHandler {
     pub fn new() -> Self {
         Self {

@@ -16,6 +16,7 @@ use crate::engine_errors::EngineError;
 use crate::graph_executor::NodeValue;
 use crate::node::NodeDefinition;
 use crate::node::engine_node::NodeInputKind;
+use crate::node_render_pipeline::helpers::{align_to, uniform_param_size};
 
 /// Runtime compute pipeline constructed from WGSL and a [NodeDefinition].
 /// Responsible for creating the [wgpu::ComputePipeline], bind group layout,
@@ -117,11 +118,8 @@ impl ComputePipeline {
     /// Execute the compute pipeline with input textures and parameters.
     ///
     /// # Arguments
-    /// * `output_texture` - Optional output storage texture for compute shaders to write to.
-    ///   When provided, the shader can write results directly to the texture using `textureStore()`.
-    ///   When None, an internal buffer is created for compute output (read back by caller).
-    ///
-    /// Returns a buffer containing the compute result (caller is responsible for reading it back).
+    /// * `output_texture` - Output storage texture for compute shaders to write to.
+    #[allow(clippy::too_many_arguments)]
     pub fn apply(
         &self,
         device: &wgpu::Device,
@@ -129,10 +127,10 @@ impl ComputePipeline {
         encoder: &mut wgpu::CommandEncoder,
         primary_input: &wgpu::TextureView,
         additional_inputs: &[&wgpu::TextureView],
-        output_texture: Option<&wgpu::TextureView>,
+        output_texture: &wgpu::TextureView,
         params: &dyn Any,
         output_size: wgpu::Extent3d,
-    ) -> Result<wgpu::Buffer, EngineError> {
+    ) -> Result<(), EngineError> {
         // Validate texture input count
         let total_inputs = 1 + additional_inputs.len();
         if total_inputs < self.texture_input_count {
@@ -143,8 +141,7 @@ impl ComputePipeline {
         }
 
         // Write parameters
-        if let Some(params_map) = (params as &dyn Any).downcast_ref::<HashMap<String, NodeValue>>()
-        {
+        if let Some(params_map) = params.downcast_ref::<HashMap<String, NodeValue>>() {
             Self::write_params_to_buffer(queue, &self.params_buf, &self.param_layout, params_map)?;
         }
 
@@ -166,13 +163,11 @@ impl ComputePipeline {
             }
         }
 
-        // Bind output storage texture (if provided)
-        if let Some(out_tex) = output_texture {
-            bg_entries.push(wgpu::BindGroupEntry {
-                binding,
-                resource: wgpu::BindingResource::TextureView(out_tex),
-            });
-        }
+        // Bind output storage texture
+        bg_entries.push(wgpu::BindGroupEntry {
+            binding,
+            resource: wgpu::BindingResource::TextureView(output_texture),
+        });
         binding += 1;
 
         // Bind parameter buffer
@@ -187,18 +182,9 @@ impl ComputePipeline {
             entries: &bg_entries,
         });
 
-        // Create output buffer (sized to hold pixel data)
-        let pixel_count = (output_size.width * output_size.height) as usize;
-        let output_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(&format!("{} compute output", self.name)),
-            size: (pixel_count * 16) as u64, // RGBA32Float per pixel
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
-
         // Execute compute dispatch
-        let workgroup_x = (output_size.width + self.workgroup_size.0 - 1) / self.workgroup_size.0;
-        let workgroup_y = (output_size.height + self.workgroup_size.1 - 1) / self.workgroup_size.1;
+        let workgroup_x = output_size.width.div_ceil(self.workgroup_size.0);
+        let workgroup_y = output_size.height.div_ceil(self.workgroup_size.1);
 
         {
             let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -210,7 +196,7 @@ impl ComputePipeline {
             cpass.dispatch_workgroups(workgroup_x, workgroup_y, 1);
         }
 
-        Ok(output_buf)
+        Ok(())
     }
 
     fn build_param_layout(
@@ -224,31 +210,16 @@ impl ComputePipeline {
                 continue; // Skip frame inputs
             }
 
-            let size = Self::param_size(&input.kind);
+            let size = uniform_param_size(&input.kind);
             layout.push(ComputeShaderParam {
                 name: input.name.clone(),
                 kind: input.kind.clone(),
                 offset,
             });
-            offset += size;
+            offset = align_to(offset + size, 4);
         }
 
         layout
-    }
-
-    fn param_size(kind: &NodeInputKind) -> usize {
-        match kind {
-            NodeInputKind::Bool { .. } => 4,
-            NodeInputKind::Int { .. } => 4,
-            NodeInputKind::Float { .. } => 4,
-            NodeInputKind::Dimensions { .. } => 8,
-            NodeInputKind::Pixel { .. } => 16,
-            NodeInputKind::Enum { .. } => 4,
-            NodeInputKind::Text { .. } => 0, // Not used in compute
-            NodeInputKind::File { .. } => 0, // Not used in compute
-            NodeInputKind::Midi => 0,        // Not used in compute
-            NodeInputKind::Frame => 0,       // Not used in param buffer
-        }
     }
 
     fn build_bgl_entries(texture_count: usize) -> Vec<wgpu::BindGroupLayoutEntry> {
@@ -302,7 +273,10 @@ impl ComputePipeline {
         params: &HashMap<String, NodeValue>,
     ) -> Result<(), EngineError> {
         // Marshal parameters into a buffer using simple std140-like alignment
-        let total_size = layout.last().map(|p| p.offset + 16).unwrap_or(0);
+        let total_size = layout
+            .last()
+            .map(|p| align_to(p.offset + uniform_param_size(&p.kind), 16))
+            .unwrap_or(0);
         let mut data = vec![0u8; total_size];
 
         for param in layout {

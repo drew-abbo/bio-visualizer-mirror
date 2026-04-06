@@ -57,6 +57,12 @@ pub struct NoiseStreamHandler {
     paused: bool,
 }
 
+impl Default for NoiseStreamHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NoiseStreamHandler {
     pub fn new() -> Self {
         Self {

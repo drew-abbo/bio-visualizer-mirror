@@ -1,12 +1,43 @@
 use egui::{self, Ui};
+use egui_snarl::NodeId as SnarlNodeId;
 use engine::node::engine_node::NodeInput;
 use engine::node::{NodeInputKind, NodeLibrary};
 use engine::node_graph::InputValue;
 use std::collections::HashMap;
+use std::path::PathBuf;
+use util::channels::message_channel;
 
 /// I just hate strings
 const VIDEO_NODE_NAME: &str = "Video";
 const IMAGE_NODE_NAME: &str = "Image";
+
+pub struct InputWidgetState {
+    pending_file_dialogs: HashMap<String, message_channel::Inbox<Option<PathBuf>>>,
+}
+
+impl InputWidgetState {
+    pub fn new() -> Self {
+        Self {
+            pending_file_dialogs: HashMap::new(),
+        }
+    }
+}
+
+impl Default for InputWidgetState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+enum FileFilter {
+    Video,
+    Image,
+    Any,
+}
+
+fn file_dialog_key(node_id: SnarlNodeId, input_name: &str) -> String {
+    format!("{:?}:{}", node_id, input_name)
+}
 
 /// Renders the appropriate input widget based on the NodeInputKind
 /// Declutters the node_graph
@@ -16,10 +47,20 @@ pub fn show_input_widget(
     input_def: &NodeInput,
     node_name: &str,
     node_library: &NodeLibrary,
+    node_id: SnarlNodeId,
+    state: &mut InputWidgetState,
 ) {
     match &input_def.kind {
         NodeInputKind::File { .. } => {
-            show_file_input(ui, input_values, input_def, node_name, node_library);
+            show_file_input(
+                ui,
+                input_values,
+                input_def,
+                node_name,
+                node_library,
+                node_id,
+                state,
+            );
         }
         NodeInputKind::Bool { default } => {
             show_bool_input(ui, input_values, input_def, *default);
@@ -62,7 +103,27 @@ fn show_file_input(
     input_def: &NodeInput,
     node_name: &str,
     node_library: &NodeLibrary,
+    node_id: SnarlNodeId,
+    state: &mut InputWidgetState,
 ) {
+    let key = file_dialog_key(node_id, &input_def.name);
+
+    if let Some(inbox) = state.pending_file_dialogs.get(&key) {
+        match inbox.check_non_blocking() {
+            Ok(Some(Some(path))) => {
+                input_values.insert(input_def.name.clone(), InputValue::File(path));
+                state.pending_file_dialogs.remove(&key);
+            }
+            Ok(Some(None)) | Err(_) => {
+                state.pending_file_dialogs.remove(&key);
+            }
+            Ok(None) => {
+                // Keep repainting while dialog is pending so selection can apply immediately.
+                ui.ctx().request_repaint();
+            }
+        }
+    }
+
     let current_value = input_values.get(&input_def.name);
     let display_text = if let Some(InputValue::File(path)) = current_value {
         path.to_string_lossy()
@@ -70,22 +131,34 @@ fn show_file_input(
         "Select file...".into()
     };
 
-    if ui.button(display_text).clicked() {
-        // Create file dialog with appropriate filters based on node name
-        let mut dialog = rfd::FileDialog::new();
-
-        // I think it is reasonable to match on the node name since these should be built in
-        if let Some(def) = node_library.get_definition(node_name) {
+    if ui.button(display_text).clicked() && !state.pending_file_dialogs.contains_key(&key) {
+        let filter = if let Some(def) = node_library.get_definition(node_name) {
             match def.node.name.as_str() {
-                VIDEO_NODE_NAME => {
+                VIDEO_NODE_NAME => FileFilter::Video,
+                IMAGE_NODE_NAME => FileFilter::Image,
+                _ => FileFilter::Any,
+            }
+        } else {
+            FileFilter::Any
+        };
+
+        let (inbox, outbox) = message_channel::new();
+        state.pending_file_dialogs.insert(key, inbox);
+
+        std::thread::spawn(move || {
+            let mut dialog = rfd::FileDialog::new();
+
+            match filter {
+                FileFilter::Video => {
                     dialog = dialog.add_filter(
                         "Video Files",
                         &[
-                            "mp4", "avi", "mov", "mkv", "webm", "flv", "wmv", "m4v", "mpg", "mpeg",
+                            "mp4", "avi", "mov", "mkv", "webm", "flv", "wmv", "m4v", "mpg",
+                            "mpeg",
                         ],
                     );
                 }
-                IMAGE_NODE_NAME => {
+                FileFilter::Image => {
                     dialog = dialog.add_filter(
                         "Image Files",
                         &[
@@ -93,15 +166,13 @@ fn show_file_input(
                         ],
                     );
                 }
-                _ => {
-                    // Default: all files... gg
-                }
+                FileFilter::Any => {}
             }
-        }
 
-        if let Some(path) = dialog.pick_file() {
-            input_values.insert(input_def.name.clone(), InputValue::File(path));
-        }
+            let _ = outbox.send(dialog.pick_file());
+        });
+
+        ui.ctx().request_repaint();
     }
 }
 

@@ -48,6 +48,9 @@ pub struct GraphExecutor {
     /// Cache of shader output targets reused per node instance.
     render_target_cache: HashMap<EngineNodeId, CachedRenderTarget>,
 
+    /// Cache of compute stage output targets reused per node stage instance.
+    compute_stage_target_cache: HashMap<(EngineNodeId, usize), CachedRenderTarget>,
+
     /// Target texture format for rendering
     pub(crate) target_format: wgpu::TextureFormat,
 
@@ -147,6 +150,7 @@ impl GraphExecutor {
             pipeline_cache: HashMap::new(),
             compute_pipeline_cache: HashMap::new(),
             render_target_cache: HashMap::new(),
+            compute_stage_target_cache: HashMap::new(),
             frame_stream_handler: FrameStreamHandler::new(),
             noise_stream_handler: NoiseStreamHandler::new(),
             global_stream_target_fps: None,
@@ -291,6 +295,8 @@ impl GraphExecutor {
         let live_node_ids: HashSet<EngineNodeId> = order.iter().copied().collect();
         self.render_target_cache
             .retain(|node_id, _| live_node_ids.contains(node_id));
+        self.compute_stage_target_cache
+            .retain(|(node_id, _), _| live_node_ids.contains(node_id));
 
         let mut graph_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("graph_execution"),
@@ -706,6 +712,56 @@ impl GraphExecutor {
                 dimension: wgpu::TextureDimension::D2,
                 format: self.target_format,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            cached.view = std::sync::Arc::new(view);
+            cached.size = output_size;
+        }
+
+        cached.view.clone()
+    }
+
+    pub(crate) fn get_or_create_compute_stage_target(
+        &mut self,
+        device: &wgpu::Device,
+        node_id: EngineNodeId,
+        stage_index: usize,
+        output_size: wgpu::Extent3d,
+    ) -> std::sync::Arc<wgpu::TextureView> {
+        let cache_key = (node_id, stage_index);
+        let cached = self
+            .compute_stage_target_cache
+            .entry(cache_key)
+            .or_insert_with(|| {
+                let texture = device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("compute_stage_output"),
+                    size: output_size,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: self.target_format,
+                    usage: wgpu::TextureUsages::STORAGE_BINDING
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                });
+                let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                CachedRenderTarget {
+                    view: std::sync::Arc::new(view),
+                    size: output_size,
+                }
+            });
+
+        if cached.size != output_size {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("compute_stage_output"),
+                size: output_size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: self.target_format,
+                usage: wgpu::TextureUsages::STORAGE_BINDING
                     | wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             });

@@ -58,6 +58,7 @@ impl GraphExecutor {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn execute_effect_stages(
         &mut self,
         node_id: EngineNodeId,
@@ -166,39 +167,25 @@ impl GraphExecutor {
                             .insert(cache_key.clone(), compute_pipeline);
                     }
 
+                    let is_final_stage = stage_index + 1 == stages.len();
+                    let stage_output_view = self.get_or_create_compute_stage_target(
+                        device,
+                        node_id,
+                        stage_index,
+                        output_size,
+                    );
+
                     let compute_pipeline = &self.compute_pipeline_cache[&cache_key];
 
-                    // Create output texture for compute stage (always with STORAGE_BINDING)
-                    let is_final_stage = stage_index + 1 == stages.len();
-                    let stage_output_view = {
-                        let texture = device.create_texture(&wgpu::TextureDescriptor {
-                            label: Some(&format!(
-                                "{}::stage{} output",
-                                definition.node.name, stage_index
-                            )),
-                            size: output_size,
-                            mip_level_count: 1,
-                            sample_count: 1,
-                            dimension: wgpu::TextureDimension::D2,
-                            format: target_format,
-                            usage: wgpu::TextureUsages::STORAGE_BINDING
-                                | wgpu::TextureUsages::TEXTURE_BINDING,
-                            view_formats: &[],
-                        });
-                        std::sync::Arc::new(
-                            texture.create_view(&wgpu::TextureViewDescriptor::default()),
-                        )
-                    };
-
                     // Execute compute shader
-                    let _compute_output = compute_pipeline
+                    compute_pipeline
                         .apply(
                             device,
                             queue,
                             encoder,
                             primary_frame.view(),
                             &stage_additional_inputs,
-                            Some(stage_output_view.as_ref()),
+                            stage_output_view.as_ref(),
                             params.as_ref(),
                             output_size,
                         )

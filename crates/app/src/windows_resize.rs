@@ -16,9 +16,12 @@ pub fn setup_borderless_resize<W: HasWindowHandle>(window: &W) {
     use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CallWindowProcW, GWLP_WNDPROC, GetWindowLongPtrW, GetWindowRect, HTBOTTOM, HTBOTTOMLEFT,
-        HTBOTTOMRIGHT, HTCLIENT, HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, SetWindowLongPtrW,
-        WM_NCHITTEST,
+        HTBOTTOMRIGHT, HTCLIENT, HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, MINMAXINFO,
+        SetWindowLongPtrW, WM_GETMINMAXINFO, WM_NCHITTEST,
     };
+
+    const MIN_TRACK_WIDTH: i32 = 800;
+    const MIN_TRACK_HEIGHT: i32 = 600;
 
     type WndProc = unsafe extern "system" fn(*mut c_void, u32, usize, isize) -> isize;
 
@@ -55,6 +58,30 @@ pub fn setup_borderless_resize<W: HasWindowHandle>(window: &W) {
                     let map = ORIGINAL_WNDPROCS.lock().unwrap();
                     map.as_ref().and_then(|m| m.get(&(hwnd as isize)).copied())
                 };
+
+                if msg == WM_GETMINMAXINFO {
+                    if lparam != 0 {
+                        let minmax_info = lparam as *mut MINMAXINFO;
+                        unsafe {
+                            (*minmax_info).ptMinTrackSize.x = MIN_TRACK_WIDTH;
+                            (*minmax_info).ptMinTrackSize.y = MIN_TRACK_HEIGHT;
+                        }
+                    }
+
+                    if let Some(orig) = original {
+                        unsafe {
+                            return CallWindowProcW(
+                                Some(std::mem::transmute::<isize, WndProc>(orig)),
+                                hwnd,
+                                msg,
+                                wparam,
+                                lparam,
+                            );
+                        }
+                    }
+
+                    return 0;
+                }
 
                 // Handle hit test messages to enable resize
                 if msg == WM_NCHITTEST {

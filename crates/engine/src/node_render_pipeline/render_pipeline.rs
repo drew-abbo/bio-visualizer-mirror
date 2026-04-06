@@ -24,7 +24,7 @@ use crate::engine_errors::EngineError;
 use crate::graph_executor::NodeValue;
 use crate::node::NodeDefinition;
 use crate::node::engine_node::NodeInputKind;
-use crate::node_render_pipeline::helpers::create_linear_sampler;
+use crate::node_render_pipeline::helpers::{align_to, create_linear_sampler, uniform_param_size};
 use crate::node_render_pipeline::pipeline_base::PipelineBase;
 
 /// Pipeline created dynamically from node definition and WGSL shader.
@@ -48,6 +48,7 @@ pub struct NodeRenderPipeline {
     name: String,
     texture_input_count: usize,
     param_layout: Vec<ShaderParam>,
+    params_size: usize,
 }
 
 /// Internal representation of a shader parameter.
@@ -90,8 +91,7 @@ impl PipelineBase for NodeRenderPipeline {
 
         // Update uniform buffer
         if let Some(param_map) = params.downcast_ref::<HashMap<String, NodeValue>>() {
-            let params_size = Self::calculate_params_size(&self.param_layout);
-            let mut buffer = vec![0u8; params_size];
+            let mut buffer = vec![0u8; self.params_size];
             for param in &self.param_layout {
                 if let Some(value) = param_map.get(&param.name) {
                     Self::write_param_to_buffer(&mut buffer, param, value);
@@ -242,6 +242,7 @@ impl NodeRenderPipeline {
             name: definition.node.name.clone(),
             param_layout,
             texture_input_count,
+            params_size,
         })
     }
 
@@ -358,20 +359,10 @@ impl NodeRenderPipeline {
             });
 
             // Calculate size and advance offset
-            let size = match &input.kind {
-                NodeInputKind::Bool { .. } => 4, // bool is 4 bytes in WGSL
-                NodeInputKind::Int { .. } => 4,
-                NodeInputKind::Float { .. } => 4,
-                NodeInputKind::Pixel { .. } => 16,     // vec4<f32>
-                NodeInputKind::Dimensions { .. } => 8, // 2x u32
-                NodeInputKind::Text { .. } => 0,       // Text isn't passed to shaders
-                NodeInputKind::Enum { .. } => 4,       // Passed as u32
-                NodeInputKind::File { .. } => 0,       // Files aren't passed to shaders
-                _ => 0,
-            };
+            let size = uniform_param_size(&input.kind);
 
             // Align to 4 bytes
-            offset += (size + 3) & !3;
+            offset = align_to(offset + size, 4);
         }
 
         params
@@ -386,17 +377,9 @@ impl NodeRenderPipeline {
         }
 
         let last = &layout[layout.len() - 1];
-        let size = match &last.kind {
-            NodeInputKind::Bool { .. } => 4,
-            NodeInputKind::Int { .. } => 4,
-            NodeInputKind::Float { .. } => 4,
-            NodeInputKind::Pixel { .. } => 16,
-            NodeInputKind::Dimensions { .. } => 8,
-            NodeInputKind::Enum { .. } => 4,
-            _ => 0,
-        };
+        let size = uniform_param_size(&last.kind);
 
         // Align to 16 bytes (std140 layout requirement)
-        ((last.offset + size) + 15) & !15
+        align_to(last.offset + size, 16)
     }
 }
