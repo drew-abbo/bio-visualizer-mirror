@@ -127,3 +127,69 @@ impl BufferingSuggestor {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::time::Duration;
+
+    #[test]
+    fn test_first_sample_normal_speed() {
+        // Covers: D1=true, D2=false (prod*1.1 <= interval), D3=false (multiplier==1.0), D4=false (count==1)
+        let fps = Fps::from_int(30).unwrap();
+        let mut s = BufferingSuggestor::new(fps);
+
+        // Production time well within interval = no emergency
+        s.add_time_sample(Duration::from_millis(10));
+
+        assert_eq!(s.emergency_multipler, 1.0); // D3=false path, no decay
+        // buffering_suggestion calls time_std_dev = D4=false, returns 0.0
+        let suggestion = s.buffering_suggestion();
+        assert!(suggestion >= 1);
+    }
+
+    #[test]
+    fn test_second_sample_normal_speed() {
+        // Covers: D1=false (count > 1), D4=true (count > 1 -> std dev computed)
+        let fps = Fps::from_int(30).unwrap();
+        let mut s = BufferingSuggestor::new(fps);
+
+        s.add_time_sample(Duration::from_millis(10)); // count=1
+        s.add_time_sample(Duration::from_millis(12)); // count=2 -> D1=false, D4=true
+
+        let suggestion = s.buffering_suggestion();
+        assert!(suggestion >= 1);
+    }
+
+    #[test]
+    fn test_emergency_spike() {
+        // Covers: D2=true (production_time * 1.1 > consumer_interval)
+        let fps = Fps::from_int(30).unwrap();
+        let mut s = BufferingSuggestor::new(fps);
+
+        // 31ms * 1.1 = 34.1ms > 33.3ms, this triggers emergency
+        s.add_time_sample(Duration::from_millis(31));
+
+        assert_eq!(s.emergency_multipler, 4.0);
+        let suggestion = s.buffering_suggestion();
+        assert!(suggestion >= 4);
+    }
+
+    #[test]
+    fn test_emergency_decay() {
+        // Covers: D3=true (multiplier > 1.0 but production no longer too slow)
+        let fps = Fps::from_int(30).unwrap();
+        let mut s = BufferingSuggestor::new(fps);
+
+        // First spike the emergency multiplier
+        s.add_time_sample(Duration::from_millis(31)); // D2=true -> multiplier=4.0
+
+        // Now production recovers to a safe speed, D2=false, D3=true,  multiplier decays
+        s.add_time_sample(Duration::from_millis(5));
+
+        let m = s.emergency_multipler;
+        assert!(m < 4.0, "multiplier should have decayed");
+        assert!(m >= 1.0, "multiplier should not go below 1.0");
+    }
+}

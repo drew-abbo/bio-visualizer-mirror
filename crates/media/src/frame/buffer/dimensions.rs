@@ -256,3 +256,115 @@ impl From<Dimensions> for (NonZeroU32, NonZeroU32) {
         (dimensions.width_non_zero(), dimensions.height_non_zero())
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::frame::Dimensions;
+
+    // --- new() ---
+
+    #[test]
+    fn test_new_valid() {
+        // D1=false (width != 0), D2=false (height != 0)
+        let d = Dimensions::new(1920, 1080);
+        assert!(d.is_some());
+        let d = d.unwrap();
+        assert_eq!(d.width(), 1920);
+        assert_eq!(d.height(), 1080);
+    }
+
+    #[test]
+    fn test_new_zero_width() {
+        // D1=true (width == 0) → returns None immediately
+        assert!(Dimensions::new(0, 1080).is_none());
+    }
+
+    #[test]
+    fn test_new_zero_height() {
+        // D1=false, D2=true (height == 0) → returns None
+        assert!(Dimensions::new(1920, 0).is_none());
+    }
+
+    // --- rescale_height() ---
+
+    #[test]
+    fn test_rescale_height_exact() {
+        // D3=false (scaled_width is multiple of height), D4=false (result is non-zero)
+        let d: Dimensions = (1920, 1080).into();
+        let scaled = d.rescale_height(720);
+        assert_eq!(scaled, Some((1280, 720).into()));
+    }
+
+    #[test]
+    fn test_rescale_height_not_multiple() {
+        // D3=true -> returns None
+        let d: Dimensions = (1920, 1080).into();
+        assert!(d.rescale_height(721).is_none());
+    }
+
+    #[test]
+    fn test_rescale_height_zero() {
+        // D3=false (0 is a multiple of anything), D4=true (new_height==0 → Self::new returns None)
+        let d: Dimensions = (1920, 1080).into();
+        assert!(d.rescale_height(0).is_none());
+    }
+
+    // --- rescale_width() ---
+
+    #[test]
+    fn test_rescale_width_exact() {
+        // D5=false (scaled_height is multiple of width), D6=false (result is non-zero)
+        let d: Dimensions = (1920, 1080).into();
+        let scaled = d.rescale_width(1280);
+        assert_eq!(scaled, Some((1280, 720).into()));
+    }
+
+    #[test]
+    fn test_rescale_width_not_multiple() {
+        // D5=true -> returns None
+        let d: Dimensions = (1920, 1080).into();
+        assert!(d.rescale_width(1281).is_none());
+    }
+
+    #[test]
+    fn test_rescale_width_zero() {
+        // D5=false (0 is a multiple of anything), D6=true (new_width==0 → Self::new returns None)
+        let d: Dimensions = (1920, 1080).into();
+        assert!(d.rescale_width(0).is_none());
+    }
+
+    // --- rescale_height_rounded() ---
+
+    #[test]
+    fn test_rescale_height_rounded_valid() {
+        // D7=false (new_height != 0 → Self::new succeeds)
+        let d: Dimensions = (1920, 1080).into();
+        let scaled = d.rescale_height_rounded(721).unwrap();
+        assert_eq!(scaled, (1282, 721).into());
+    }
+
+    #[test]
+    fn test_rescale_height_rounded_zero() {
+        // D7=true (new_height == 0 -> Self::new returns None)
+        let d: Dimensions = (1920, 1080).into();
+        assert!(d.rescale_height_rounded(0).is_none());
+    }
+
+    // --- rescale_width_rounded() ---
+
+    #[test]
+    fn test_rescale_width_rounded_valid() {
+        // D8=false (new_width != 0 -> Self::new succeeds)
+        let d: Dimensions = (1920, 1080).into();
+        let scaled = d.rescale_width_rounded(1281).unwrap();
+        assert_eq!(scaled, (1281, 721).into());
+    }
+
+    #[test]
+    fn test_rescale_width_rounded_zero() {
+        // D8=true (new_width == 0 -> Self::new returns None)
+        let d: Dimensions = (1920, 1080).into();
+        assert!(d.rescale_width_rounded(0).is_none());
+    }
+}
