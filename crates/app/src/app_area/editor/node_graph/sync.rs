@@ -1,8 +1,9 @@
 use egui_snarl::InPinId;
 use egui_snarl::{NodeId as SnarlNodeId, Snarl};
-use engine::node::engine_node::NodeInput;
+use engine::node::engine_node::{BuiltInHandler, NodeExecutionPlan, NodeInput};
 use engine::node::{NodeInputKind, NodeLibrary, input_kind_to_output_kind};
 use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
+use media::midi::streams::list_ports;
 use std::collections::{HashMap, HashSet};
 
 use super::{NodeData, NodeGraphState, validation};
@@ -157,6 +158,12 @@ pub fn sync_to_engine(
 fn prune_invalid_wires(state: &mut NodeGraphState, node_library: &NodeLibrary) -> bool {
     let mut invalid_inputs: Vec<InPinId> = Vec::new();
 
+    // Check if MIDI ports are available
+    let has_midi_ports = match list_ports() {
+        Ok(ports) => ports.count() > 0,
+        Err(_) => false,
+    };
+
     for (wire_from, wire_to) in state.snarl.wires() {
         if state.snarl[wire_from.node].definition_name == VIRTUAL_OUTPUT_SINK_NAME
             || state.snarl[wire_to.node].definition_name == VIRTUAL_OUTPUT_SINK_NAME
@@ -175,6 +182,17 @@ fn prune_invalid_wires(state: &mut NodeGraphState, node_library: &NodeLibrary) -
             invalid_inputs.push(wire_to);
             continue;
         };
+
+        // Remove connections FROM MIDI Source nodes if no MIDI ports are available
+        if !has_midi_ports
+            && matches!(
+                from_def.node.executor,
+                NodeExecutionPlan::BuiltIn(BuiltInHandler::MidiSource)
+            )
+        {
+            invalid_inputs.push(wire_to);
+            continue;
+        }
 
         let Some(from_output) = from_def.node.outputs.get(wire_from.output) else {
             invalid_inputs.push(wire_to);

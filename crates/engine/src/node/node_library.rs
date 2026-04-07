@@ -2,8 +2,10 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::path::{Path, PathBuf};
 
+use media::midi::streams::list_ports;
 use serde_json;
 
+use super::engine_node::NodeInputKind;
 use super::engine_node::{EngineNode, NodeExecutionPlan};
 use super::errors::LibraryError;
 use super::node_definition::NodeDefinition;
@@ -135,7 +137,44 @@ impl NodeLibrary {
             }
         }
 
+        library.populate_dynamic_inputs();
+
         Ok(library)
+    }
+
+    fn populate_dynamic_inputs(&mut self) {
+        let midi_port_choices = match list_ports() {
+            Ok(ports) => {
+                let mut choices = Vec::new();
+                for (index, port) in ports.enumerate() {
+                    choices.push(format!("{}: {}", index, port.port_name()));
+                }
+                if choices.is_empty() {
+                    vec!["No MIDI input ports found".to_string()]
+                } else {
+                    choices
+                }
+            }
+            Err(error) => {
+                util::debug_log_warning!("Unable to query MIDI input ports: {:?}", error);
+                vec!["No MIDI input ports found".to_string()]
+            }
+        };
+
+        for definition in self.definitions.values_mut() {
+            if definition.node.name != "MIDI" {
+                continue;
+            }
+
+            for input in &mut definition.node.inputs {
+                if input.name == "Port" {
+                    input.kind = NodeInputKind::Enum {
+                        choices: midi_port_choices.clone(),
+                        default_idx: Some(0),
+                    };
+                }
+            }
+        }
     }
 
     fn get_all_categories(&self) -> Vec<String> {

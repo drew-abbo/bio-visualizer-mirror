@@ -1,16 +1,16 @@
-// Single-pass pixel sort compute shader
-// Adapted from the working render shader to run as compute
+// Pass 1: label contiguous thresholded segments for pixel sort.
+// Stores the start/end coordinate along the scan axis in a float label texture.
 
 struct Params {
     threshold: f32,
     strength: f32,
-    scan_step: f32,       // Reserved for future stride control; currently unused (scans pixel-by-pixel)
+    pixel_stride: f32,
     scan_direction: u32,  // 0 = horizontal, 1 = vertical
-    metric_type: u32,     // 0 = brightness, 1 = hue, 2 = saturation
+    metric_type: u32,      // 0 = brightness, 1 = hue, 2 = saturation
 }
 
 @group(0) @binding(0) var input_texture: texture_2d<f32>;
-@group(0) @binding(1) var output_texture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(1) var output_texture: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(2) var<uniform> params: Params;
 
 fn brightness(color: vec4<f32>) -> f32 {
@@ -24,7 +24,7 @@ fn hue(color: vec4<f32>) -> f32 {
     let max_c = max(max(r, g), b);
     let min_c = min(min(r, g), b);
     let delta = max_c - min_c;
-    
+
     var h = 0.0;
     if delta > 0.0 {
         if max_c == r {
@@ -42,7 +42,9 @@ fn hue(color: vec4<f32>) -> f32 {
 fn saturation(color: vec4<f32>) -> f32 {
     let max_c = max(max(color.r, color.g), color.b);
     let min_c = min(min(color.r, color.g), color.b);
-    if max_c < 0.00001 { return 0.0; }
+    if max_c < 0.00001 {
+        return 0.0;
+    }
     return (max_c - min_c) / max_c;
 }
 
@@ -55,54 +57,158 @@ fn get_metric(color: vec4<f32>) -> f32 {
     return brightness(color);
 }
 
-@compute @workgroup_size(8, 8, 1)
+const EMPTY_LABEL: vec4<f32> = vec4<f32>(-1.0, -1.0, 0.0, 0.0);
+
+@compute @workgroup_size(1, 1, 1)
 fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let tex_dims = textureDimensions(input_texture);
     let pos = vec2<i32>(global_id.xy);
-    
-    // global_id is u32, so only check upper bounds
+
     if pos.x >= i32(tex_dims.x) || pos.y >= i32(tex_dims.y) {
         return;
     }
-    
-    let source = textureLoad(input_texture, vec2<u32>(pos), 0);
-    let source_metric = get_metric(source);
-    
-    // Threshold check: if pixel is below threshold, output unchanged
-    if source_metric < params.threshold {
-        textureStore(output_texture, vec2<u32>(pos), source);
-        return;
-    }
-    
-    // For bright areas: scan backwards along the direction and measure segment length
-    let scan_axis_i = select(vec2<i32>(1, 0), vec2<i32>(0, 1), params.scan_direction == 1u);
-    var probe_pos = pos;
-    var segment_len = 0.0;
-    
-    // Scan backwards to find segment boundary (working in integer pixel coordinates)
-    for (var i: i32 = 0; i < 128; i = i + 1) {
-        probe_pos = probe_pos - scan_axis_i;
-        if any(probe_pos < vec2<i32>(0)) || any(probe_pos >= vec2<i32>(tex_dims)) {
-            break;
+
+    if params.scan_direction == 0u {
+        // Horizontal sort: one invocation handles a full row.
+        // With dispatch_override (1, height, 1), each thread at (0, y, 0) processes row y.
+        let line_y = pos.y;
+        if line_y >= i32(tex_dims.y) {
+            return;
         }
-        
-        let probe_color = textureLoad(input_texture, vec2<u32>(probe_pos), 0);
-        let probe_metric = get_metric(probe_color);
-        
-        if probe_metric < params.threshold {
-            break;
+
+        var x = 0;
+        loop {
+            if x >= i32(tex_dims.x) {
+                break;
+            }
+
+            let current_color = textureLoad(input_texture, vec2<u32>(u32(x), u32(line_y)), 0);
+            if get_metric(current_color) < params.threshold {
+                textureStore(output_texture, vec2<u32>(u32(x), u32(line_y)), EMPTY_LABEL);
+                x = x + 1;
+                continue;
+            }
+
+            var segment_start = x;
+            var segment_end = x;
+            let max_scan = i32(tex_dims.x);
+            var back_steps = 0;
+
+            loop {
+                if back_steps >= max_scan || segment_start == 0 {
+                    break;
+                }
+
+                let candidate = segment_start - 1;
+                let candidate_color = textureLoad(input_texture, vec2<u32>(u32(candidate), u32(line_y)), 0);
+                if get_metric(candidate_color) < params.threshold {
+                    break;
+                }
+
+                segment_start = candidate;
+                back_steps = back_steps + 1;
+            }
+
+            var forward_steps = 0;
+
+            loop {
+                if forward_steps >= max_scan || segment_end + 1 >= i32(tex_dims.x) {
+                    break;
+                }
+
+                let candidate = segment_end + 1;
+                let candidate_color = textureLoad(input_texture, vec2<u32>(u32(candidate), u32(line_y)), 0);
+                if get_metric(candidate_color) < params.threshold {
+                    break;
+                }
+
+                segment_end = candidate;
+                forward_steps = forward_steps + 1;
+            }
+
+            let label = vec4<f32>(f32(segment_start), f32(segment_end), 0.0, 0.0);
+            var write_x = segment_start;
+            loop {
+                if write_x > segment_end {
+                    break;
+                }
+
+                textureStore(output_texture, vec2<u32>(u32(write_x), u32(line_y)), label);
+                write_x = write_x + 1;
+            }
+
+            x = segment_end + 1;
         }
-        segment_len = segment_len + 1.0;
+    } else {
+        // Vertical sort: one invocation handles a full column.
+        // With dispatch_override (width, 1, 1), each thread at (x, 0, 0) processes column x.
+        let line_x = pos.x;
+        if line_x >= i32(tex_dims.x) {
+            return;
+        }
+
+        var y = 0;
+        loop {
+            if y >= i32(tex_dims.y) {
+                break;
+            }
+
+            let current_color = textureLoad(input_texture, vec2<u32>(u32(line_x), u32(y)), 0);
+            if get_metric(current_color) < params.threshold {
+                textureStore(output_texture, vec2<u32>(u32(line_x), u32(y)), EMPTY_LABEL);
+                y = y + 1;
+                continue;
+            }
+
+            var segment_start = y;
+            var segment_end = y;
+            let max_scan = i32(tex_dims.y);
+            var back_steps = 0;
+
+            loop {
+                if back_steps >= max_scan || segment_start == 0 {
+                    break;
+                }
+
+                let candidate = segment_start - 1;
+                let candidate_color = textureLoad(input_texture, vec2<u32>(u32(line_x), u32(candidate)), 0);
+                if get_metric(candidate_color) < params.threshold {
+                    break;
+                }
+
+                segment_start = candidate;
+                back_steps = back_steps + 1;
+            }
+
+            var forward_steps = 0;
+
+            loop {
+                if forward_steps >= max_scan || segment_end + 1 >= i32(tex_dims.y) {
+                    break;
+                }
+
+                let candidate = segment_end + 1;
+                let candidate_color = textureLoad(input_texture, vec2<u32>(u32(line_x), u32(candidate)), 0);
+                if get_metric(candidate_color) < params.threshold {
+                    break;
+                }
+
+                segment_end = candidate;
+                forward_steps = forward_steps + 1;
+            }
+
+            let label = vec4<f32>(f32(segment_start), f32(segment_end), 0.0, 0.0);
+            var write_y = segment_start;
+            loop {
+                if write_y > segment_end {
+                    break;
+                }
+
+                textureStore(output_texture, vec2<u32>(u32(line_x), u32(write_y)), label);
+                write_y = write_y + 1;
+            }
+
+            y = segment_end + 1;
+        }
     }
-    
-    // Shift pixel position towards the segment boundary
-    // Note: shift is unclamped against segment_len, so strength > 1.0 can sample outside the measured segment.
-    // This allows for more aggressive effects and is intentional.
-    let shift_distance = segment_len * params.strength;
-    let shift_pixels = i32(round(shift_distance));
-    let sample_pos = pos - scan_axis_i * shift_pixels;
-    let sample_pos_clamped = clamp(sample_pos, vec2<i32>(0), vec2<i32>(tex_dims) - vec2<i32>(1));
-    let sorted = textureLoad(input_texture, vec2<u32>(sample_pos_clamped), 0);
-    
-    textureStore(output_texture, vec2<u32>(pos), vec4<f32>(sorted.rgb, source.a));
 }

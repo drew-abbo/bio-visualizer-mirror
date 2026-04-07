@@ -258,7 +258,7 @@ impl EditorArea {
                 pending_errors = viewer.take_pending_errors();
             });
 
-            self.input_widget_state = input_widget_state;
+        self.input_widget_state = input_widget_state;
 
         for error in pending_errors {
             self.error_popup_queue.push_back(error);
@@ -441,7 +441,11 @@ impl EditorArea {
 
         let should_advance = self.playback_due();
 
-        let should_execute = self.displayed_frame.is_none() || should_advance;
+        let should_execute = self.displayed_frame.is_none()
+            || should_advance
+            || selection_changed
+            || graph_changed
+            || self.pending_graph_execute;
 
         if should_execute {
             match self.executor_manager.execute(
@@ -462,6 +466,8 @@ impl EditorArea {
                     util::debug_log_error!("Graph execution error: {}", err);
                 }
             }
+
+            self.pending_graph_execute = false;
         }
 
         if self.playback_enabled {

@@ -1,0 +1,55 @@
+{
+  "name": "MIDI Properties",
+  "inputs": [
+    {
+      "name": "Input",
+      "kind": "Midi"
+    },
+    {
+      "name": "Key",
+      "kind": {
+        "Int": {
+          "default": 60,
+          "min": 0,
+          "max": 127,
+          "step": 1,
+          "input_ui": "Slider"
+        }
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "name": "Key On",
+      "kind": "Bool"
+    },
+    {
+      "name": "Velocity",
+      "kind": "Int"
+    },
+    {
+      "name": "Velocity Normalized",
+      "kind": "Float"
+    },
+    {
+      "name": "Frequency",
+      "kind": "Float"
+    },
+    {
+      "name": "Average Frequency",
+      "kind": "Float"
+    },
+    {
+      "name": "Max Velocity",
+      "kind": "Int"
+    }
+  ],
+  "executor": {
+    "BuiltIn": "MidiProperties"
+  },
+  "short_description": "Extracts useful values from a MIDI packet",
+  "long_description": "Takes a MIDI packet and exposes commonly used properties like whether a key is pressed, its velocity, the selected key's frequency, average frequency, and the maximum active velocity.",
+  "category": "Input",
+  "subcategories": [],
+  "search_keywords": ["midi", "properties", "note", "velocity", "frequency", "key", "extract", "controller"]
+}

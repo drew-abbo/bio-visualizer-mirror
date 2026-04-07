@@ -51,6 +51,7 @@ impl ComputePipeline {
         device: &wgpu::Device,
         shader_code: &str,
         definition: &NodeDefinition,
+        storage_format: wgpu::TextureFormat,
     ) -> Result<Self, EngineError> {
         // Compile shader module
         let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -74,7 +75,7 @@ impl ComputePipeline {
         // Binding 0: storage for output (unused for now; compute reads/writes via function)
         // Binding 1+: input textures
         // Last binding: uniform parameter buffer
-        let bgl_entries = Self::build_bgl_entries(texture_input_count);
+        let bgl_entries = Self::build_bgl_entries(texture_input_count, storage_format);
         let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some(&format!("{} compute bgl", definition.node.name)),
             entries: &bgl_entries,
@@ -130,6 +131,7 @@ impl ComputePipeline {
         output_texture: &wgpu::TextureView,
         params: &dyn Any,
         output_size: wgpu::Extent3d,
+        dispatch_override: Option<(u32, u32, u32)>,
     ) -> Result<(), EngineError> {
         // Validate texture input count
         let total_inputs = 1 + additional_inputs.len();
@@ -183,8 +185,11 @@ impl ComputePipeline {
         });
 
         // Execute compute dispatch
-        let workgroup_x = output_size.width.div_ceil(self.workgroup_size.0);
-        let workgroup_y = output_size.height.div_ceil(self.workgroup_size.1);
+        let (workgroup_x, workgroup_y, workgroup_z) = dispatch_override.unwrap_or((
+            output_size.width.div_ceil(self.workgroup_size.0),
+            output_size.height.div_ceil(self.workgroup_size.1),
+            1,
+        ));
 
         {
             let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -193,7 +198,7 @@ impl ComputePipeline {
             });
             cpass.set_pipeline(&self.pipeline);
             cpass.set_bind_group(0, &bind_group, &[]);
-            cpass.dispatch_workgroups(workgroup_x, workgroup_y, 1);
+            cpass.dispatch_workgroups(workgroup_x, workgroup_y, workgroup_z);
         }
 
         Ok(())
@@ -222,7 +227,10 @@ impl ComputePipeline {
         layout
     }
 
-    fn build_bgl_entries(texture_count: usize) -> Vec<wgpu::BindGroupLayoutEntry> {
+    fn build_bgl_entries(
+        texture_count: usize,
+        target_format: wgpu::TextureFormat,
+    ) -> Vec<wgpu::BindGroupLayoutEntry> {
         let mut entries = Vec::new();
 
         // Input texture bindings
@@ -245,7 +253,7 @@ impl ComputePipeline {
             visibility: wgpu::ShaderStages::COMPUTE,
             ty: wgpu::BindingType::StorageTexture {
                 access: wgpu::StorageTextureAccess::WriteOnly,
-                format: wgpu::TextureFormat::Rgba8Unorm,
+                format: target_format,
                 view_dimension: wgpu::TextureViewDimension::D2,
             },
             count: None,

@@ -13,8 +13,8 @@ use crate::node::engine_node::{
     AlgorithmStageBackend, BuiltInHandler, NodeExecutionPlan, NodeOutputKind,
 };
 use crate::node::handler::{
-    FrameStreamHandler, NodeFrameStreamRequest, NodeNoiseStreamRequest, NoiseStreamHandler,
-    StreamKind,
+    FrameStreamHandler, MidiStreamHandler, NodeFrameStreamRequest, NodeMidiStreamRequest,
+    NodeNoiseStreamRequest, NoiseStreamHandler, StreamKind
 };
 use crate::node_graph::EngineNodeId;
 use crate::node_graph::{InputValue, NodeGraph, NodeInstance};
@@ -49,7 +49,7 @@ pub struct GraphExecutor {
     render_target_cache: HashMap<EngineNodeId, CachedRenderTarget>,
 
     /// Cache of compute stage output targets reused per node stage instance.
-    compute_stage_target_cache: HashMap<(EngineNodeId, usize), CachedRenderTarget>,
+    compute_stage_target_cache: HashMap<(EngineNodeId, usize, String), CachedRenderTarget>,
 
     /// Target texture format for rendering
     pub(crate) target_format: wgpu::TextureFormat,
@@ -59,6 +59,9 @@ pub struct GraphExecutor {
 
     /// Handles built-in noise nodes
     noise_stream_handler: NoiseStreamHandler,
+
+    /// Handles built-in live MIDI source nodes
+    midi_stream_handler: MidiStreamHandler,
 
     /// Last globally requested target FPS for stream handlers.
     global_stream_target_fps: Option<Fps>,
@@ -153,6 +156,7 @@ impl GraphExecutor {
             compute_stage_target_cache: HashMap::new(),
             frame_stream_handler: FrameStreamHandler::new(),
             noise_stream_handler: NoiseStreamHandler::new(),
+            midi_stream_handler: MidiStreamHandler::new(),
             global_stream_target_fps: None,
             target_format: format,
             cached_execution_order: None,
@@ -167,12 +171,13 @@ impl GraphExecutor {
         Self::new(wgpu::TextureFormat::Rgba8Unorm)
     }
 
-    /// Clear producer cache to release video files
+    /// Clear producer cache to release video and MIDI streams.
     pub fn clear_producer_cache(&mut self) {
         self.frame_stream_handler.clear_cache();
+        self.midi_stream_handler.clear_cache();
     }
 
-    /// Clear image cache to release textures
+    /// Clear image cache to release textures.
     pub fn clear_image_cache(&mut self) {
         self.frame_stream_handler.clear_cache();
     }
@@ -182,8 +187,8 @@ impl GraphExecutor {
         self.cached_execution_order = None;
     }
 
-    /// Get the cached outputs for a specific node, if available
-    /// Returns None if the node hasn't been executed yet
+    /// Get the cached outputs for a specific node, if available.
+    /// Returns None if the node hasn't been executed yet.
     pub fn get_node_outputs(&self, node_id: EngineNodeId) -> Option<&HashMap<String, NodeValue>> {
         self.output_cache.get(&node_id)
     }
@@ -282,12 +287,16 @@ impl GraphExecutor {
             .set_playback_for_nodes(&active_nodes);
         self.noise_stream_handler
             .set_playback_for_nodes(&active_nodes);
+        self.midi_stream_handler
+            .set_playback_for_nodes(&active_nodes);
 
         // Keep newly created active streams aligned with the last global FPS.
         if let Some(target_fps) = self.global_stream_target_fps {
             self.frame_stream_handler
                 .set_target_fps_for_nodes_non_video(target_fps, &active_nodes);
             self.noise_stream_handler
+                .set_target_fps_for_nodes(target_fps, &active_nodes);
+            self.midi_stream_handler
                 .set_target_fps_for_nodes(target_fps, &active_nodes);
         }
 
@@ -296,7 +305,7 @@ impl GraphExecutor {
         self.render_target_cache
             .retain(|node_id, _| live_node_ids.contains(node_id));
         self.compute_stage_target_cache
-            .retain(|(node_id, _), _| live_node_ids.contains(node_id));
+            .retain(|(node_id, _, _), _| live_node_ids.contains(node_id));
 
         let mut graph_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("graph_execution"),
@@ -396,11 +405,13 @@ impl GraphExecutor {
     pub fn pause_streams(&mut self) {
         self.frame_stream_handler.pause_all_streams();
         self.noise_stream_handler.pause_all_streams();
+        self.midi_stream_handler.pause_all_streams();
     }
 
     pub fn play_streams(&mut self) {
         self.frame_stream_handler.play_all_streams();
         self.noise_stream_handler.play_all_streams();
+        self.midi_stream_handler.play_all_streams();
     }
 
     pub fn set_global_stream_target_fps(&mut self, target_fps: Fps) {
@@ -412,6 +423,7 @@ impl GraphExecutor {
         self.frame_stream_handler
             .set_target_fps_all_non_video(target_fps);
         self.noise_stream_handler.set_target_fps_all(target_fps);
+        self.midi_stream_handler.set_target_fps_all(target_fps);
     }
 
     /// Resolve all inputs for a node instance
@@ -666,7 +678,18 @@ impl GraphExecutor {
                     .execute_handler(&request)
                     .map_err(|error| ExecutionError::NoiseExecutionError(error.to_string()))?
             }
-            BuiltInHandler::MidiSource => return Err(ExecutionError::InvalidInputType),
+            BuiltInHandler::MidiSource => {
+                let request = NodeMidiStreamRequest { node_id, inputs };
+
+                self.midi_stream_handler
+                    .execute_handler(&request)
+                    .map_err(|error| ExecutionError::MidiStreamError(error.to_string()))?
+            }
+            BuiltInHandler::MidiProperties => {
+                self.midi_stream_handler
+                    .extract_properties(inputs)
+                    .map_err(|error| ExecutionError::MidiStreamError(error.to_string()))?
+            }
         };
 
         let mut outputs = HashMap::new();
@@ -729,8 +752,9 @@ impl GraphExecutor {
         node_id: EngineNodeId,
         stage_index: usize,
         output_size: wgpu::Extent3d,
+        format: wgpu::TextureFormat,
     ) -> std::sync::Arc<wgpu::TextureView> {
-        let cache_key = (node_id, stage_index);
+        let cache_key = (node_id, stage_index, format_to_cache_key(format));
         let cached = self
             .compute_stage_target_cache
             .entry(cache_key)
@@ -741,7 +765,7 @@ impl GraphExecutor {
                     mip_level_count: 1,
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
-                    format: self.target_format,
+                    format,
                     usage: wgpu::TextureUsages::STORAGE_BINDING
                         | wgpu::TextureUsages::TEXTURE_BINDING,
                     view_formats: &[],
@@ -760,9 +784,8 @@ impl GraphExecutor {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: self.target_format,
-                usage: wgpu::TextureUsages::STORAGE_BINDING
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                format,
+                usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             });
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -787,6 +810,10 @@ impl GraphExecutor {
 
         Ok(Box::new(shader_params))
     }
+}
+
+fn format_to_cache_key(format: wgpu::TextureFormat) -> String {
+    format!("{format:?}")
 }
 
 impl Default for GraphExecutor {

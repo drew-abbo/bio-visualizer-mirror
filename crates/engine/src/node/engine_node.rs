@@ -207,6 +207,7 @@ pub enum BuiltInHandler {
     ImageSource,
     VideoSource,
     MidiSource,
+    MidiProperties,
     Noise(NoiseKind),
 }
 
@@ -219,6 +220,7 @@ impl Serialize for BuiltInHandler {
             BuiltInHandler::ImageSource => "ImageSource",
             BuiltInHandler::VideoSource => "VideoSource",
             BuiltInHandler::MidiSource => "MidiSource",
+            BuiltInHandler::MidiProperties => "MidiProperties",
             BuiltInHandler::Noise(NoiseKind::Perlin) => "PerlinNoise",
             BuiltInHandler::Noise(NoiseKind::Random) => "RandomNoise",
             BuiltInHandler::Noise(NoiseKind::Sin) => "SinNoise",
@@ -239,6 +241,7 @@ impl<'de> Deserialize<'de> for BuiltInHandler {
             "ImageSource" => Ok(BuiltInHandler::ImageSource),
             "VideoSource" => Ok(BuiltInHandler::VideoSource),
             "MidiSource" => Ok(BuiltInHandler::MidiSource),
+            "MidiProperties" => Ok(BuiltInHandler::MidiProperties),
             "PerlinNoise" | "Perlin" => Ok(BuiltInHandler::Noise(NoiseKind::Perlin)),
             "RandomNoise" | "Random" => Ok(BuiltInHandler::Noise(NoiseKind::Random)),
             "SinNoise" | "Sin" => Ok(BuiltInHandler::Noise(NoiseKind::Sin)),
@@ -248,6 +251,7 @@ impl<'de> Deserialize<'de> for BuiltInHandler {
                     "ImageSource",
                     "VideoSource",
                     "MidiSource",
+                    "MidiProperties",
                     "PerlinNoise",
                     "RandomNoise",
                     "SinNoise",

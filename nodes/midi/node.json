@@ -1,0 +1,28 @@
+{
+  "name": "MIDI",
+  "inputs": [
+    {
+      "name": "Port",
+      "kind": {
+        "Enum": {
+          "choices": [],
+          "default_idx": 0
+        }
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "name": "Output",
+      "kind": "Midi"
+    }
+  ],
+  "executor": {
+    "BuiltIn": "MidiSource"
+  },
+  "short_description": "Reads live MIDI input from a selected port",
+  "long_description": "Opens a live MIDI input stream and outputs the current packet. Choose a device from the Port dropdown.",
+  "category": "Input",
+  "subcategories": [],
+  "search_keywords": ["midi", "midi input", "live midi", "keyboard", "controller", "note", "port"]
+}

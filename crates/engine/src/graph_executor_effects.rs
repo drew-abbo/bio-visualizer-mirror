@@ -156,26 +156,43 @@ impl GraphExecutor {
                         stage.source,
                         &format!("{stage_name} shader"),
                     )?;
-                    let cache_key = format!("{}::{}", stage_name, stage.source.display());
+                    let is_final_stage = stage_index + 1 == stages.len();
+                    let storage_format = if is_final_stage {
+                        target_format
+                    } else {
+                        wgpu::TextureFormat::Rgba16Float
+                    };
+                    let cache_key = format!(
+                        "{}::{}::{:?}",
+                        stage_name,
+                        stage.source.display(),
+                        storage_format
+                    );
 
                     // Get or create compute pipeline
                     if !self.compute_pipeline_cache.contains_key(&cache_key) {
-                        let compute_pipeline =
-                            ComputePipeline::from_shader(device, &shader_code, &stage_definition)
-                                .map_err(|e| ExecutionError::PipelineCreationError(e.to_string()))?;
+                        let compute_pipeline = ComputePipeline::from_shader(
+                            device,
+                            &shader_code,
+                            &stage_definition,
+                            storage_format,
+                        )
+                        .map_err(|e| ExecutionError::PipelineCreationError(e.to_string()))?;
                         self.compute_pipeline_cache
                             .insert(cache_key.clone(), compute_pipeline);
                     }
 
-                    let is_final_stage = stage_index + 1 == stages.len();
                     let stage_output_view = self.get_or_create_compute_stage_target(
                         device,
                         node_id,
                         stage_index,
                         output_size,
+                        storage_format,
                     );
 
                     let compute_pipeline = &self.compute_pipeline_cache[&cache_key];
+
+                    let dispatch_override = None;
 
                     // Execute compute shader
                     compute_pipeline
@@ -188,6 +205,7 @@ impl GraphExecutor {
                             stage_output_view.as_ref(),
                             params.as_ref(),
                             output_size,
+                            dispatch_override,
                         )
                         .map_err(|e| ExecutionError::PipelineCreationError(e.to_string()))?;
 

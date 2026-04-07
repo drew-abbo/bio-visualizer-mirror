@@ -30,13 +30,13 @@
             }
         },
         {
-            "name": "Step Size",
+            "name": "Pixel Stride",
             "kind": {
                 "Float": {
-                    "default": 0.002,
-                    "min": 0.0005,
-                    "max": 0.01,
-                    "step": 0.0005,
+                    "default": 2.0,
+                    "min": 1.0,
+                    "max": 32.0,
+                    "step": 1.0,
                     "input_ui": "Slider"
                 }
             }
@@ -73,12 +73,17 @@
                 {
                     "backend": "compute",
                     "source": "pixel_sort_compute.wgsl"
+                },
+                {
+                    "backend": "compute",
+                    "source": "pixel_sort_resolve.wgsl",
+                    "extra_frame_inputs": 1
                 }
             ]
         }
     },
     "short_description": "Threshold-based pixel sorting algorithm",
-    "long_description": "Creates a pixel-sorting inspired effect by scanning along rows or columns, detecting segments above a threshold, and shifting them toward the segment boundary using a staged algorithm pipeline.",
+    "long_description": "Creates a two-pass pixel-sorting effect by first labeling thresholded segments along rows or columns, then sorting pixels within each labeled segment using the configured metric.",
     "category": "Glitch",
     "subcategories": [],
     "search_keywords": ["pixel sort", "pixelsort", "glitch", "threshold", "scanline", "sort", "streak", "asdf", "algorithm"]

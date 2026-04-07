@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use crate::gpu_frame::GpuFrame;
+use media::midi::MidiPacket;
 
 /// A value in the node graph execution system.
 /// Represents both input values consumed by nodes and output values produced by nodes.
@@ -10,6 +11,7 @@ use crate::gpu_frame::GpuFrame;
 pub enum NodeValue {
     /// A GPU-backed frame/texture
     Frame(GpuFrame),
+    Midi(MidiPacket),
     Bool(bool),
     Int(i32),
     Float(f32),

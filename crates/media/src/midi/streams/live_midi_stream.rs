@@ -18,6 +18,7 @@ pub struct LiveMidiStream {
     inbox: Inbox<Result<(Key, u8), MidiStreamError>>,
     target_fps: Fps,
     paused: bool,
+    current_packet: MidiPacket,
     _connection: MidiInputConnection<Outbox<Result<(Key, u8), MidiStreamError>>>,
 }
 
@@ -71,6 +72,7 @@ impl LiveMidiStream {
             inbox,
             target_fps,
             paused,
+            current_packet: MidiPacket::default(),
             _connection: connection,
         })
     }
@@ -78,8 +80,6 @@ impl LiveMidiStream {
 
 impl PlaybackStream<MidiPacket, MidiStreamError> for LiveMidiStream {
     fn fetch(&mut self) -> Result<MidiPacket, MidiStreamError> {
-        let mut packet = MidiPacket::default();
-
         let check_result = self
             .inbox
             .check_in_place(|msg_queue| {
@@ -89,11 +89,7 @@ impl PlaybackStream<MidiPacket, MidiStreamError> for LiveMidiStream {
                         Err(e) => return Err(e),
                     };
 
-                    if self.paused {
-                        continue;
-                    }
-
-                    packet.set_key_velocity(key, vel);
+                    self.current_packet.set_key_velocity(key, vel);
                 }
 
                 Ok(())
@@ -104,7 +100,11 @@ impl PlaybackStream<MidiPacket, MidiStreamError> for LiveMidiStream {
             return Err(e);
         }
 
-        Ok(packet)
+        if self.paused {
+            Ok(MidiPacket::default())
+        } else {
+            Ok(self.current_packet.clone())
+        }
     }
 
     fn set_target_fps(&mut self, new_target_fps: Fps) {
@@ -132,6 +132,7 @@ impl PlaybackStream<MidiPacket, MidiStreamError> for LiveMidiStream {
 }
 
 /// A MIDI input port. See [list_ports].
+#[derive(Debug, Clone)]
 pub struct Port {
     id: String,
     name: String,

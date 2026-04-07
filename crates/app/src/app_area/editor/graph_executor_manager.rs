@@ -139,6 +139,7 @@ impl GraphExecutorManager {
     /// Policy:
     /// - If any upstream video source exists, use the max measured video FPS.
     /// - Else if any upstream noise source exists, default to 30 FPS.
+    /// - Else if any upstream MIDI source exists, default to 30 FPS.
     /// - Else if any upstream image source exists, default to 1 FPS.
     /// - Else return None.
     pub fn get_target_fps_for_display_node(
@@ -150,6 +151,7 @@ impl GraphExecutorManager {
         let mut stack = vec![node_id];
         let mut best_video_fps: Option<Fps> = None;
         let mut has_noise_source = false;
+        let mut has_midi_source = false;
         let mut has_image_source = false;
 
         while let Some(current) = stack.pop() {
@@ -172,6 +174,9 @@ impl GraphExecutorManager {
                     NodeExecutionPlan::BuiltIn(BuiltInHandler::Noise(_)) => {
                         has_noise_source = true;
                     }
+                    NodeExecutionPlan::BuiltIn(BuiltInHandler::MidiSource) => {
+                        has_midi_source = true;
+                    }
                     NodeExecutionPlan::BuiltIn(BuiltInHandler::ImageSource) => {
                         has_image_source = true;
                     }
@@ -192,6 +197,9 @@ impl GraphExecutorManager {
             return Some(fps);
         }
         if has_noise_source {
+            return Some(FPS_30);
+        }
+        if has_midi_source {
             return Some(FPS_30);
         }
         if has_image_source {

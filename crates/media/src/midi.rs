@@ -8,7 +8,7 @@ use std::num::NonZeroU8;
 use thiserror::Error;
 
 /// A collection of [Key]s with their velocities.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MidiPacket {
     velocities: [u8; 128],
 }

@@ -1,7 +1,9 @@
 use egui_snarl::{NodeId as SnarlNodeId, Snarl};
 use engine::node::NodeInputKind;
 use engine::node::NodeLibrary;
+use engine::node::engine_node::{BuiltInHandler, NodeExecutionPlan};
 use engine::node_graph::InputValue;
+use media::midi::streams::list_ports;
 use std::collections::HashSet;
 
 use super::NodeData;
@@ -40,6 +42,20 @@ pub fn are_inputs_satisfied(
             .values()
             .any(|v| matches!(v, InputValue::File(_)));
         if !has_file {
+            return false;
+        }
+    }
+
+    // Check if this is a MIDI source node - only allow if MIDI ports are available
+    if matches!(
+        definition.node.executor,
+        NodeExecutionPlan::BuiltIn(BuiltInHandler::MidiSource)
+    ) {
+        let has_midi_ports = match list_ports() {
+            Ok(ports) => ports.count() > 0,
+            Err(_) => false,
+        };
+        if !has_midi_ports {
             return false;
         }
     }

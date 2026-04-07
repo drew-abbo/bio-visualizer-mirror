@@ -47,6 +47,9 @@ pub enum ExecutionError {
     #[error("Noise execution error: {0}")]
     NoiseExecutionError(String),
 
+    #[error("MIDI stream error: {0}")]
+    MidiStreamError(String),
+
     #[error("Render error: {0:?}")]
     RenderError(crate::engine_errors::EngineError),
 
