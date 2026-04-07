@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
 
 use media::fps::{Fps, consts::FPS_30};
 use media::midi::streams::{LiveMidiStream, MidiStream, MidiStreamError, Port, list_ports};
@@ -42,6 +43,14 @@ pub struct MidiStreamHandler {
     paused: bool,
 }
 
+fn midi_debug_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| match std::env::var("BIO_MIDI_DEBUG") {
+        Ok(value) => matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"),
+        Err(_) => false,
+    })
+}
+
 impl Default for MidiStreamHandler {
     fn default() -> Self {
         Self::new()
@@ -49,6 +58,26 @@ impl Default for MidiStreamHandler {
 }
 
 impl MidiStreamHandler {
+    fn default_property_outputs(key: media::midi::Key) -> Vec<NodeValue> {
+        vec![
+            NodeValue::Bool(false),
+            NodeValue::Int(0),
+            NodeValue::Float(0.0),
+            NodeValue::Float(0.0),
+            NodeValue::Float(key.as_frequency() as f32),
+            NodeValue::Float(0.0),
+            NodeValue::Int(0),
+            NodeValue::Int(0),
+            NodeValue::Int(0),
+            NodeValue::Float(0.0),
+            NodeValue::Int(0),
+            NodeValue::Float(0.0),
+            NodeValue::Int(0),
+            NodeValue::Float(0.0),
+            NodeValue::Float(0.0),
+        ]
+    }
+
     pub fn new() -> Self {
         Self {
             stream_cache: HashMap::new(),
@@ -98,21 +127,6 @@ impl MidiStreamHandler {
         &self,
         inputs: &HashMap<String, NodeValue>,
     ) -> Result<Vec<NodeValue>, MidiStreamHandlerError> {
-        let packet = match inputs.get("Input") {
-            Some(NodeValue::Midi(packet)) => packet,
-            Some(_) => {
-                return Err(MidiStreamHandlerError::InvalidInput {
-                    input_name: "Input",
-                    expected: "Midi",
-                });
-            }
-            None => {
-                return Err(MidiStreamHandlerError::MissingInput {
-                    input_name: "Input",
-                });
-            }
-        };
-
         let key_value = match inputs.get("Key") {
             Some(NodeValue::Int(value)) => *value,
             Some(NodeValue::Float(value)) => *value as i32,
@@ -127,26 +141,101 @@ impl MidiStreamHandler {
         .clamp(0, 127) as u8;
 
         let key = media::midi::Key::from_u8(key_value).expect("clamped key");
-        let velocity = packet.key_velocity(key);
-        let average_frequency = packet.average_frequency().unwrap_or(0.0) as f32;
 
-        eprintln!(
-            "MIDI Properties: key_on={}, velocity={}, velocity_normalized={}, frequency={}, average_frequency={}, max_velocity={}",
-            packet.is_key_on(key),
-            velocity,
-            velocity as f32 / 127.0,
-            key.as_frequency(),
-            average_frequency,
-            packet.max_velocity()
-        );
+        let packet = match inputs.get("Input") {
+            Some(NodeValue::Midi(packet)) => packet,
+            Some(_) => {
+                return Err(MidiStreamHandlerError::InvalidInput {
+                    input_name: "Input",
+                    expected: "Midi",
+                });
+            }
+            None => {
+                return Ok(Self::default_property_outputs(key));
+            }
+        };
+
+        let controller = match inputs.get("Controller") {
+            Some(NodeValue::Int(value)) => *value,
+            Some(NodeValue::Float(value)) => *value as i32,
+            Some(_) => {
+                return Err(MidiStreamHandlerError::InvalidInput {
+                    input_name: "Controller",
+                    expected: "Int",
+                });
+            }
+            None => 1,
+        }
+        .clamp(0, 127) as u8;
+
+        let velocity = packet.key_velocity(key);
+        let velocity_normalized = velocity as f32 / 127.0;
+        let selected_key_frequency = key.as_frequency() as f32;
+        let active_frequency = packet
+            .strongest_key()
+            .map(|active_key| active_key.as_frequency() as f32)
+            .unwrap_or(0.0);
+        let average_frequency = packet.average_frequency().unwrap_or(0.0) as f32;
+        let max_velocity_normalized = packet.max_velocity() as f32 / 127.0;
+        let control_value = packet.control_value(controller);
+        let control_value_normalized = packet.control_value_normalized(controller);
+        let max_control_value = packet.max_control_value();
+        let max_control_value_normalized = packet.max_control_value_normalized();
+        let pitch_bend = packet.pitch_bend();
+        let pitch_bend_normalized = packet.pitch_bend_normalized();
+        let channel_pressure = packet.channel_pressure();
+        let channel_pressure_normalized = packet.channel_pressure_normalized();
+        let active_key_count = packet.active_key_count() as i32;
+        let signal = velocity_normalized
+            .max(max_velocity_normalized)
+            .max(control_value_normalized)
+            .max(max_control_value_normalized)
+            .max(channel_pressure_normalized)
+            .max(pitch_bend_normalized.abs());
+
+        #[cfg(debug_assertions)]
+        if midi_debug_enabled() {
+            util::debug_log_info!(
+                "MIDI Properties: key_on={}, velocity={}, velocity_normalized={:.3}, frequency={:.3}, selected_key_frequency={:.3}, average_frequency={:.3}, max_velocity={}, max_velocity_normalized={:.3}, active_keys={}, cc{}_value={}, cc{}_normalized={:.3}, max_cc_value={}, max_cc_normalized={:.3}, pitch_bend={}, pitch_bend_normalized={:.3}, channel_pressure={}, channel_pressure_normalized={:.3}, signal={:.3}",
+                packet.is_key_on(key),
+                velocity,
+                velocity_normalized,
+                active_frequency,
+                selected_key_frequency,
+                average_frequency,
+                packet.max_velocity(),
+                max_velocity_normalized,
+                active_key_count,
+                controller,
+                control_value,
+                controller,
+                control_value_normalized,
+                max_control_value,
+                max_control_value_normalized,
+                pitch_bend,
+                pitch_bend_normalized,
+                channel_pressure,
+                channel_pressure_normalized,
+                signal
+            );
+        }
 
         Ok(vec![
             NodeValue::Bool(packet.is_key_on(key)),
             NodeValue::Int(velocity as i32),
-            NodeValue::Float(velocity as f32 / 127.0),
-            NodeValue::Float(key.as_frequency() as f32),
+            NodeValue::Float(velocity_normalized),
+            NodeValue::Float(active_frequency),
+            NodeValue::Float(selected_key_frequency),
             NodeValue::Float(average_frequency),
             NodeValue::Int(packet.max_velocity() as i32),
+            NodeValue::Int(active_key_count),
+            NodeValue::Int(control_value as i32),
+            NodeValue::Float(control_value_normalized),
+            NodeValue::Int(pitch_bend as i32),
+            NodeValue::Float(pitch_bend_normalized),
+            NodeValue::Int(channel_pressure as i32),
+            NodeValue::Float(channel_pressure_normalized),
+            NodeValue::Float(signal),
         ])
     }
 

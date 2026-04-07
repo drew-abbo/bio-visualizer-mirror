@@ -4,6 +4,7 @@ use midir::{MidiInput, MidiInputConnection};
 
 use midly::MidiMessage;
 use midly::live::LiveEvent;
+use std::sync::OnceLock;
 
 use util::channels::message_channel::{self, Inbox, Outbox};
 
@@ -12,20 +13,37 @@ use crate::fps::Fps;
 use crate::midi::Key;
 use crate::playback_stream::{PlaybackStream, SeekablePlaybackStream};
 
+fn midi_debug_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| match std::env::var("BIO_MIDI_DEBUG") {
+        Ok(value) => matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"),
+        Err(_) => false,
+    })
+}
+
+
 /// A [MidiStream](super::MidiStream) that comes from live MIDI input data. See
 /// [list_ports].
+enum MidiUpdate {
+    Note { key: Key, velocity: u8 },
+    ControlChange { controller: u8, value: u8 },
+    PolyPressure { key: Key, value: u8 },
+    ChannelPressure { value: u8 },
+    PitchBend { value: i16 },
+}
+
 pub struct LiveMidiStream {
-    inbox: Inbox<Result<(Key, u8), MidiStreamError>>,
+    inbox: Inbox<Result<MidiUpdate, MidiStreamError>>,
     target_fps: Fps,
     paused: bool,
     current_packet: MidiPacket,
-    _connection: MidiInputConnection<Outbox<Result<(Key, u8), MidiStreamError>>>,
+    _connection: MidiInputConnection<Outbox<Result<MidiUpdate, MidiStreamError>>>,
 }
 
 impl LiveMidiStream {
     /// Create a new [LiveMidiStream]. See [list_ports].
     pub fn new(port: Port, target_fps: Fps, paused: bool) -> Result<Self, MidiStreamError> {
-        let (inbox, outbox) = message_channel::new::<Result<(Key, u8), MidiStreamError>>();
+        let (inbox, outbox) = message_channel::new::<Result<MidiUpdate, MidiStreamError>>();
 
         let input =
             MidiInput::new("New Live Midi Stream").map_err(|_| MidiStreamError::PortError)?;
@@ -41,7 +59,7 @@ impl LiveMidiStream {
         let callback =
             |_timestamp: u64,
              message_bytes: &[u8],
-             outbox: &mut Outbox<Result<(Key, u8), MidiStreamError>>| {
+             outbox: &mut Outbox<Result<MidiUpdate, MidiStreamError>>| {
                 let event = match LiveEvent::parse(message_bytes) {
                     Ok(event) => event,
                     Err(_) => {
@@ -50,18 +68,47 @@ impl LiveMidiStream {
                     }
                 };
 
-                let LiveEvent::Midi { message, .. } = event else {
+                let LiveEvent::Midi { channel, message } = event else {
                     return;
                 };
 
-                let (key, vel) = match message {
-                    MidiMessage::NoteOff { key, .. } => (key, 0),
-                    MidiMessage::NoteOn { key, vel } => (key, vel.as_int()),
+                #[cfg(debug_assertions)]
+                if midi_debug_enabled() {
+                    let status = message_bytes.first().copied().unwrap_or_default();
+                    util::debug_log_info!(
+                        "MIDI RX: status=0x{status:02X} channel={} bytes={:?}",
+                        channel.as_int() + 1,
+                        message_bytes
+                    );
+                }
+
+                let update = match message {
+                    MidiMessage::NoteOff { key, .. } => MidiUpdate::Note {
+                        key: key.as_int().try_into().expect("u7 can't be over 127"),
+                        velocity: 0,
+                    },
+                    MidiMessage::NoteOn { key, vel } => MidiUpdate::Note {
+                        key: key.as_int().try_into().expect("u7 can't be over 127"),
+                        velocity: vel.as_int(),
+                    },
+                    MidiMessage::Controller { controller, value } => MidiUpdate::ControlChange {
+                        controller: controller.as_int(),
+                        value: value.as_int(),
+                    },
+                    MidiMessage::Aftertouch { key, vel } => MidiUpdate::PolyPressure {
+                        key: key.as_int().try_into().expect("u7 can't be over 127"),
+                        value: vel.as_int(),
+                    },
+                    MidiMessage::ChannelAftertouch { vel } => MidiUpdate::ChannelPressure {
+                        value: vel.as_int(),
+                    },
+                    MidiMessage::PitchBend { bend } => MidiUpdate::PitchBend {
+                        value: bend.as_int() as i16 - 8192,
+                    },
                     _ => return,
                 };
-                let key = key.as_int().try_into().expect("u7 can't be over 127");
 
-                _ = outbox.send(Ok((key, vel)));
+                _ = outbox.send(Ok(update));
             };
 
         let connection = input
@@ -84,12 +131,28 @@ impl PlaybackStream<MidiPacket, MidiStreamError> for LiveMidiStream {
             .inbox
             .check_in_place(|msg_queue| {
                 for msg in msg_queue.drain(..) {
-                    let (key, vel) = match msg {
+                    let update = match msg {
                         Ok(msg) => msg,
                         Err(e) => return Err(e),
                     };
 
-                    self.current_packet.set_key_velocity(key, vel);
+                    match update {
+                        MidiUpdate::Note { key, velocity } => {
+                            self.current_packet.set_key_velocity(key, velocity);
+                        }
+                        MidiUpdate::ControlChange { controller, value } => {
+                            self.current_packet.set_control_value(controller, value);
+                        }
+                        MidiUpdate::PolyPressure { key, value } => {
+                            self.current_packet.set_poly_pressure(key, value);
+                        }
+                        MidiUpdate::ChannelPressure { value } => {
+                            self.current_packet.set_channel_pressure(value);
+                        }
+                        MidiUpdate::PitchBend { value } => {
+                            self.current_packet.set_pitch_bend(value);
+                        }
+                    }
                 }
 
                 Ok(())

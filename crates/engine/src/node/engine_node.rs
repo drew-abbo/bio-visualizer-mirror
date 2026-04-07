@@ -186,6 +186,48 @@ pub struct AlgorithmStage {
     /// Number of previous stage outputs this stage should receive as additional frame inputs.
     #[serde(default)]
     pub extra_frame_inputs: usize,
+
+    /// Optional compute dispatch behavior override for this stage.
+    #[serde(default)]
+    pub dispatch: Option<AlgorithmStageDispatch>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct AlgorithmStageDispatch {
+    #[serde(default)]
+    pub mode: AlgorithmStageDispatchMode,
+
+    /// Enum input name used by `axis_from_enum_input` mode.
+    #[serde(default)]
+    pub enum_input: Option<String>,
+
+    /// Enum value indicating column-wise dispatch in `axis_from_enum_input` mode.
+    #[serde(default = "default_columns_enum_value")]
+    pub columns_enum_value: usize,
+}
+
+impl Default for AlgorithmStageDispatch {
+    fn default() -> Self {
+        Self {
+            mode: AlgorithmStageDispatchMode::Auto,
+            enum_input: None,
+            columns_enum_value: default_columns_enum_value(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AlgorithmStageDispatchMode {
+    #[default]
+    Auto,
+    Rows,
+    Columns,
+    AxisFromEnumInput,
+}
+
+const fn default_columns_enum_value() -> usize {
+    1
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]

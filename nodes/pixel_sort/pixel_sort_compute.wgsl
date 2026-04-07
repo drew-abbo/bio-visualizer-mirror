@@ -70,9 +70,25 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     if params.scan_direction == 0u {
         // Horizontal sort: one invocation handles a full row.
-        // With dispatch_override (1, height, 1), each thread at (0, y, 0) processes row y.
+        // Any invocation with x != 0 exits so each row is processed exactly once.
+        if pos.x != 0 {
+            return;
+        }
         let line_y = pos.y;
         if line_y >= i32(tex_dims.y) {
+            return;
+        }
+
+        if params.threshold <= 0.0 {
+            let label = vec4<f32>(0.0, f32(tex_dims.x) - 1.0, 0.0, 0.0);
+            var fill_x = 0;
+            loop {
+                if fill_x >= i32(tex_dims.x) {
+                    break;
+                }
+                textureStore(output_texture, vec2<u32>(u32(fill_x), u32(line_y)), label);
+                fill_x = fill_x + 1;
+            }
             return;
         }
 
@@ -89,30 +105,11 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 continue;
             }
 
-            var segment_start = x;
+            let segment_start = x;
             var segment_end = x;
-            let max_scan = i32(tex_dims.x);
-            var back_steps = 0;
 
             loop {
-                if back_steps >= max_scan || segment_start == 0 {
-                    break;
-                }
-
-                let candidate = segment_start - 1;
-                let candidate_color = textureLoad(input_texture, vec2<u32>(u32(candidate), u32(line_y)), 0);
-                if get_metric(candidate_color) < params.threshold {
-                    break;
-                }
-
-                segment_start = candidate;
-                back_steps = back_steps + 1;
-            }
-
-            var forward_steps = 0;
-
-            loop {
-                if forward_steps >= max_scan || segment_end + 1 >= i32(tex_dims.x) {
+                if segment_end + 1 >= i32(tex_dims.x) {
                     break;
                 }
 
@@ -123,7 +120,6 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 }
 
                 segment_end = candidate;
-                forward_steps = forward_steps + 1;
             }
 
             let label = vec4<f32>(f32(segment_start), f32(segment_end), 0.0, 0.0);
@@ -141,9 +137,25 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
     } else {
         // Vertical sort: one invocation handles a full column.
-        // With dispatch_override (width, 1, 1), each thread at (x, 0, 0) processes column x.
+        // Any invocation with y != 0 exits so each column is processed exactly once.
+        if pos.y != 0 {
+            return;
+        }
         let line_x = pos.x;
         if line_x >= i32(tex_dims.x) {
+            return;
+        }
+
+        if params.threshold <= 0.0 {
+            let label = vec4<f32>(0.0, f32(tex_dims.y) - 1.0, 0.0, 0.0);
+            var fill_y = 0;
+            loop {
+                if fill_y >= i32(tex_dims.y) {
+                    break;
+                }
+                textureStore(output_texture, vec2<u32>(u32(line_x), u32(fill_y)), label);
+                fill_y = fill_y + 1;
+            }
             return;
         }
 
@@ -160,30 +172,11 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 continue;
             }
 
-            var segment_start = y;
+            let segment_start = y;
             var segment_end = y;
-            let max_scan = i32(tex_dims.y);
-            var back_steps = 0;
 
             loop {
-                if back_steps >= max_scan || segment_start == 0 {
-                    break;
-                }
-
-                let candidate = segment_start - 1;
-                let candidate_color = textureLoad(input_texture, vec2<u32>(u32(line_x), u32(candidate)), 0);
-                if get_metric(candidate_color) < params.threshold {
-                    break;
-                }
-
-                segment_start = candidate;
-                back_steps = back_steps + 1;
-            }
-
-            var forward_steps = 0;
-
-            loop {
-                if forward_steps >= max_scan || segment_end + 1 >= i32(tex_dims.y) {
+                if segment_end + 1 >= i32(tex_dims.y) {
                     break;
                 }
 
@@ -194,7 +187,6 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 }
 
                 segment_end = candidate;
-                forward_steps = forward_steps + 1;
             }
 
             let label = vec4<f32>(f32(segment_start), f32(segment_end), 0.0, 0.0);

@@ -73,9 +73,25 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     if params.scan_direction == 0u {
         // Horizontal sort: one invocation handles a full row.
-        // With dispatch_override (1, height, 1), each thread at (0, y, 0) processes row y.
+        // Any invocation with x != 0 exits so each row is processed exactly once.
+        if pos.x != 0 {
+            return;
+        }
         let line_y = pos.y;
         if line_y >= i32(tex_dims.y) {
+            return;
+        }
+
+        if params.threshold <= 0.0 {
+            var copy_x = 0;
+            loop {
+                if copy_x >= i32(tex_dims.x) {
+                    break;
+                }
+                let source = textureLoad(input_texture, vec2<u32>(u32(copy_x), u32(line_y)), 0);
+                textureStore(output_texture, vec2<u32>(u32(copy_x), u32(line_y)), source);
+                copy_x = copy_x + 1;
+            }
             return;
         }
 
@@ -168,9 +184,25 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
     } else {
         // Vertical sort: one invocation handles a full column.
-        // With dispatch_override (width, 1, 1), each thread at (x, 0, 0) processes column x.
+        // Any invocation with y != 0 exits so each column is processed exactly once.
+        if pos.y != 0 {
+            return;
+        }
         let line_x = pos.x;
         if line_x >= i32(tex_dims.x) {
+            return;
+        }
+
+        if params.threshold <= 0.0 {
+            var copy_y = 0;
+            loop {
+                if copy_y >= i32(tex_dims.y) {
+                    break;
+                }
+                let source = textureLoad(input_texture, vec2<u32>(u32(line_x), u32(copy_y)), 0);
+                textureStore(output_texture, vec2<u32>(u32(line_x), u32(copy_y)), source);
+                copy_y = copy_y + 1;
+            }
             return;
         }
 

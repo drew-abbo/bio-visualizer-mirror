@@ -441,11 +441,20 @@ impl EditorArea {
 
         let should_advance = self.playback_due();
 
+        // For timed playback (video/live streams), only advance execution on the
+        // playback clock so UI interactions cannot speed up stream consumption.
+        let has_timed_playback =
+            self.playback_enabled && self.fps_override.or(self.last_fps_output).is_some();
+        let graph_execute_due = if has_timed_playback {
+            false
+        } else {
+            graph_changed || self.pending_graph_execute
+        };
+
         let should_execute = self.displayed_frame.is_none()
             || should_advance
             || selection_changed
-            || graph_changed
-            || self.pending_graph_execute;
+            || graph_execute_due;
 
         if should_execute {
             match self.executor_manager.execute(

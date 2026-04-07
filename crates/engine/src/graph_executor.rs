@@ -14,7 +14,7 @@ use crate::node::engine_node::{
 };
 use crate::node::handler::{
     FrameStreamHandler, MidiStreamHandler, NodeFrameStreamRequest, NodeMidiStreamRequest,
-    NodeNoiseStreamRequest, NoiseStreamHandler, StreamKind
+    NodeNoiseStreamRequest, NoiseStreamHandler, StreamKind,
 };
 use crate::node_graph::EngineNodeId;
 use crate::node_graph::{InputValue, NodeGraph, NodeInstance};
@@ -499,12 +499,14 @@ impl GraphExecutor {
                     backend: AlgorithmStageBackend::Render,
                     source: pass.source.as_path(),
                     extra_frame_inputs: index,
+                    dispatch: None,
                 });
             }
             stages.push(EffectStage {
                 backend: AlgorithmStageBackend::Render,
                 source: source.as_path(),
                 extra_frame_inputs: passes.len(),
+                dispatch: None,
             });
 
             return self.execute_effect_stages(

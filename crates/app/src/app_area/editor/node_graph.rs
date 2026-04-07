@@ -12,8 +12,10 @@ use egui;
 use egui::emath::TSTransform;
 use egui_snarl::ui::{PinInfo, SnarlViewer};
 use egui_snarl::{InPin, NodeId as SnarlNodeId, OutPin, Snarl};
+use engine::node::engine_node::{BuiltInHandler, NodeExecutionPlan};
 use engine::node::{NodeInputKind, NodeLibrary, input_kind_to_output_kind};
 use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
+use media::midi::streams::list_ports;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -479,6 +481,23 @@ impl SnarlViewer<NodeData> for NodeGraphViewer<'_> {
                 from_output.name, to_input_name
             ));
             return;
+        }
+
+        if matches!(
+            from_def.node.executor,
+            NodeExecutionPlan::BuiltIn(BuiltInHandler::MidiSource)
+        ) {
+            let has_midi_ports = match list_ports() {
+                Ok(ports) => ports.count() > 0,
+                Err(_) => false,
+            };
+
+            if !has_midi_ports {
+                self.push_error(
+                    "Cannot connect MIDI node: no MIDI input port is selected or available.",
+                );
+                return;
+            }
         }
 
         // Enforce one incoming connection per input pin.

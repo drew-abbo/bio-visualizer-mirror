@@ -72,12 +72,22 @@
             "stages": [
                 {
                     "backend": "compute",
-                    "source": "pixel_sort_compute.wgsl"
+                    "source": "pixel_sort_compute.wgsl",
+                    "dispatch": {
+                        "mode": "axis_from_enum_input",
+                        "enum_input": "Direction",
+                        "columns_enum_value": 1
+                    }
                 },
                 {
                     "backend": "compute",
                     "source": "pixel_sort_resolve.wgsl",
-                    "extra_frame_inputs": 1
+                    "extra_frame_inputs": 1,
+                    "dispatch": {
+                        "mode": "axis_from_enum_input",
+                        "enum_input": "Direction",
+                        "columns_enum_value": 1
+                    }
                 }
             ]
         }

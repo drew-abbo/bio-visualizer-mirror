@@ -4,7 +4,8 @@ use crate::gpu_frame::GpuFrame;
 use crate::graph_executor::{ExecutionError, GraphExecutor, NodeValue};
 use crate::node::NodeDefinition;
 use crate::node::engine_node::{
-    AlgorithmStageBackend, NodeExecutionPlan, NodeInput, NodeInputKind, NodeOutputKind,
+    AlgorithmStageBackend, AlgorithmStageDispatch, AlgorithmStageDispatchMode, NodeExecutionPlan,
+    NodeInput, NodeInputKind, NodeOutputKind,
 };
 use crate::node_graph::EngineNodeId;
 use crate::node_render_pipeline::PipelineBase;
@@ -15,6 +16,7 @@ pub(crate) struct EffectStage<'a> {
     pub backend: AlgorithmStageBackend,
     pub source: &'a std::path::Path,
     pub extra_frame_inputs: usize,
+    pub dispatch: Option<&'a AlgorithmStageDispatch>,
 }
 
 impl GraphExecutor {
@@ -44,6 +46,7 @@ impl GraphExecutor {
                 backend: stage.backend,
                 source: stage.source.as_path(),
                 extra_frame_inputs: stage.extra_frame_inputs,
+                dispatch: stage.dispatch.as_ref(),
             })
             .collect();
 
@@ -192,7 +195,34 @@ impl GraphExecutor {
 
                     let compute_pipeline = &self.compute_pipeline_cache[&cache_key];
 
-                    let dispatch_override = None;
+                    let dispatch_override = match stage.dispatch {
+                        Some(dispatch) => match dispatch.mode {
+                            AlgorithmStageDispatchMode::Auto => None,
+                            AlgorithmStageDispatchMode::Rows => Some((1, output_size.height, 1)),
+                            AlgorithmStageDispatchMode::Columns => Some((output_size.width, 1, 1)),
+                            AlgorithmStageDispatchMode::AxisFromEnumInput => {
+                                let use_columns = dispatch
+                                    .enum_input
+                                    .as_ref()
+                                    .and_then(|name| inputs.get(name))
+                                    .and_then(|value| {
+                                        if let NodeValue::Enum(enum_value) = value {
+                                            Some(*enum_value == dispatch.columns_enum_value)
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .unwrap_or(false);
+
+                                if use_columns {
+                                    Some((output_size.width, 1, 1))
+                                } else {
+                                    Some((1, output_size.height, 1))
+                                }
+                            }
+                        },
+                        None => None,
+                    };
 
                     // Execute compute shader
                     compute_pipeline

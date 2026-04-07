@@ -112,8 +112,32 @@ impl ComputePipeline {
             name: definition.node.name.clone(),
             texture_input_count,
             param_layout,
-            workgroup_size: (8, 8, 1),
+            workgroup_size: Self::infer_workgroup_size(shader_code),
         })
+    }
+
+    fn infer_workgroup_size(shader_code: &str) -> (u32, u32, u32) {
+        let Some(attr_start) = shader_code.find("@workgroup_size(") else {
+            return (8, 8, 1);
+        };
+
+        let start = attr_start + "@workgroup_size(".len();
+        let Some(close_rel) = shader_code[start..].find(')') else {
+            return (8, 8, 1);
+        };
+
+        let args = &shader_code[start..start + close_rel];
+        let mut values = args
+            .split(',')
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .filter_map(|value| value.parse::<u32>().ok());
+
+        let x = values.next().unwrap_or(8);
+        let y = values.next().unwrap_or(1);
+        let z = values.next().unwrap_or(1);
+
+        (x.max(1), y.max(1), z.max(1))
     }
 
     /// Execute the compute pipeline with input textures and parameters.

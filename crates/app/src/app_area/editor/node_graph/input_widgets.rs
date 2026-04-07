@@ -153,8 +153,7 @@ fn show_file_input(
                     dialog = dialog.add_filter(
                         "Video Files",
                         &[
-                            "mp4", "avi", "mov", "mkv", "webm", "flv", "wmv", "m4v", "mpg",
-                            "mpeg",
+                            "mp4", "avi", "mov", "mkv", "webm", "flv", "wmv", "m4v", "mpg", "mpeg",
                         ],
                     );
                 }

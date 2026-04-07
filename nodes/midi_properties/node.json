@@ -16,6 +16,18 @@
           "input_ui": "Slider"
         }
       }
+    },
+    {
+      "name": "Controller",
+      "kind": {
+        "Int": {
+          "default": 1,
+          "min": 0,
+          "max": 127,
+          "step": 1,
+          "input_ui": "Slider"
+        }
+      }
     }
   ],
   "outputs": [
@@ -36,19 +48,55 @@
       "kind": "Float"
     },
     {
+      "name": "Selected Key Frequency",
+      "kind": "Float"
+    },
+    {
       "name": "Average Frequency",
       "kind": "Float"
     },
     {
       "name": "Max Velocity",
       "kind": "Int"
+    },
+    {
+      "name": "Active Keys",
+      "kind": "Int"
+    },
+    {
+      "name": "Controller Value",
+      "kind": "Int"
+    },
+    {
+      "name": "Controller Normalized",
+      "kind": "Float"
+    },
+    {
+      "name": "Pitch Bend",
+      "kind": "Int"
+    },
+    {
+      "name": "Pitch Bend Normalized",
+      "kind": "Float"
+    },
+    {
+      "name": "Channel Pressure",
+      "kind": "Int"
+    },
+    {
+      "name": "Channel Pressure Normalized",
+      "kind": "Float"
+    },
+    {
+      "name": "Signal",
+      "kind": "Float"
     }
   ],
   "executor": {
     "BuiltIn": "MidiProperties"
   },
   "short_description": "Extracts useful values from a MIDI packet",
-  "long_description": "Takes a MIDI packet and exposes commonly used properties like whether a key is pressed, its velocity, the selected key's frequency, average frequency, and the maximum active velocity.",
+  "long_description": "Takes a MIDI packet and exposes modulation-friendly values for visuals: active-note frequency, selected-key reference frequency, average active-note frequency, note velocity, selected CC value, pitch bend, channel pressure, active key count, and a combined Signal output.",
   "category": "Input",
   "subcategories": [],
   "search_keywords": ["midi", "properties", "note", "velocity", "frequency", "key", "extract", "controller"]

@@ -270,9 +270,33 @@ impl FrameStreamHandler {
                     }
                 })?;
 
+                let frame = Self::cap_image_frame_dimensions(frame);
+
                 Ok(Box::new(StillFrameStream::new(frame, FPS_30)))
             }
         }
+    }
+
+    fn cap_image_frame_dimensions(frame: Frame) -> Frame {
+        const MAX_IMAGE_DIMENSION: u32 = 2048;
+
+        let width = frame.dimensions().width();
+        let height = frame.dimensions().height();
+
+        if width <= MAX_IMAGE_DIMENSION && height <= MAX_IMAGE_DIMENSION {
+            return frame;
+        }
+
+        let width_scale = MAX_IMAGE_DIMENSION as f32 / width as f32;
+        let height_scale = MAX_IMAGE_DIMENSION as f32 / height as f32;
+        let scale = width_scale.min(height_scale);
+
+        let new_width = (width as f32 * scale).round().max(1.0) as u32;
+        let new_height = (height as f32 * scale).round().max(1.0) as u32;
+        let new_dimensions = media::frame::Dimensions::new(new_width, new_height)
+            .expect("downscaled image dimensions should be valid");
+
+        frame.rescale(new_dimensions, media::frame::RescaleMethod::NearestNeighbor)
     }
 }
 

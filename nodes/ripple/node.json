@@ -1,0 +1,109 @@
+{
+    "name": "Ripple",
+    "inputs": [
+        {
+            "name": "Input",
+            "kind": "Frame"
+        },
+        {
+            "name": "Center X",
+            "kind": {
+                "Float": {
+                    "default": 0.5,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "input_ui": "Slider"
+                }
+            }
+        },
+        {
+            "name": "Center Y",
+            "kind": {
+                "Float": {
+                    "default": 0.5,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "input_ui": "Slider"
+                }
+            }
+        },
+        {
+            "name": "Amplitude",
+            "kind": {
+                "Float": {
+                    "default": 0.09,
+                    "min": 0.0,
+                    "max": 0.35,
+                    "step": 0.001,
+                    "input_ui": "Slider"
+                }
+            }
+        },
+        {
+            "name": "Frequency",
+            "kind": {
+                "Float": {
+                    "default": 6.5,
+                    "min": 0.0,
+                    "max": 40.0,
+                    "step": 0.1,
+                    "input_ui": "Slider"
+                }
+            }
+        },
+        {
+            "name": "Decay",
+            "kind": {
+                "Float": {
+                    "default": 1.2,
+                    "min": 0.0,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "input_ui": "Slider"
+                }
+            }
+        },
+        {
+            "name": "Phase",
+            "kind": {
+                "Float": {
+                    "default": 0.0,
+                    "min": -8.0,
+                    "max": 8.0,
+                    "step": 0.01,
+                    "input_ui": "Slider"
+                }
+            }
+        },
+        {
+            "name": "MIDI Strength",
+            "kind": {
+                "Float": {
+                    "default": 0.75,
+                    "min": 0.0,
+                    "max": 2.0,
+                    "step": 0.01,
+                    "input_ui": "Slider"
+                }
+            }
+        }
+    ],
+    "outputs": [
+        {
+            "name": "Output",
+            "kind": "Frame"
+        }
+    ],
+    "executor": {
+        "Shader": {
+            "source": "shader.wgsl"
+        }
+    },
+    "short_description": "Creates layered water-like ripples across the full frame",
+    "long_description": "Warps the input frame using layered radial waves from a configurable center, producing broad water-like ripple motion across the whole image. MIDI Strength adds reactive intensity while Phase drives wave movement.",
+    "category": "Distortion",
+    "subcategories": [],
+    "search_keywords": ["ripple", "wave", "radial", "water", "distortion", "midi", "reactive", "rings"]
+}

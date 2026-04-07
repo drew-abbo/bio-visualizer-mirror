@@ -3,6 +3,9 @@ use egui;
 /// Custom snarl style for the editor area
 pub fn snarl_style() -> egui_snarl::ui::SnarlStyle {
     egui_snarl::ui::SnarlStyle {
+        node_layout: Some(egui_snarl::ui::NodeLayout::coil().with_min_pin_row_height(22.0)),
+        pin_placement: Some(egui_snarl::ui::PinPlacement::Outside { margin: 8.0 }),
+        pin_size: Some(6.5),
         bg_pattern: Some(egui_snarl::ui::BackgroundPattern::grid(
             egui::vec2(40.0, 40.0),
             0.0,

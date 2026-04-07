@@ -6,7 +6,7 @@ use engine::node::NodeLibrary;
 use engine::node::engine_node::{BuiltInHandler, NodeExecutionPlan};
 use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
 use media::fps::Fps;
-use media::fps::consts::{FPS_1, FPS_30};
+use media::fps::consts::FPS_30;
 use std::collections::HashSet;
 
 /// Manager for the node graph and its execution, separate from the UI state in EditorArea
@@ -150,9 +150,6 @@ impl GraphExecutorManager {
         let mut visited = HashSet::new();
         let mut stack = vec![node_id];
         let mut best_video_fps: Option<Fps> = None;
-        let mut has_noise_source = false;
-        let mut has_midi_source = false;
-        let mut has_image_source = false;
 
         while let Some(current) = stack.pop() {
             if !visited.insert(current) {
@@ -171,15 +168,6 @@ impl GraphExecutorManager {
                             });
                         }
                     }
-                    NodeExecutionPlan::BuiltIn(BuiltInHandler::Noise(_)) => {
-                        has_noise_source = true;
-                    }
-                    NodeExecutionPlan::BuiltIn(BuiltInHandler::MidiSource) => {
-                        has_midi_source = true;
-                    }
-                    NodeExecutionPlan::BuiltIn(BuiltInHandler::ImageSource) => {
-                        has_image_source = true;
-                    }
                     _ => {}
                 }
             }
@@ -195,18 +183,9 @@ impl GraphExecutorManager {
 
         if let Some(fps) = best_video_fps {
             return Some(fps);
-        }
-        if has_noise_source {
+        } else {
             return Some(FPS_30);
         }
-        if has_midi_source {
-            return Some(FPS_30);
-        }
-        if has_image_source {
-            return Some(FPS_1);
-        }
-
-        None
     }
 
     pub fn pause_streams(&mut self) {

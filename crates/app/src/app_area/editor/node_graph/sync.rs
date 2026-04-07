@@ -355,28 +355,19 @@ fn sync_wires_for_node(
         );
     }
 
-    // Snapshot current engine connections for this node:
+    // Snapshot current engine connections for this node from the graph's
+    // connection list (source of truth used by connect/disconnect checks).
     // input_name -> (from_node, output_name)
     let current_connections: HashMap<String, (EngineNodeId, String)> = engine_graph
-        .get_instance(to_engine_id)
-        .map(|instance| {
-            instance
-                .input_values
-                .iter()
-                .filter_map(|(name, value)| {
-                    if let InputValue::Connection {
-                        from_node,
-                        output_name,
-                    } = value
-                    {
-                        Some((name.clone(), (*from_node, output_name.clone())))
-                    } else {
-                        None
-                    }
-                })
-                .collect()
+        .incoming_connections(to_engine_id)
+        .into_iter()
+        .map(|connection| {
+            (
+                connection.to_input.clone(),
+                (connection.from_node, connection.from_output.clone()),
+            )
         })
-        .unwrap_or_default();
+        .collect();
 
     // Disconnect stale or changed connections only.
     for input_def in &definition.node.inputs {
@@ -390,8 +381,11 @@ fn sync_wires_for_node(
             _ => false,
         };
 
-        if needs_disconnect && engine_graph.disconnect(to_engine_id, input_name) {
-            changes_made = true;
+        if needs_disconnect {
+            // Be defensive and clear any lingering duplicates for this input.
+            while engine_graph.disconnect(to_engine_id, input_name) {
+                changes_made = true;
+            }
         }
     }
 

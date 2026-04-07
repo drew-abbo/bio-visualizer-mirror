@@ -11,12 +11,22 @@ use thiserror::Error;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MidiPacket {
     velocities: [u8; 128],
+    control_values: [u8; 128],
+    poly_pressures: [u8; 128],
+    channel_pressure: u8,
+    pitch_bend: i16,
 }
 
 impl MidiPacket {
     /// Create a new [MidiPacket] with all zero velocities.
     pub const fn new() -> Self {
-        Self { velocities: [0; _] }
+        Self {
+            velocities: [0; _],
+            control_values: [0; _],
+            poly_pressures: [0; _],
+            channel_pressure: 0,
+            pitch_bend: 0,
+        }
     }
 
     /// The velocity of the provided [Key].
@@ -24,12 +34,57 @@ impl MidiPacket {
         self.velocities[key.as_u8() as usize]
     }
 
+    /// The value of a MIDI control change (CC) number in this packet.
+    pub const fn control_value(&self, controller: u8) -> u8 {
+        self.control_values[controller as usize]
+    }
+
+    /// The normalized value of a MIDI control change (CC) number in this packet.
+    pub fn control_value_normalized(&self, controller: u8) -> f32 {
+        self.control_value(controller) as f32 / 127.0
+    }
+
+    /// The maximum control change (CC) value currently present.
+    pub fn max_control_value(&self) -> u8 {
+        self.control_values.iter().cloned().max().expect("non-zero len")
+    }
+
+    /// The normalized maximum control change (CC) value in [0.0, 1.0].
+    pub fn max_control_value_normalized(&self) -> f32 {
+        self.max_control_value() as f32 / 127.0
+    }
+
+    /// The polyphonic key pressure (aftertouch) for a [Key].
+    pub const fn poly_pressure(&self, key: Key) -> u8 {
+        self.poly_pressures[key.as_u8() as usize]
+    }
+
+    /// The current channel pressure (channel aftertouch).
+    pub const fn channel_pressure(&self) -> u8 {
+        self.channel_pressure
+    }
+
+    /// The normalized channel pressure in [0.0, 1.0].
+    pub fn channel_pressure_normalized(&self) -> f32 {
+        self.channel_pressure as f32 / 127.0
+    }
+
+    /// Current pitch bend in signed 14-bit range [-8192, 8191].
+    pub const fn pitch_bend(&self) -> i16 {
+        self.pitch_bend
+    }
+
+    /// The current pitch bend normalized to approximately [-1.0, 1.0].
+    pub fn pitch_bend_normalized(&self) -> f32 {
+        self.pitch_bend as f32 / 8192.0
+    }
+
     /// Calculates average frequencies of [Key]s that are on in this packet.
     pub fn average_frequency(&self) -> Option<f64> {
         let mut count: usize = 0;
         let mut sum = 0.0;
 
-        for (key, _) in self.key_velocities() {
+        for (key, _) in self.on_key_velocities() {
             sum += key.as_frequency();
             count += 1;
         }
@@ -44,6 +99,18 @@ impl MidiPacket {
     /// The maximum velocity of all [Key]s in this packet.
     pub fn max_velocity(&self) -> u8 {
         self.velocities.iter().cloned().max().expect("non-zero len")
+    }
+
+    /// The currently strongest active key (highest velocity), if any.
+    pub fn strongest_key(&self) -> Option<Key> {
+        self.key_velocities()
+            .max_by_key(|(_, vel)| *vel)
+            .and_then(|(key, vel)| NonZeroU8::new(vel).map(|_| key))
+    }
+
+    /// Count of keys currently on (non-zero velocity).
+    pub fn active_key_count(&self) -> usize {
+        self.on_key_velocities().count()
     }
 
     /// Whether or not a [Key] has a non-zero velocity in this packet.
@@ -74,9 +141,33 @@ impl MidiPacket {
         self.velocities[key.as_u8() as usize] = velocity;
     }
 
+    /// Sets a control change (CC) value.
+    pub const fn set_control_value(&mut self, controller: u8, value: u8) {
+        self.control_values[controller as usize] = value;
+    }
+
+    /// Sets polyphonic key pressure (aftertouch) for a [Key].
+    pub const fn set_poly_pressure(&mut self, key: Key, value: u8) {
+        self.poly_pressures[key.as_u8() as usize] = value;
+    }
+
+    /// Sets channel pressure (channel aftertouch).
+    pub const fn set_channel_pressure(&mut self, value: u8) {
+        self.channel_pressure = value;
+    }
+
+    /// Sets pitch bend in signed 14-bit range [-8192, 8191].
+    pub fn set_pitch_bend(&mut self, value: i16) {
+        self.pitch_bend = value.clamp(-8192, 8191);
+    }
+
     /// Sets all [Key]'s velocities to 0.
     pub const fn clear(&mut self) {
         self.velocities = [0; _];
+        self.control_values = [0; _];
+        self.poly_pressures = [0; _];
+        self.channel_pressure = 0;
+        self.pitch_bend = 0;
     }
 }
 
