@@ -132,6 +132,7 @@ impl PlaybackStream<MidiPacket, MidiStreamError> for LiveMidiStream {
 }
 
 /// A MIDI input port. See [list_ports].
+#[derive(Debug, Clone)]
 pub struct Port {
     id: String,
     name: String,

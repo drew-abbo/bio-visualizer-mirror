@@ -1,7 +1,7 @@
 //! Brief
 //! -----
 //! The `engine` crate is the core execution engine for node graphs. It resolves node inputs, runs
-//! shader-based nodes and built-in handlers (image/video sources), uploads CPU frames to the GPU,
+//! shader-based nodes and built-in handlers (image/video sources and noise generators), uploads CPU frames to the GPU,
 //! and caches intermediate outputs and compiled render pipelines.
 //!
 //! Key modules
@@ -9,8 +9,7 @@
 //! - `graph_executor.rs` - [crate::graph_executor::GraphExecutor] executes a [crate::node_graph::NodeGraph]
 //!   using definitions from a node library and maintains caches such as `output_cache` and
 //!   `pipeline_cache`.
-//! - `node/handler` - built-in handlers implementing the `NodeHandler` trait (for example,
-//!   `ImageSourceHandler` and `VideoSourceHandler`) for loading media and producing `GpuFrame`s.
+//! - `node/handler` - built-in handlers for loading media and generating procedural noise values.
 //! - `upload_stager` - utilities to upload CPU image/frame data to GPU textures ([UploadStager]).
 //! - `node_render_pipeline` - dynamic creation of GPU render pipelines from WGSL shaders.
 //!
@@ -69,6 +68,7 @@
 //! bindings and entry points.
 pub mod engine_errors;
 pub mod graph_executor;
+mod graph_executor_effects;
 pub mod node;
 pub mod node_graph;
 pub mod node_render_pipeline;

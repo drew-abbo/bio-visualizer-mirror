@@ -1,0 +1,56 @@
+{
+    "name": "Midi Properties",
+    "inputs": [
+        {
+            "name": "Input",
+            "kind": "MidiPacket"
+        },
+        {
+            "name": "Key",
+            "kind": {
+                "Int": {
+                    "default": 60,
+                    "min": 0,
+                    "max": 127,
+                    "step": 1,
+                    "input_ui": "Slider"
+                }
+            },
+            "show_pin": false
+        }
+    ],
+    "outputs": [
+        {
+            "name": "Key Name",
+            "kind": "Text"
+        },
+        {
+            "name": "Key On",
+            "kind": "Bool"
+        },
+        {
+            "name": "Key Velocity",
+            "kind": "Int"
+        },
+        {
+            "name": "Velocity Normalized",
+            "kind": "Float"
+        },
+        {
+            "name": "Average Frequency",
+            "kind": "Float"
+        },
+        {
+            "name": "Max Velocity",
+            "kind": "Int"
+        }
+    ],
+    "executor": {
+        "BuiltIn": "MidiProperties"
+    },
+    "short_description": "Extracts scalar properties from a MIDI packet",
+    "long_description": "Takes a MIDI packet and exposes key-based and packet-level properties such as key name, key state, velocity, normalized velocity, average active frequency, and maximum velocity.",
+    "category": "Input",
+    "subcategories": [],
+    "search_keywords": ["midi", "properties", "velocity", "frequency", "note", "analysis"]
+}

@@ -8,7 +8,7 @@ use std::num::NonZeroU8;
 use thiserror::Error;
 
 /// A collection of [Key]s with their velocities.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MidiPacket {
     velocities: [u8; 128],
 }
@@ -29,7 +29,7 @@ impl MidiPacket {
         let mut count: usize = 0;
         let mut sum = 0.0;
 
-        for (key, _) in self.key_velocities() {
+        for (key, _) in self.on_key_velocities() {
             sum += key.as_frequency();
             count += 1;
         }

@@ -10,9 +10,6 @@ use title_bar::Command;
 use util::local_data::project::{Project, ProjectId};
 use util::ui::popup_window;
 
-const MIN_WINDOW_WIDTH: f32 = 800.0;
-const MIN_WINDOW_HEIGHT: f32 = 600.0;
-
 /// This is the main area of the app.
 /// Anything you add to this please make sure it is contained within an _area file
 /// The app struct should handle as little logic as possible, and should just be responsible for rendering the different areas of the app and passing data between them
@@ -23,8 +20,7 @@ pub struct AppArea {
     show_exit_confirmation: bool,
     /// Flag to indicate we're exiting, prevents re-checking for changes
     is_exiting: bool,
-    /// One-time guard to clamp invalid restored window sizes at startup.
-    startup_viewport_sanitized: bool,
+    startup_maximized_requested: bool,
 }
 
 impl AppArea {
@@ -58,35 +54,17 @@ impl AppArea {
             main_output: MainOutputArea::new(),
             show_exit_confirmation: false,
             is_exiting: false,
-            startup_viewport_sanitized: false,
+            startup_maximized_requested: false,
         }
     }
 
-    fn sanitize_startup_viewport(&mut self, ctx: &egui::Context) {
-        if self.startup_viewport_sanitized {
-            return;
-        }
-
-        let viewport = ctx.input(|i| i.viewport().clone());
-
-        if viewport.minimized.unwrap_or(false) || viewport.maximized.unwrap_or(false) {
-            return;
-        }
-
-        let Some(inner_rect) = viewport.inner_rect else {
+    fn request_startup_maximized(&mut self, ctx: &egui::Context) {
+        if self.startup_maximized_requested {
             return;
         };
-
-        let current_size = inner_rect.size();
-        if current_size.x < MIN_WINDOW_WIDTH || current_size.y < MIN_WINDOW_HEIGHT {
-            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
-                MIN_WINDOW_WIDTH,
-                MIN_WINDOW_HEIGHT,
-            )));
-            ctx.request_repaint();
-        }
-
-        self.startup_viewport_sanitized = true;
+        ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+        ctx.request_repaint();
+        self.startup_maximized_requested = true;
     }
 
     fn show_top_bar(&mut self, ctx: &egui::Context) {
@@ -146,7 +124,7 @@ impl AppArea {
 
 impl eframe::App for AppArea {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        self.sanitize_startup_viewport(ctx);
+        self.request_startup_maximized(ctx);
         self.process_pending_commands();
 
         // Check if the user is trying to close the window

@@ -466,6 +466,7 @@ fn default_input_value(input_def: &NodeInput) -> Option<InputValue> {
         NodeInputKind::Enum { default_idx, .. } => Some(InputValue::Enum(default_idx.unwrap_or(0))),
         NodeInputKind::Text { default, .. } => Some(InputValue::Text(default.clone())),
         NodeInputKind::File { default, .. } => default.clone().map(InputValue::File),
-        NodeInputKind::Frame | NodeInputKind::Midi => None,
+        NodeInputKind::Frame | NodeInputKind::MidiPacket => None,
+        NodeInputKind::PortSelection => Some(InputValue::Text(String::new())),
     }
 }

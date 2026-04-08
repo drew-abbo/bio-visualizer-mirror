@@ -68,7 +68,7 @@ pub struct NodeOutput {
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NodeOutputKind {
     Frame,
-    Midi,
+    MidiPacket,
     Bool,
     Int,
     Float,
@@ -79,12 +79,8 @@ pub enum NodeOutputKind {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum NodeInputKind {
-    // Device {
-    //     #[serde(default)]
-    //     input_ui: DeviceInputUiMode,
-    // },
     Frame,
-    Midi,
+    MidiPacket,
     Bool {
         #[serde(default)]
         default: bool,
@@ -148,6 +144,13 @@ pub enum NodeInputKind {
         #[serde(default)]
         default: Option<PathBuf>,
     },
+    PortSelection,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ShaderPass {
+    /// Path of a shader file relative to the node.json file.
+    pub source: PathBuf,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -155,15 +158,97 @@ pub enum NodeExecutionPlan {
     Shader {
         /// Path of a shader file relative to the node.json file
         source: PathBuf,
+        /// Optional pre-passes that render into temporary textures before the final shader.
+        #[serde(default)]
+        passes: Vec<ShaderPass>,
+    },
+    Algorithm {
+        /// Effect family or algorithm identifier (for example: PixelSort, OpticalFlow, Datamosh).
+        kind: String,
+        /// Ordered list of stages that make up this algorithm.
+        #[serde(default)]
+        stages: Vec<AlgorithmStage>,
     },
     BuiltIn(BuiltInHandler),
 }
+
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum NoiseKind {
+    Perlin,
+    Random,
+    Sin,
+}
+
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum BuiltInHandler {
     ImageSource,
     VideoSource,
     MidiSource,
+    MidiProperties,
+    Noise(NoiseKind),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct AlgorithmStage {
+    /// Backend used to execute the stage.
+    pub backend: AlgorithmStageBackend,
+
+    /// Path of a shader file relative to the node.json file.
+    pub source: PathBuf,
+
+    /// Number of previous stage outputs this stage should receive as additional frame inputs.
+    #[serde(default)]
+    pub extra_frame_inputs: usize,
+
+    /// Optional compute dispatch behavior override for this stage.
+    #[serde(default)]
+    pub dispatch: Option<AlgorithmStageDispatch>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct AlgorithmStageDispatch {
+    #[serde(default)]
+    pub mode: AlgorithmStageDispatchMode,
+
+    /// Enum input name used by `axis_from_enum_input` mode.
+    #[serde(default)]
+    pub enum_input: Option<String>,
+
+    /// Enum value indicating column-wise dispatch in `axis_from_enum_input` mode.
+    #[serde(default = "default_columns_enum_value")]
+    pub columns_enum_value: usize,
+}
+
+impl Default for AlgorithmStageDispatch {
+    fn default() -> Self {
+        Self {
+            mode: AlgorithmStageDispatchMode::Auto,
+            enum_input: None,
+            columns_enum_value: default_columns_enum_value(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AlgorithmStageDispatchMode {
+    #[default]
+    Auto,
+    Rows,
+    Columns,
+    AxisFromEnumInput,
+}
+
+const fn default_columns_enum_value() -> usize {
+    1
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum AlgorithmStageBackend {
+    Render,
+    Compute,
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Default)]
@@ -171,12 +256,6 @@ pub enum NumberInputUiMode {
     #[default]
     TextInput,
     Slider,
-}
-
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Default)]
-pub enum DeviceInputUiMode {
-    #[default]
-    Dropdown,
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Default)]

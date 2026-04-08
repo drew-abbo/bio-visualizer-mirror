@@ -347,7 +347,7 @@ impl NodeRenderPipeline {
 
         for input in inputs {
             // Skip Frame inputs (they're textures, not uniform params)
-            if matches!(input.kind, NodeInputKind::Frame | NodeInputKind::Midi) {
+            if matches!(input.kind, NodeInputKind::Frame | NodeInputKind::MidiPacket) {
                 continue;
             }
 

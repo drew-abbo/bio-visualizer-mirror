@@ -6,12 +6,16 @@ mod input_widgets;
 mod sync;
 mod validation;
 
+pub use input_widgets::InputWidgetState;
+
 use egui;
 use egui::emath::TSTransform;
 use egui_snarl::ui::{PinInfo, SnarlViewer};
 use egui_snarl::{InPin, NodeId as SnarlNodeId, OutPin, Snarl};
+use engine::node::engine_node::{BuiltInHandler, NodeExecutionPlan};
 use engine::node::{NodeInputKind, NodeLibrary, input_kind_to_output_kind};
 use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
+use media::midi::streams::list_ports;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -129,9 +133,10 @@ impl Default for NodeGraphState {
     }
 }
 
-pub struct NodeGraphViewer {
+pub struct NodeGraphViewer<'a> {
     node_library: Arc<NodeLibrary>,
     pending_errors: Vec<String>,
+    input_widget_state: &'a mut input_widgets::InputWidgetState,
     initial_graph_view: Option<GraphViewState>,
     initial_graph_view_zoom: Option<f32>,
     apply_initial_graph_view: bool,
@@ -139,11 +144,15 @@ pub struct NodeGraphViewer {
     reset_view_requested: bool,
 }
 
-impl NodeGraphViewer {
-    pub fn new(node_library: Arc<NodeLibrary>) -> Self {
+impl<'a> NodeGraphViewer<'a> {
+    pub fn new(
+        node_library: Arc<NodeLibrary>,
+        input_widget_state: &'a mut input_widgets::InputWidgetState,
+    ) -> Self {
         Self {
             node_library,
             pending_errors: Vec::new(),
+            input_widget_state,
             initial_graph_view: None,
             initial_graph_view_zoom: None,
             apply_initial_graph_view: false,
@@ -203,7 +212,7 @@ impl NodeGraphViewer {
     }
 }
 
-impl SnarlViewer<NodeData> for NodeGraphViewer {
+impl SnarlViewer<NodeData> for NodeGraphViewer<'_> {
     fn current_transform(&mut self, to_global: &mut TSTransform, _snarl: &mut Snarl<NodeData>) {
         if self.apply_initial_graph_view {
             if let Some(saved_view) = self.initial_graph_view {
@@ -295,6 +304,8 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
                     input_def,
                     &node_name,
                     &self.node_library,
+                    pin.id.node,
+                    &mut self.input_widget_state,
                 );
             } else if let Some(remote) = pin.remotes.first() {
                 // Show connected value
@@ -470,6 +481,23 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
                 from_output.name, to_input_name
             ));
             return;
+        }
+
+        if matches!(
+            from_def.node.executor,
+            NodeExecutionPlan::BuiltIn(BuiltInHandler::MidiSource)
+        ) {
+            let has_midi_ports = match list_ports() {
+                Ok(ports) => ports.count() > 0,
+                Err(_) => false,
+            };
+
+            if !has_midi_ports {
+                self.push_error(
+                    "Cannot connect MIDI node: no MIDI input port is selected or available.",
+                );
+                return;
+            }
         }
 
         // Enforce one incoming connection per input pin.

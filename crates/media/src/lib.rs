@@ -4,5 +4,5 @@ pub mod fps;
 pub mod frame;
 pub mod midi;
 pub mod playback_stream;
-
+pub mod noise;
 mod ffmpeg_tools;

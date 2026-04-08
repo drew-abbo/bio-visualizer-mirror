@@ -1,6 +1,6 @@
 use super::editor_state_context::EditorStateContext;
 use super::graph_executor_manager::GraphExecutorManager;
-use super::node_graph::{NodeGraphState, NodeGraphViewer};
+use super::node_graph::{InputWidgetState, NodeGraphState, NodeGraphViewer};
 use super::snarl_style;
 use crate::app_area::main_output::MainOutputArea;
 use eframe;
@@ -13,8 +13,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use util::ui::ErrorPopup;
 
-// While dragging controls, coalesce graph re-exec requests to roughly one UI frame.
-const GRAPH_INTERACTION_MIN_INTERVAL: Duration = Duration::from_millis(16);
+// If the UI thread stalls (e.g. native file picker), avoid "catch-up"
+// playback bursts by re-syncing the timer to wall clock.
+const PLAYBACK_STALL_RESET_THRESHOLD: Duration = Duration::from_millis(250);
 
 /// Manages all editor-related state: node graph, output display, and playback
 pub struct EditorArea {
@@ -24,14 +25,15 @@ pub struct EditorArea {
     executor_manager: GraphExecutorManager,
     node_library: Arc<NodeLibrary>,
     editor_state_context: EditorStateContext,
+    input_widget_state: InputWidgetState,
     displayed_frame: Option<NodeValue>,
     last_fps_output: Option<Fps>,
     playback_timer: Option<SwitchTimer>,
-    // Last time we ran a graph execute triggered by graph edits.
-    last_graph_execute_request: Instant,
+    last_playback_poll: Option<Instant>,
     // Set when graph topology/parameters changed and a preview execute is pending.
     pending_graph_execute: bool,
     playback_enabled: bool,
+    fps_override: Option<Fps>,
     last_warned_disconnected_selected_node: Option<engine::node_graph::EngineNodeId>,
     snarl_view_generation: u64,
     apply_saved_graph_zoom_once: bool,
@@ -54,12 +56,14 @@ impl EditorArea {
             executor_manager: GraphExecutorManager::new(),
             node_library,
             editor_state_context: EditorStateContext::new(),
+            input_widget_state: InputWidgetState::new(),
             displayed_frame: None,
             last_fps_output: None,
             playback_timer: None,
-            last_graph_execute_request: Instant::now(),
+            last_playback_poll: None,
             pending_graph_execute: false,
             playback_enabled: true,
+            fps_override: None,
             last_warned_disconnected_selected_node: None,
             snarl_view_generation: 0,
             apply_saved_graph_zoom_once: true,
@@ -82,6 +86,7 @@ impl EditorArea {
     fn set_playback_enabled(&mut self, enabled: bool) {
         if self.playback_enabled != enabled {
             self.playback_timer = None;
+            self.last_playback_poll = None;
             if enabled {
                 self.executor_manager.play_streams();
             } else {
@@ -96,18 +101,31 @@ impl EditorArea {
     fn playback_due(&mut self) -> bool {
         if !self.playback_enabled {
             self.playback_timer = None;
+            self.last_playback_poll = None;
             return false;
         }
 
-        let Some(target_fps) = self.last_fps_output else {
+        let Some(target_fps) = self.fps_override.or(self.last_fps_output) else {
             self.playback_timer = None;
+            self.last_playback_poll = None;
             return false;
         };
+
+        let now = Instant::now();
+        let stalled = self
+            .last_playback_poll
+            .is_some_and(|last| now.duration_since(last) > PLAYBACK_STALL_RESET_THRESHOLD);
+        self.last_playback_poll = Some(now);
 
         let timer = self
             .playback_timer
             .get_or_insert_with(|| SwitchTimer::new(target_fps));
         timer.set_target_fps(target_fps);
+
+        if stalled {
+            timer.reset();
+        }
+
         timer.is_switch_time()
     }
 
@@ -138,6 +156,7 @@ impl EditorArea {
         main_output: &mut MainOutputArea,
     ) {
         self.set_playback_enabled(main_output.playback_enabled());
+        self.fps_override = main_output.fps_override();
         self.show(ctx, frame, main_output.preview_selected_node_enabled());
         self.sync_main_output(frame, main_output);
     }
@@ -170,7 +189,7 @@ impl EditorArea {
 
         main_output.update_from_editor(
             self.displayed_frame.as_ref(),
-            self.last_fps_output,
+            self.fps_override.or(self.last_fps_output),
             render_state,
         );
     }
@@ -194,12 +213,14 @@ impl EditorArea {
     fn show_node_graph(&mut self, ctx: &egui::Context) -> Vec<egui_snarl::NodeId> {
         let mut selected_nodes = Vec::new();
         let mut pending_errors = Vec::new();
+        let mut input_widget_state = std::mem::take(&mut self.input_widget_state);
 
         // First, render the UI
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(egui::Color32::from_rgb(16, 20, 22)))
             .show(ctx, |ui| {
-                let mut viewer = NodeGraphViewer::new(self.node_library.clone());
+                let mut viewer =
+                    NodeGraphViewer::new(self.node_library.clone(), &mut input_widget_state);
 
                 let snarl_widget = egui_snarl::ui::SnarlWidget::new()
                     .id(egui::Id::new(("node_graph", self.snarl_view_generation)))
@@ -236,6 +257,8 @@ impl EditorArea {
                 selected_nodes = snarl_widget.get_selected_nodes(ui);
                 pending_errors = viewer.take_pending_errors();
             });
+
+        self.input_widget_state = input_widget_state;
 
         for error in pending_errors {
             self.error_popup_queue.push_back(error);
@@ -385,6 +408,7 @@ impl EditorArea {
             self.displayed_frame = None;
             self.last_fps_output = None;
             self.playback_timer = None;
+            self.last_playback_poll = None;
             self.pending_graph_execute = false;
             return;
         }
@@ -395,6 +419,7 @@ impl EditorArea {
             self.displayed_frame = None;
             self.last_fps_output = None;
             self.playback_timer = None;
+            self.last_playback_poll = None;
             self.pending_graph_execute = false;
             return;
         };
@@ -405,34 +430,31 @@ impl EditorArea {
                 .get_target_fps_for_display_node(&self.node_library, node_to_execute);
         }
 
-        if let Some(global_fps) = self.last_fps_output {
+        if let Some(global_fps) = self.fps_override.or(self.last_fps_output) {
             self.executor_manager
-                .set_global_stream_target_fps_for_target(global_fps, node_to_execute);
+                .set_global_stream_target_fps(global_fps);
         }
 
         if graph_changed {
             self.pending_graph_execute = true;
         }
 
-        // Pointer-down usually means slider drags or active graph interaction.
-        let is_dragging_graph = ctx.input(|i| i.pointer.any_down());
+        let should_advance = self.playback_due();
 
-        // Graph edits execute immediately when interaction ends, but are throttled
-        // while dragging to keep UI input responsive.
-        let graph_execute_due = if selection_changed {
-            true
-        } else if self.pending_graph_execute {
-            if !is_dragging_graph {
-                true
-            } else {
-                self.last_graph_execute_request.elapsed() >= GRAPH_INTERACTION_MIN_INTERVAL
-            }
-        } else {
+        // For timed playback (video/live streams), only advance execution on the
+        // playback clock so UI interactions cannot speed up stream consumption.
+        let has_timed_playback =
+            self.playback_enabled && self.fps_override.or(self.last_fps_output).is_some();
+        let graph_execute_due = if has_timed_playback {
             false
+        } else {
+            graph_changed || self.pending_graph_execute
         };
 
-        let should_advance = self.playback_due();
-        let should_execute = graph_execute_due || self.displayed_frame.is_none() || should_advance;
+        let should_execute = self.displayed_frame.is_none()
+            || should_advance
+            || selection_changed
+            || graph_execute_due;
 
         if should_execute {
             match self.executor_manager.execute(
@@ -442,11 +464,6 @@ impl EditorArea {
             ) {
                 Ok(Some(frame_output)) => {
                     self.displayed_frame = Some(frame_output);
-
-                    if graph_execute_due {
-                        self.pending_graph_execute = false;
-                        self.last_graph_execute_request = Instant::now();
-                    }
                 }
                 Ok(None) => {
                     // No frame output available
@@ -454,25 +471,17 @@ impl EditorArea {
                 Err(engine::graph_executor::ExecutionError::VideoStreamNotReady(_)) => {
                     // Video still warming up, expected case
                 }
+                Err(engine::graph_executor::ExecutionError::NoFrameInput(_))
+                | Err(engine::graph_executor::ExecutionError::UnconnectedFrameInput(_, _)) => {
+                    // Graph is currently missing required frame wiring (common while editing
+                    // or after node schema changes). Avoid log spam until wiring stabilizes.
+                }
                 Err(err) => {
                     util::debug_log_error!("Graph execution error: {}", err);
                 }
             }
-        }
 
-        if self.pending_graph_execute {
-            if is_dragging_graph {
-                let elapsed = self.last_graph_execute_request.elapsed();
-                let wait = GRAPH_INTERACTION_MIN_INTERVAL.saturating_sub(elapsed);
-                if wait.is_zero() {
-                    ctx.request_repaint();
-                } else {
-                    ctx.request_repaint_after(wait);
-                }
-            } else {
-                // Apply queued graph changes immediately once dragging stops.
-                ctx.request_repaint();
-            }
+            self.pending_graph_execute = false;
         }
 
         if self.playback_enabled {

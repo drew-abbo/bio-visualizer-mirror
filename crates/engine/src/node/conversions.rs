@@ -7,16 +7,16 @@ use crate::node::engine_node::{NodeInputKind, NodeOutputKind};
 pub fn input_kind_to_output_kind(input_kind: &NodeInputKind) -> NodeOutputKind {
     match input_kind {
         NodeInputKind::Frame => NodeOutputKind::Frame,
-        NodeInputKind::Midi => NodeOutputKind::Midi,
+        NodeInputKind::MidiPacket => NodeOutputKind::MidiPacket,
         NodeInputKind::Bool { .. } => NodeOutputKind::Bool,
         NodeInputKind::Int { .. } => NodeOutputKind::Int,
         NodeInputKind::Float { .. } => NodeOutputKind::Float,
         NodeInputKind::Dimensions { .. } => NodeOutputKind::Dimensions,
         NodeInputKind::Pixel { .. } => NodeOutputKind::Pixel,
         NodeInputKind::Text { .. } => NodeOutputKind::Text,
-        NodeInputKind::Enum { .. } => NodeOutputKind::Int, // Enum uses int for selection
-        NodeInputKind::File { .. } => NodeOutputKind::Text, // File paths as text
-        // NodeInputKind::Device { .. } => NodeOutputKind::Midi
+        NodeInputKind::Enum { .. } => NodeOutputKind::Int,
+        NodeInputKind::File { .. } => NodeOutputKind::Text,
+        NodeInputKind::PortSelection => NodeOutputKind::Text,
     }
 }
 
@@ -24,7 +24,7 @@ pub fn input_kind_to_output_kind(input_kind: &NodeInputKind) -> NodeOutputKind {
 pub fn default_value_for_input_kind(input_kind: &NodeInputKind) -> NodeValue {
     match input_kind {
         NodeInputKind::Frame => panic!("Frame inputs cannot have default values"),
-        NodeInputKind::Midi => NodeValue::Float(0.0), // Placeholder
+        NodeInputKind::MidiPacket => NodeValue::Midi(media::midi::MidiPacket::default()),
         NodeInputKind::Bool { default, .. } => NodeValue::Bool(*default),
         NodeInputKind::Int { default, .. } => NodeValue::Int(*default),
         NodeInputKind::Float { default, .. } => NodeValue::Float(*default),
@@ -33,6 +33,6 @@ pub fn default_value_for_input_kind(input_kind: &NodeInputKind) -> NodeValue {
         NodeInputKind::Text { default, .. } => NodeValue::Text(default.clone()),
         NodeInputKind::Enum { default_idx, .. } => NodeValue::Enum(default_idx.unwrap_or(0)),
         NodeInputKind::File { default, .. } => NodeValue::File(default.clone().unwrap_or_default()),
-        // NodeInputKind::Device { input_ui,..} => NodeValue::Device(input_ui.clone())
+        NodeInputKind::PortSelection => NodeValue::Text(String::new()),
     }
 }
