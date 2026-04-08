@@ -18,6 +18,8 @@ pub struct LiveMidiStream {
     inbox: Inbox<Result<(Key, u8), MidiStreamError>>,
     target_fps: Fps,
     paused: bool,
+    /// Tracks currently active notes across frames until NoteOff is received.
+    current_packet: MidiPacket,
     _connection: MidiInputConnection<Outbox<Result<(Key, u8), MidiStreamError>>>,
 }
 
@@ -58,7 +60,7 @@ impl LiveMidiStream {
                     MidiMessage::NoteOn { key, vel } => (key, vel.as_int()),
                     _ => return,
                 };
-                let key = key.as_int().try_into().expect("u7 can't be over 127");
+                let key: Key = key.as_int().try_into().expect("u7 can't be over 127");
 
                 _ = outbox.send(Ok((key, vel)));
             };
@@ -71,6 +73,7 @@ impl LiveMidiStream {
             inbox,
             target_fps,
             paused,
+            current_packet: MidiPacket::default(),
             _connection: connection,
         })
     }
@@ -78,8 +81,6 @@ impl LiveMidiStream {
 
 impl PlaybackStream<MidiPacket, MidiStreamError> for LiveMidiStream {
     fn fetch(&mut self) -> Result<MidiPacket, MidiStreamError> {
-        let mut packet = MidiPacket::default();
-
         let check_result = self
             .inbox
             .check_in_place(|msg_queue| {
@@ -93,7 +94,7 @@ impl PlaybackStream<MidiPacket, MidiStreamError> for LiveMidiStream {
                         continue;
                     }
 
-                    packet.set_key_velocity(key, vel);
+                    self.current_packet.set_key_velocity(key, vel);
                 }
 
                 Ok(())
@@ -104,7 +105,7 @@ impl PlaybackStream<MidiPacket, MidiStreamError> for LiveMidiStream {
             return Err(e);
         }
 
-        Ok(packet)
+        Ok(self.current_packet.clone())
     }
 
     fn set_target_fps(&mut self, new_target_fps: Fps) {

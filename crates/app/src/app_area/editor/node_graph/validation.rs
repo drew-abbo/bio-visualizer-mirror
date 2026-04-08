@@ -1,4 +1,5 @@
 use egui_snarl::{NodeId as SnarlNodeId, Snarl};
+use engine::node::engine_node::{BuiltInHandler, NodeExecutionPlan};
 use engine::node::NodeInputKind;
 use engine::node::NodeLibrary;
 use engine::node_graph::InputValue;
@@ -26,14 +27,14 @@ pub fn are_inputs_satisfied(
         return false;
     };
 
-    // Check if this is a source node (has File input)
+    // Check whether this node requires a file to be considered active.
     let is_source = definition
         .node
         .inputs
         .iter()
         .any(|input| matches!(input.kind, NodeInputKind::File { .. }));
 
-    // Source nodes must have a file configured
+    // File-backed source nodes must have a configured file.
     if is_source {
         let has_file = node
             .input_values
@@ -84,7 +85,11 @@ pub fn are_inputs_satisfied(
     true
 }
 
-/// Check if a node is a source node (video/image) with a configured file
+/// Check if a node is an active source.
+///
+/// Active sources currently include:
+/// - File-based sources with a configured file
+/// - Built-in MIDI source nodes
 pub fn is_active_source(
     snarl: &Snarl<NodeData>,
     node_id: SnarlNodeId,
@@ -98,6 +103,13 @@ pub fn is_active_source(
     let Some(definition) = node_library.get_definition(&node.definition_name) else {
         return false;
     };
+
+    if matches!(
+        definition.node.executor,
+        NodeExecutionPlan::BuiltIn(BuiltInHandler::MidiSource)
+    ) {
+        return true;
+    }
 
     let is_source = definition
         .node

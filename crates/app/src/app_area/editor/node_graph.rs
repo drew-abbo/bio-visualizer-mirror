@@ -12,7 +12,7 @@ use egui;
 use egui::emath::TSTransform;
 use egui_snarl::ui::{PinInfo, SnarlViewer};
 use egui_snarl::{InPin, NodeId as SnarlNodeId, OutPin, Snarl};
-use engine::node::engine_node::{BuiltInHandler, NodeExecutionPlan};
+use engine::node::engine_node::{BuiltInHandler, NodeExecutionPlan, NodeOutputKind};
 use engine::node::{NodeInputKind, NodeLibrary, input_kind_to_output_kind};
 use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
 use media::midi::streams::list_ports;
@@ -21,6 +21,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 const VIRTUAL_OUTPUT_SINK_NAME: &str = "__virtual_output_sink__";
+
+fn are_pin_kinds_compatible(output_kind: NodeOutputKind, input_kind: &NodeInputKind) -> bool {
+    let expected_output_kind = input_kind_to_output_kind(input_kind);
+    output_kind == expected_output_kind
+        // Numeric widening: allow Int outputs to feed Float inputs.
+        || matches!((output_kind, input_kind), (NodeOutputKind::Int, NodeInputKind::Float { .. }))
+}
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub struct GraphViewState {
@@ -471,11 +478,7 @@ impl SnarlViewer<NodeData> for NodeGraphViewer<'_> {
         };
 
         // Check if types are compatible
-        let output_kind = &from_output.kind;
-        let expected_output_kind = input_kind_to_output_kind(&to_input_kind);
-
-        // Only allow connection if types match
-        if output_kind != &expected_output_kind {
+        if !are_pin_kinds_compatible(from_output.kind, &to_input_kind) {
             self.push_error(format!(
                 "Cannot connect '{}' to '{}': incompatible pin types.",
                 from_output.name, to_input_name

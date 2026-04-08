@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use media::midi::streams::list_ports;
 use util::channels::message_channel;
 
-/// I just hate strings
+/// Node names used to drive file picker filters.
 const VIDEO_NODE_NAME: &str = "Video";
 const IMAGE_NODE_NAME: &str = "Image";
 
@@ -70,7 +70,7 @@ pub fn show_input_widget(
         NodeInputKind::Int {
             default, min, max, ..
         } => {
-            show_int_input(ui, input_values, input_def, *default, *min, *max);
+            show_int_input(ui, input_values, input_def, node_name, *default, *min, *max);
         }
         NodeInputKind::Float {
             default, min, max, ..
@@ -235,6 +235,7 @@ fn show_int_input(
     ui: &mut Ui,
     input_values: &mut HashMap<String, InputValue>,
     input_def: &NodeInput,
+    node_name: &str,
     default: i32,
     min: Option<i32>,
     max: Option<i32>,
@@ -254,6 +255,14 @@ fn show_int_input(
 
     if changed {
         input_values.insert(input_def.name.clone(), InputValue::Int(value));
+    }
+
+    // Show a readable MIDI note label beside the key slider for quick mapping.
+    if node_name == "Midi Properties" && input_def.name == "Key" {
+        let key_value = value.clamp(0, 127) as u8;
+        if let Ok(key) = media::midi::Key::from_u8(key_value) {
+            ui.small(format!("{} ({})", key.as_str(), key_value));
+        }
     }
 }
 

@@ -43,13 +43,17 @@
         {
             "name": "Max Velocity",
             "kind": "Int"
+        },
+        {
+            "name": "Any Key Velocity Normalized",
+            "kind": "Float"
         }
     ],
     "executor": {
         "BuiltIn": "MidiProperties"
     },
     "short_description": "Extracts scalar properties from a MIDI packet",
-    "long_description": "Takes a MIDI packet and exposes key-based and packet-level properties such as key name, key state, velocity, normalized velocity, average active frequency, and maximum velocity.",
+    "long_description": "Takes a MIDI packet and exposes key-based and packet-level properties such as key name, key state, velocity, normalized velocity, average active frequency, maximum velocity, and a channel-agnostic normalized velocity for any pressed key.",
     "category": "Input",
     "subcategories": [],
     "search_keywords": ["midi", "properties", "velocity", "frequency", "note", "analysis"]

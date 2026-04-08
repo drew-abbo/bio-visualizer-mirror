@@ -1,12 +1,19 @@
 use egui_snarl::InPinId;
 use egui_snarl::{NodeId as SnarlNodeId, Snarl};
-use engine::node::engine_node::NodeInput;
+use engine::node::engine_node::{NodeInput, NodeOutputKind};
 use engine::node::{NodeInputKind, NodeLibrary, input_kind_to_output_kind};
 use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
 use std::collections::{HashMap, HashSet};
 
 use super::{NodeData, NodeGraphState, validation};
 const VIRTUAL_OUTPUT_SINK_NAME: &str = "__virtual_output_sink__";
+
+fn are_pin_kinds_compatible(output_kind: NodeOutputKind, input_kind: &NodeInputKind) -> bool {
+    let expected_kind = input_kind_to_output_kind(input_kind);
+    output_kind == expected_kind
+        // Numeric widening: allow Int outputs to feed Float inputs.
+        || matches!((output_kind, input_kind), (NodeOutputKind::Int, NodeInputKind::Float { .. }))
+}
 
 /// Sync the entire node graph to the engine
 /// Returns true if any changes were made to the engine graph
@@ -185,8 +192,7 @@ fn prune_invalid_wires(state: &mut NodeGraphState, node_library: &NodeLibrary) -
             continue;
         };
 
-        let expected_kind = input_kind_to_output_kind(&to_input.kind);
-        if from_output.kind != expected_kind {
+        if !are_pin_kinds_compatible(from_output.kind, &to_input.kind) {
             invalid_inputs.push(wire_to);
         }
     }

@@ -57,6 +57,7 @@ impl MidiStreamHandler {
             NodeValue::Float(0.0),
             NodeValue::Float(0.0),
             NodeValue::Int(0),
+            NodeValue::Float(0.0),
         ]
     }
 
@@ -140,6 +141,7 @@ impl MidiStreamHandler {
         let velocity = packet.key_velocity(key);
         let velocity_normalized = velocity as f32 / 127.0;
         let average_frequency = packet.average_frequency().unwrap_or(0.0) as f32;
+        let any_key_velocity_normalized = packet.max_velocity() as f32 / 127.0;
 
         Ok(vec![
             NodeValue::Text(key.as_str().to_string()),
@@ -148,6 +150,7 @@ impl MidiStreamHandler {
             NodeValue::Float(velocity_normalized),
             NodeValue::Float(average_frequency),
             NodeValue::Int(packet.max_velocity() as i32),
+            NodeValue::Float(any_key_velocity_normalized),
         ])
     }
 

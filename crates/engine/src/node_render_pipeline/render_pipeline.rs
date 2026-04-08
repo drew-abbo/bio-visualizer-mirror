@@ -264,6 +264,10 @@ impl NodeRenderPipeline {
             (NodeInputKind::Float { .. }, NodeValue::Float(f)) => {
                 buffer[offset..offset + 4].copy_from_slice(&f.to_le_bytes());
             }
+            (NodeInputKind::Float { .. }, NodeValue::Int(i)) => {
+                let f = *i as f32;
+                buffer[offset..offset + 4].copy_from_slice(&f.to_le_bytes());
+            }
             (NodeInputKind::Pixel { .. }, NodeValue::Pixel(p)) => {
                 for (i, &component) in p.iter().enumerate() {
                     let bytes = component.to_le_bytes();
