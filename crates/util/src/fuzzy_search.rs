@@ -169,3 +169,249 @@ fn warn_if_more_than_once_instance_created() {
         crate::debug_log_warning!("More than one `FuzzySearcher` instance constructed.");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Helper: a simple FuzzySearchable string newtype
+    #[derive(Debug, Clone, PartialEq)]
+    struct Item(&'static str);
+
+    impl FuzzySearchable for Item {
+        fn as_search_string(&self) -> &str {
+            self.0
+        }
+    }
+
+    // --- FuzzySearchable impls for &T and &mut T ---
+    // Decision: delegation through deref (always one path, but both ref kinds exercised)
+
+    #[test]
+    fn fuzzy_searchable_ref_delegates_to_inner() {
+        let item = Item("hello");
+        let r: &Item = &item;
+        assert_eq!(r.as_search_string(), "hello");
+    }
+
+    #[test]
+    fn fuzzy_searchable_mut_ref_delegates_to_inner() {
+        let mut item = Item("hello");
+        let r: &mut Item = &mut item;
+        assert_eq!(r.as_search_string(), "hello");
+    }
+
+    // --- search_pattern_from_str ---
+    // Decision 1: search.is_empty() => true (None) | false (continue)
+    // Decision 2: search.chars().all(whitespace) => true (None) | false (Some(Pattern))
+
+    #[test]
+    fn search_pattern_from_empty_string_is_none() {
+        let result = FuzzySearcher::search_pattern_from_str("");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn search_pattern_from_whitespace_only_is_none() {
+        let result = FuzzySearcher::search_pattern_from_str("   ");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn search_pattern_from_whitespace_only_tab_is_none() {
+        let result = FuzzySearcher::search_pattern_from_str("\t\n ");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn search_pattern_from_nonempty_string_is_some() {
+        let result = FuzzySearcher::search_pattern_from_str("hello");
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn search_pattern_from_mixed_whitespace_and_text_is_some() {
+        let result = FuzzySearcher::search_pattern_from_str("  hi  ");
+        assert!(result.is_some());
+    }
+
+    // --- FuzzySearcher::new ---
+    // Decision: search_str empty => pattern None | nonempty => pattern Some
+
+    #[test]
+    fn new_with_empty_string_has_none_pattern() {
+        let searcher = FuzzySearcher::new("");
+        assert_eq!(searcher.search_str(), "");
+    }
+
+    #[test]
+    fn new_with_nonempty_string_stores_search_str() {
+        let searcher = FuzzySearcher::new("rust");
+        assert_eq!(searcher.search_str(), "rust");
+    }
+
+    // --- FuzzySearcher::default ---
+    // Decision: calls new("") — same as new with empty string
+
+    #[test]
+    fn default_has_empty_search_str() {
+        let searcher = FuzzySearcher::default();
+        assert_eq!(searcher.search_str(), "");
+    }
+
+    // --- set_search_str ---
+    // Decision 1: new str empty/whitespace => pattern becomes None
+    // Decision 2: new str nonempty => pattern becomes Some
+
+    #[test]
+    fn set_search_str_to_empty_clears_pattern() {
+        let mut searcher = FuzzySearcher::new("hello");
+        searcher.set_search_str("");
+        assert_eq!(searcher.search_str(), "");
+        // Confirm search now returns everything (no-filter path)
+        let items = vec![Item("a"), Item("b")];
+        let results: Vec<_> = searcher.search(items.into_iter()).collect();
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn set_search_str_to_whitespace_clears_pattern() {
+        let mut searcher = FuzzySearcher::new("hello");
+        searcher.set_search_str("   ");
+        assert_eq!(searcher.search_str(), "   ");
+        let items = vec![Item("a"), Item("b")];
+        let results: Vec<_> = searcher.search(items.into_iter()).collect();
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn set_search_str_to_nonempty_updates_pattern() {
+        let mut searcher = FuzzySearcher::new("");
+        searcher.set_search_str("rust");
+        assert_eq!(searcher.search_str(), "rust");
+    }
+
+    // --- search ---
+    // Decision 1: search_pattern is None => dont_do_search is Some(items.clone()), do_search is None
+    //             => returns all items unfiltered
+    // Decision 2: search_pattern is Some => dont_do_search is None, do_search is Some(filtered)
+    //             => returns matching items only
+    // Decision 3: match_list result may be empty => iterator produces nothing
+
+    #[test]
+    fn search_with_empty_pattern_returns_all_items() {
+        let mut searcher = FuzzySearcher::new("");
+        let items = vec![Item("apple"), Item("banana"), Item("cherry")];
+        let results: Vec<_> = searcher.search(items.into_iter()).collect();
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn search_with_whitespace_pattern_returns_all_items() {
+        let mut searcher = FuzzySearcher::new("  ");
+        let items = vec![Item("apple"), Item("banana")];
+        let results: Vec<_> = searcher.search(items.into_iter()).collect();
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn search_with_matching_pattern_returns_subset() {
+        let mut searcher = FuzzySearcher::new("app");
+        let items = vec![Item("apple"), Item("banana"), Item("application")];
+        let results: Vec<_> = searcher.search(items.into_iter()).collect();
+        // "apple" and "application" should match "app"; "banana" should not
+        assert!(results.iter().any(|i| i.0 == "apple"));
+        assert!(results.iter().any(|i| i.0 == "application"));
+        assert!(!results.iter().any(|i| i.0 == "banana"));
+    }
+
+    #[test]
+    fn search_with_no_matching_items_returns_empty() {
+        let mut searcher = FuzzySearcher::new("zzzzzzzzzzz");
+        let items = vec![Item("apple"), Item("banana")];
+        let results: Vec<_> = searcher.search(items.into_iter()).collect();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn search_with_empty_collection_returns_empty() {
+        let mut searcher = FuzzySearcher::new("apple");
+        let items: Vec<Item> = vec![];
+        let results: Vec<_> = searcher.search(items.into_iter()).collect();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn search_empty_pattern_empty_collection_returns_empty() {
+        let mut searcher = FuzzySearcher::new("");
+        let items: Vec<Item> = vec![];
+        let results: Vec<_> = searcher.search(items.into_iter()).collect();
+        assert!(results.is_empty());
+    }
+
+    // --- search_indices ---
+    // Decision 1: delegates to search => empty pattern returns all indices
+    // Decision 2: nonempty pattern returns subset of indices
+    // Decision 3: pointer arithmetic correctness (indices point into original slice)
+
+    #[test]
+    fn search_indices_with_empty_pattern_returns_all_indices() {
+        let mut searcher = FuzzySearcher::new("");
+        let items = vec![Item("alpha"), Item("beta"), Item("gamma")];
+        let mut indices: Vec<_> = searcher.search_indices(&items).collect();
+        indices.sort();
+        assert_eq!(indices, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn search_indices_with_pattern_returns_correct_indices() {
+        let mut searcher = FuzzySearcher::new("alp");
+        let items = vec![Item("alpha"), Item("beta"), Item("alps")];
+        let mut indices: Vec<_> = searcher.search_indices(&items).collect();
+        indices.sort();
+        // "alpha" is index 0, "alps" is index 2
+        assert!(indices.contains(&0));
+        assert!(indices.contains(&2));
+        assert!(!indices.contains(&1));
+    }
+
+    #[test]
+    fn search_indices_are_valid_indices_into_slice() {
+        let mut searcher = FuzzySearcher::new("be");
+        let items = vec![Item("alpha"), Item("beta"), Item("gamma")];
+        let indices: Vec<_> = searcher.search_indices(&items).collect();
+        // Every returned index must be in bounds and point to the right item
+        for idx in &indices {
+            assert!(*idx < items.len());
+            assert!(
+                items[*idx].as_search_string().contains("be")
+                    || items[*idx].as_search_string() == "beta"
+            ); // sanity
+        }
+    }
+
+    #[test]
+    fn search_indices_no_match_returns_empty() {
+        let mut searcher = FuzzySearcher::new("zzzzzzz");
+        let items = vec![Item("alpha"), Item("beta")];
+        let indices: Vec<_> = searcher.search_indices(&items).collect();
+        assert!(indices.is_empty());
+    }
+
+    #[test]
+    fn search_indices_empty_slice_returns_empty() {
+        let mut searcher = FuzzySearcher::new("alpha");
+        let items: Vec<Item> = vec![];
+        let indices: Vec<_> = searcher.search_indices(&items).collect();
+        assert!(indices.is_empty());
+    }
+
+    // --- FuzzySearchableWrapper ---
+    // Decision: as_ref() delegates to as_search_string() (single path)
+
+    #[test]
+    fn fuzzy_searchable_wrapper_as_ref_delegates() {
+        let wrapper = FuzzySearchableWrapper(Item("wrapped"));
+        assert_eq!(wrapper.as_ref(), "wrapped");
+    }
+}
