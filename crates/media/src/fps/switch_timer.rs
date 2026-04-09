@@ -102,3 +102,125 @@ impl SwitchTimer {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::thread::sleep;
+
+    use crate::fps::consts;
+
+    // --- is_switch_time decisions ---
+
+    #[test]
+    fn first_call_always_returns_true() {
+        let mut timer = SwitchTimer::new(consts::FPS_60);
+
+        assert!(timer.is_switch_time());
+    }
+
+    #[test]
+    fn second_call_without_time_elapsed_returns_false() {
+        let mut timer = SwitchTimer::new(consts::FPS_60);
+
+        timer.is_switch_time(); // first = true
+        assert!(!timer.is_switch_time()); // no time passed
+    }
+
+    #[test]
+    fn returns_true_when_frame_advanced() {
+        let mut timer = SwitchTimer::new(consts::FPS_60);
+
+        timer.is_switch_time(); // initialize
+
+        // sleep enough for at least one frame (~16ms for 60 FPS)
+        sleep(std::time::Duration::from_millis(20));
+
+        assert!(timer.is_switch_time());
+    }
+
+    // --- time_until_next_switch decisions ---
+
+    #[test]
+    fn time_until_next_switch_before_start_is_zero() {
+        let timer = SwitchTimer::new(consts::FPS_60);
+
+        assert_eq!(timer.time_until_next_switch(), Duration::ZERO);
+    }
+
+    #[test]
+    fn time_until_next_switch_after_start_non_zero() {
+        let mut timer = SwitchTimer::new(consts::FPS_60);
+
+        timer.is_switch_time(); // start clock
+
+        let remaining = timer.time_until_next_switch();
+
+        // should be >= 0, usually > 0
+        assert!(remaining >= Duration::ZERO);
+    }
+
+    #[test]
+    fn time_until_next_switch_zero_when_behind() {
+        let mut timer = SwitchTimer::new(consts::FPS_60);
+
+        timer.is_switch_time();
+
+        // wait long enough to exceed next frame
+        sleep(std::time::Duration::from_millis(50));
+
+        let remaining = timer.time_until_next_switch();
+
+        assert_eq!(remaining, Duration::ZERO);
+    }
+
+    // --- reset behavior ---
+
+    #[test]
+    fn reset_restores_initial_behavior() {
+        let mut timer = SwitchTimer::new(consts::FPS_60);
+
+        timer.is_switch_time();
+        timer.is_switch_time();
+
+        timer.reset();
+
+        // after reset, first call should again be true
+        assert!(timer.is_switch_time());
+    }
+
+    // --- set_target_fps decisions ---
+
+    #[test]
+    fn set_target_fps_same_value_does_not_reset() {
+        let mut timer = SwitchTimer::new(consts::FPS_60);
+
+        timer.is_switch_time(); // start
+
+        timer.set_target_fps(consts::FPS_60);
+
+        // should NOT behave like reset
+        assert!(!timer.is_switch_time());
+    }
+
+    #[test]
+    fn set_target_fps_different_value_resets() {
+        let mut timer = SwitchTimer::new(consts::FPS_60);
+
+        timer.is_switch_time(); // start
+
+        timer.set_target_fps(consts::FPS_30);
+
+        // should behave like first call again
+        assert!(timer.is_switch_time());
+    }
+
+    // --- target_fps getter ---
+
+    #[test]
+    fn target_fps_returns_current_value() {
+        let timer = SwitchTimer::new(consts::FPS_60);
+
+        assert_eq!(timer.target_fps(), consts::FPS_60);
+    }
+}
