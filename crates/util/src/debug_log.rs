@@ -147,3 +147,192 @@ pub fn where_and_when(color: &str, reset_color: &str) -> String {
 
 #[cfg(debug_assertions)]
 static ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[cfg(test)]
+mod decision_coverage_tests {
+    use super::*;
+    use crate::debug_log::panic_on_errors;
+    use std::sync::{Mutex, MutexGuard};
+
+    /// Global serialization lock for tests that touch shared atomic state.
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    /// RAII guard that restores known-good state when dropped (even on panic).
+    struct StateGuard<'a> {
+        _lock: MutexGuard<'a, ()>,
+    }
+
+    impl<'a> StateGuard<'a> {
+        fn acquire() -> Self {
+            let lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            // Restore defaults before each test
+            enable();
+            panic_on_errors::disable();
+            Self { _lock: lock }
+        }
+    }
+
+    impl Drop for StateGuard<'_> {
+        fn drop(&mut self) {
+            // Restore defaults after each test (even on panic)
+            enable();
+            panic_on_errors::disable();
+        }
+    }
+
+    // --- enabled() ---
+
+    #[test]
+    fn enabled_returns_true_by_default() {
+        let _g = StateGuard::acquire();
+        enable();
+        assert!(enabled());
+    }
+
+    #[test]
+    fn enabled_returns_false_after_disable() {
+        let _g = StateGuard::acquire();
+        disable();
+        assert!(!enabled());
+    }
+
+    // --- disable() ---
+
+    #[test]
+    fn disable_sets_enabled_to_false() {
+        let _g = StateGuard::acquire();
+        enable();
+        disable();
+        assert!(!enabled());
+    }
+
+    #[test]
+    fn disable_is_idempotent() {
+        let _g = StateGuard::acquire();
+        disable();
+        disable();
+        assert!(!enabled());
+    }
+
+    // --- enable() ---
+
+    #[test]
+    fn enable_sets_enabled_to_true() {
+        let _g = StateGuard::acquire();
+        disable();
+        enable();
+        assert!(enabled());
+    }
+
+    #[test]
+    fn enable_is_idempotent() {
+        let _g = StateGuard::acquire();
+        enable();
+        enable();
+        assert!(enabled());
+    }
+
+    // --- where_and_when() ---
+
+    #[test]
+    fn where_and_when_with_no_color_codes_contains_expected_sections() {
+        let result = where_and_when("", "");
+        assert!(result.contains("Where:"));
+        assert!(result.contains("Time:"));
+        assert!(result.contains("Exec.:"));
+    }
+
+    #[test]
+    fn where_and_when_with_color_codes_contains_expected_sections() {
+        let result = where_and_when("\x1b[34m", "\x1b[0m");
+        assert!(result.contains("Where:"));
+        assert!(result.contains("Time:"));
+        assert!(result.contains("Exec.:"));
+        assert!(result.contains("\x1b[34m"));
+        assert!(result.contains("\x1b[0m"));
+    }
+
+    #[test]
+    fn where_and_when_contains_caller_file() {
+        let result = where_and_when("", "");
+        assert!(result.contains(file!()));
+    }
+
+    #[test]
+    fn where_and_when_time_is_rfc3339_formatted() {
+        let result = where_and_when("", "");
+        let time_line = result
+            .lines()
+            .find(|l| l.contains("Time:"))
+            .expect("Time line missing");
+        assert!(time_line.contains('T'), "Expected RFC3339 'T' separator");
+    }
+
+    #[test]
+    fn where_and_when_exec_line_is_present() {
+        let result = where_and_when("", "");
+        let exec_line = result
+            .lines()
+            .find(|l| l.contains("Exec.:"))
+            .expect("Exec. line missing");
+        assert!(!exec_line.trim_start_matches("\tExec.:").trim().is_empty());
+    }
+
+    // --- debug_log_info! ---
+
+    #[test]
+    fn debug_log_info_does_not_panic_when_enabled() {
+        let _g = StateGuard::acquire();
+        enable();
+        debug_log_info!("test info message {}", 42);
+    }
+
+    #[test]
+    fn debug_log_info_does_not_panic_when_disabled() {
+        let _g = StateGuard::acquire();
+        disable();
+        debug_log_info!("this should be skipped");
+    }
+
+    // --- debug_log_warning! ---
+
+    #[test]
+    fn debug_log_warning_does_not_panic_when_enabled() {
+        let _g = StateGuard::acquire();
+        enable();
+        debug_log_warning!("test warning message {}", 42);
+    }
+
+    #[test]
+    fn debug_log_warning_does_not_panic_when_disabled() {
+        let _g = StateGuard::acquire();
+        disable();
+        debug_log_warning!("this should be skipped");
+    }
+
+    // --- debug_log_error! ---
+
+    #[test]
+    fn debug_log_error_does_not_panic_when_disabled() {
+        let _g = StateGuard::acquire();
+        disable();
+        debug_log_error!("this should be skipped");
+    }
+
+    #[test]
+    fn debug_log_error_does_not_panic_when_panic_on_errors_disabled() {
+        let _g = StateGuard::acquire();
+        enable();
+        panic_on_errors::disable(); // false branch of inner decision
+        debug_log_error!("test error message {}", 42);
+    }
+
+    #[test]
+    #[should_panic(expected = "Panicking on error logging enabled.")]
+    fn debug_log_error_panics_when_panic_on_errors_enabled() {
+        let _g = StateGuard::acquire();
+        enable();
+        panic_on_errors::enable();
+        debug_log_error!("this should panic");
+    }
+}
