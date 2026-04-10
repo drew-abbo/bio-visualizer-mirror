@@ -133,6 +133,96 @@ impl NodeGraphState {
             .wires()
             .find_map(|(from, to)| (to.node == sink).then_some(from.node))
     }
+
+    /// Validate persisted runtime-sensitive inputs (for example MIDI ports) so a
+    /// project can start cleanly even if external devices changed while the app
+    /// was closed.
+    pub fn sanitize_runtime_inputs_on_load(&mut self, node_library: &NodeLibrary) -> Vec<String> {
+        let available_ports: Vec<String> = match list_ports() {
+            Ok(ports) => ports.map(|port| port.port_name().to_string()).collect(),
+            Err(error) => {
+                util::debug_log_warning!("Failed to list MIDI input ports on load: {}", error);
+                Vec::new()
+            }
+        };
+
+        let mut warnings = Vec::new();
+        let node_ids: Vec<SnarlNodeId> = self.snarl.node_ids().map(|(id, _)| id).collect();
+
+        for node_id in node_ids {
+            let definition_name = self.snarl[node_id].definition_name.clone();
+            let Some(definition) = node_library.get_definition(&definition_name) else {
+                continue;
+            };
+
+            if !matches!(
+                definition.node.executor,
+                NodeExecutionPlan::BuiltIn(BuiltInHandler::MidiSource)
+            ) {
+                continue;
+            }
+
+            let port_query = self.snarl[node_id]
+                .input_values
+                .get("Port")
+                .and_then(|value| match value {
+                    InputValue::Text(text) => {
+                        let trimmed = text.trim();
+                        if trimmed.is_empty() {
+                            None
+                        } else {
+                            Some(trimmed.to_string())
+                        }
+                    }
+                    InputValue::Enum(index) => Some(index.to_string()),
+                    _ => None,
+                });
+
+            if available_ports.is_empty() {
+                let outgoing_inputs: Vec<egui_snarl::InPinId> = self
+                    .snarl
+                    .wires()
+                    .filter_map(|(from, to)| (from.node == node_id).then_some(to))
+                    .collect();
+
+                if !outgoing_inputs.is_empty() {
+                    for input_pin in outgoing_inputs {
+                        self.snarl.drop_inputs(input_pin);
+                    }
+
+                    warnings.push(format!(
+                        "'{}' was disconnected because no MIDI input ports are currently available.",
+                        definition.node.name
+                    ));
+                }
+
+                continue;
+            }
+
+            let Some(query) = port_query else {
+                continue;
+            };
+
+            let query_matches = if let Ok(index) = query.parse::<usize>() {
+                index < available_ports.len()
+            } else {
+                available_ports.iter().any(|port| port == &query)
+            };
+
+            if !query_matches {
+                self.snarl[node_id]
+                    .input_values
+                    .insert("Port".to_string(), InputValue::Text(String::new()));
+
+                warnings.push(format!(
+                    "'{}' had a missing MIDI port ('{}'); port selection was reset to Auto.",
+                    definition.node.name, query
+                ));
+            }
+        }
+
+        warnings
+    }
 }
 
 impl Default for NodeGraphState {

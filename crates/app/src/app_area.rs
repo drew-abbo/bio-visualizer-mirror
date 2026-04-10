@@ -124,6 +124,8 @@ impl AppArea {
 
 impl eframe::App for AppArea {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        // util::debug_log_info!("--- update called ---");
+
         self.request_startup_maximized(ctx);
         self.process_pending_commands();
 
@@ -162,6 +164,11 @@ impl eframe::App for AppArea {
         self.main_output.show(ctx);
         self.editor_area
             .show_with_main_output(ctx, frame, &mut self.main_output);
+
+        let fps = self.editor_area.current_target_fps();
+        if let Some(fps) = fps {
+            ctx.request_repaint_after(fps.interval());
+        }
     }
 
     fn persist_egui_memory(&self) -> bool {

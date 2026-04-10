@@ -91,7 +91,21 @@ impl EditorArea {
     ) {
         // Normalize inputs to handle schema changes since project was saved
         super::node_graph::normalize_node_inputs(project.data_mut(), &self.node_library);
+
+        let startup_warnings = project
+            .data_mut()
+            .sanitize_runtime_inputs_on_load(&self.node_library);
+
+        for warning in startup_warnings {
+            util::debug_log_warning!("Graph startup validation: {}", warning);
+            self.error_popup_queue.push_back(warning);
+        }
+
         self.editor_state_context.set_project(project);
+    }
+
+    pub fn current_target_fps(&self) -> Option<Fps> {
+        self.fps_override.or(self.last_fps_output)
     }
 
     fn set_playback_enabled(&mut self, enabled: bool) {
@@ -139,23 +153,6 @@ impl EditorArea {
 
         timer.is_switch_time()
     }
-
-    fn schedule_next_playback_repaint(&self, ctx: &egui::Context) {
-        if !self.playback_enabled {
-            return;
-        }
-
-        let Some(timer) = &self.playback_timer else {
-            return;
-        };
-
-        let wait = timer.time_until_next_switch();
-        if wait.is_zero() {
-            ctx.request_repaint();
-        } else {
-            ctx.request_repaint_after(wait);
-        }
-    }
 }
 
 impl EditorArea {
@@ -183,7 +180,6 @@ impl EditorArea {
         let selected_nodes = self.show_node_graph(ctx);
         let selected_snarl_node = self.update_output_selection(&selected_nodes);
         self.update_output_from_graph(
-            ctx,
             frame,
             selected_snarl_node,
             preview_selected_node_enabled,
@@ -349,7 +345,6 @@ impl EditorArea {
 
     fn update_output_from_graph(
         &mut self,
-        ctx: &egui::Context,
         frame: &eframe::Frame,
         selected_snarl_node: Option<egui_snarl::NodeId>,
         preview_selected_node_enabled: bool,
@@ -462,10 +457,16 @@ impl EditorArea {
             graph_changed || self.pending_graph_execute
         };
 
+        
         let should_execute = self.displayed_frame.is_none()
             || should_advance
             || selection_changed
             || graph_execute_due;
+
+        // util::debug_log_info!(
+        //     "should_execute={} should_advance={} playback_due={} pending={} selection_changed={} graph_changed={}",
+        //     should_execute, should_advance, has_timed_playback, self.pending_graph_execute, selection_changed, graph_changed
+        // );
 
         if should_execute {
             match self.executor_manager.execute(
@@ -482,6 +483,9 @@ impl EditorArea {
                 Err(engine::graph_executor::ExecutionError::VideoStreamNotReady(_)) => {
                     // Video still warming up, expected case
                 }
+                Err(engine::graph_executor::ExecutionError::GpuReadbackNotReady) => {
+                    // Scalar readback is still in flight; retry on the next timer tick.
+                }
                 Err(engine::graph_executor::ExecutionError::NoFrameInput(_))
                 | Err(engine::graph_executor::ExecutionError::UnconnectedFrameInput(_, _)) => {
                     // Graph is currently missing required frame wiring (common while editing
@@ -493,10 +497,6 @@ impl EditorArea {
             }
 
             self.pending_graph_execute = false;
-        }
-
-        if self.playback_enabled {
-            self.schedule_next_playback_repaint(ctx);
         }
     }
 }

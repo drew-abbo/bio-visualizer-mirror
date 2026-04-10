@@ -161,7 +161,6 @@ impl GraphExecutor {
         };
         let mut actual_output_view = final_output_view.clone();
 
-        let params = self.inputs_to_shader_params(inputs)?;
         let mut intermediate_views: Vec<std::sync::Arc<wgpu::TextureView>> = Vec::new();
         let target_format = self.target_format;
 
@@ -220,7 +219,7 @@ impl GraphExecutor {
                             primary_input_view,
                             &stage_additional_inputs,
                             &stage_output_view,
-                            params.as_ref(),
+                            inputs,
                         )
                         .map_err(ExecutionError::RenderError)?;
 
@@ -276,33 +275,43 @@ impl GraphExecutor {
 
                     let compute_pipeline = &self.compute_pipeline_cache[&cache_key];
 
-                    let dispatch_override = match stage.dispatch {
-                        Some(dispatch) => match dispatch.mode {
-                            AlgorithmStageDispatchMode::Auto => None,
-                            AlgorithmStageDispatchMode::Rows => Some((1, output_size.height, 1)),
-                            AlgorithmStageDispatchMode::Columns => Some((output_size.width, 1, 1)),
-                            AlgorithmStageDispatchMode::AxisFromEnumInput => {
-                                let use_columns = dispatch
-                                    .enum_input
-                                    .as_ref()
-                                    .and_then(|name| inputs.get(name))
-                                    .and_then(|value| {
-                                        if let NodeValue::Enum(enum_value) = value {
-                                            Some(*enum_value == dispatch.columns_enum_value)
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .unwrap_or(false);
-
-                                if use_columns {
-                                    Some((output_size.width, 1, 1))
-                                } else {
+                    let dispatch_override = if !has_frame_output && has_scalar_output {
+                        // Scalar-only compute nodes write one pixel and should not fan out
+                        // dispatch across full frame dimensions.
+                        Some((1, 1, 1))
+                    } else {
+                        match stage.dispatch {
+                            Some(dispatch) => match dispatch.mode {
+                                AlgorithmStageDispatchMode::Auto => None,
+                                AlgorithmStageDispatchMode::Rows => {
                                     Some((1, output_size.height, 1))
                                 }
-                            }
-                        },
-                        None => None,
+                                AlgorithmStageDispatchMode::Columns => {
+                                    Some((output_size.width, 1, 1))
+                                }
+                                AlgorithmStageDispatchMode::AxisFromEnumInput => {
+                                    let use_columns = dispatch
+                                        .enum_input
+                                        .as_ref()
+                                        .and_then(|name| inputs.get(name))
+                                        .and_then(|value| {
+                                            if let NodeValue::Enum(enum_value) = value {
+                                                Some(*enum_value == dispatch.columns_enum_value)
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                        .unwrap_or(false);
+
+                                    if use_columns {
+                                        Some((output_size.width, 1, 1))
+                                    } else {
+                                        Some((1, output_size.height, 1))
+                                    }
+                                }
+                            },
+                            None => None,
+                        }
                     };
 
                     // Execute compute shader
@@ -314,7 +323,7 @@ impl GraphExecutor {
                             primary_input_view,
                             &stage_additional_inputs,
                             stage_output_view.as_ref(),
-                            params.as_ref(),
+                            inputs,
                             output_size,
                             dispatch_override,
                         )
@@ -379,11 +388,11 @@ impl GraphExecutor {
             slice.map_async(wgpu::MapMode::Read, move |result| {
                 let _ = tx.send(result);
             });
-            let _ = device.poll(wgpu::PollType::wait_indefinitely());
+            let _ = device.poll(wgpu::PollType::Poll);
 
-            let map_result = rx.recv().map_err(|e| {
-                ExecutionError::GpuReadbackError(format!("failed waiting for GPU readback: {e}"))
-            })?;
+            let Ok(map_result) = rx.try_recv() else {
+                return Err(ExecutionError::GpuReadbackNotReady);
+            };
             map_result.map_err(|e| {
                 ExecutionError::GpuReadbackError(format!("GPU readback map failed: {e:?}"))
             })?;

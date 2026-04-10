@@ -31,9 +31,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let phase = params.phase * max(params.drift, 0.0) * 6.2831853;
 
     let uv = in.uv;
+    let uv_sum = uv.x + uv.y;
     let wave_a = sin((uv.y * freq) + phase);
     let wave_b = cos((uv.x * (freq * 0.82)) - phase * 0.77);
-    let wave_c = sin(((uv.x + uv.y) * (freq * 0.61)) + phase * 1.19);
+    let wave_c = sin((uv_sum * (freq * 0.61)) + phase * 1.19);
 
     let dx = (wave_a * 0.6 + wave_c * 0.4) * amp;
     let dy = (wave_b * 0.6 - wave_c * 0.4) * amp;

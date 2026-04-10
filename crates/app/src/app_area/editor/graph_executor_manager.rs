@@ -104,47 +104,63 @@ impl GraphExecutorManager {
         render_state: &egui_wgpu::RenderState,
         selected_engine_node: Option<EngineNodeId>,
     ) -> Result<Option<NodeValue>, ExecutionError> {
-        let target_node_id = selected_engine_node.or(self.output_source_engine_node);
-
-        let Some(target_node_id) = target_node_id else {
+        // Always execute up to the output node - that covers the full graph
+        let Some(output_node_id) = self.output_source_engine_node else {
             return Ok(None);
         };
 
-        let result = self.graph_executor.execute(
+        let target_node_id = selected_engine_node.unwrap_or(output_node_id);
+
+        // Single execute call - runs up to whichever node is further downstream.
+        // If selected node IS the output node or is upstream of it, one call covers both.
+        // If selected node is downstream/unrelated, fall back to output node.
+        let exec_target = if selected_engine_node.is_some()
+            && self.node_in_output_subgraph(target_node_id, output_node_id)
+        {
+            output_node_id // running to output covers selected node too (it's upstream)
+        } else {
+            target_node_id
+        };
+
+        // let t0 = std::time::Instant::now();
+        self.graph_executor.execute(
             &self.engine_graph,
             node_library,
             &render_state.device,
             &render_state.queue,
-            Some(target_node_id),
+            Some(exec_target),
         )?;
+        // util::debug_log_info!("graph execute: {:?}", t0.elapsed());
+        // Try selected node's output first, then fall back to output node - both
+        // are already in the output_cache from the single execute call above.
+        let frame_from_selected = selected_engine_node
+            .and_then(|id| self.graph_executor.get_node_outputs(id))
+            .and_then(|outputs| {
+                outputs.values().find_map(|v| {
+                    if matches!(v, NodeValue::Frame(_)) {
+                        Some(v.clone())
+                    } else {
+                        None
+                    }
+                })
+            });
 
-        let frame_output = result.outputs.values().find_map(|value| match value {
-            NodeValue::Frame(_) => Some(value.clone()),
-            _ => None,
-        });
-
-        if frame_output.is_some() {
-            return Ok(frame_output);
+        if frame_from_selected.is_some() {
+            return Ok(frame_from_selected);
         }
 
-        if Some(target_node_id) != self.output_source_engine_node
-            && let Some(output_node_id) = self.output_source_engine_node
-        {
-            let output_result = self.graph_executor.execute(
-                &self.engine_graph,
-                node_library,
-                &render_state.device,
-                &render_state.queue,
-                Some(output_node_id),
-            )?;
-
-            return Ok(output_result.outputs.values().find_map(|value| match value {
-                NodeValue::Frame(_) => Some(value.clone()),
-                _ => None,
-            }));
-        }
-
-        Ok(None)
+        Ok(self
+            .graph_executor
+            .get_node_outputs(output_node_id)
+            .and_then(|outputs| {
+                outputs.values().find_map(|v| {
+                    if matches!(v, NodeValue::Frame(_)) {
+                        Some(v.clone())
+                    } else {
+                        None
+                    }
+                })
+            }))
     }
 
     /// Query target FPS for a specific node id directly from the executor.

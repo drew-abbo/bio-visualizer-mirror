@@ -11,6 +11,9 @@
 
 use std::any::Any;
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::sync::Mutex;
 
 use crate::engine_errors::EngineError;
 use crate::graph_executor::NodeValue;
@@ -35,6 +38,13 @@ pub struct ComputePipeline {
     // Compute dispatch dimensions (workgroup size)
     // Default: 8x8 workgroups; will be customized by node definition if needed
     workgroup_size: (u32, u32, u32),
+    bind_group_cache: Mutex<Option<CachedBindGroup>>,
+}
+
+#[derive(Clone)]
+struct CachedBindGroup {
+    key: u64,
+    bind_group: wgpu::BindGroup,
 }
 
 /// Internal representation of a compute shader parameter.
@@ -113,6 +123,7 @@ impl ComputePipeline {
             texture_input_count,
             param_layout,
             workgroup_size: Self::infer_workgroup_size(shader_code),
+            bind_group_cache: Mutex::new(None),
         })
     }
 
@@ -202,11 +213,26 @@ impl ComputePipeline {
             resource: self.params_buf.as_entire_binding(),
         });
 
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some(&format!("{} compute bg", self.name)),
-            layout: &self.bgl,
-            entries: &bg_entries,
-        });
+        let bind_group_key = Self::bind_group_key(primary_input, additional_inputs, output_texture);
+        let bind_group = {
+            let mut cache = self.bind_group_cache.lock().expect("bind group cache lock");
+            if let Some(cached) = cache.as_ref()
+                && cached.key == bind_group_key
+            {
+                cached.bind_group.clone()
+            } else {
+                let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some(&format!("{} compute bg", self.name)),
+                    layout: &self.bgl,
+                    entries: &bg_entries,
+                });
+                *cache = Some(CachedBindGroup {
+                    key: bind_group_key,
+                    bind_group: bind_group.clone(),
+                });
+                bind_group
+            }
+        };
 
         // Execute compute dispatch
         let (workgroup_x, workgroup_y, workgroup_z) = dispatch_override.unwrap_or((
@@ -226,6 +252,21 @@ impl ComputePipeline {
         }
 
         Ok(())
+    }
+
+    fn bind_group_key(
+        primary_input: &wgpu::TextureView,
+        additional_inputs: &[&wgpu::TextureView],
+        output_texture: &wgpu::TextureView,
+    ) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        (primary_input as *const wgpu::TextureView as usize).hash(&mut hasher);
+        additional_inputs.len().hash(&mut hasher);
+        for texture in additional_inputs {
+            (*texture as *const wgpu::TextureView as usize).hash(&mut hasher);
+        }
+        (output_texture as *const wgpu::TextureView as usize).hash(&mut hasher);
+        hasher.finish()
     }
 
     fn build_param_layout(

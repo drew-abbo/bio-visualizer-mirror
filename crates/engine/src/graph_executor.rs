@@ -2,8 +2,8 @@
 //! at [crate::graph_executor]: [NodeValue], [NodeValue], [ExecutionError].
 mod enums;
 mod errors;
-use std::any::Any;
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 
 use crate::graph_executor_effects::EffectStage;
 use crate::node::NodeDefinition;
@@ -30,16 +30,19 @@ pub use errors::*;
 /// [GraphExecutor] holds transient caches used during execution (compiled
 /// pipelines, output values, and temporary GPU upload staging resources).
 /// Construct it with [GraphExecutor::new] or prefer [GraphExecutor::default]
+///
+/// Node outputs are cached by input signature across executions so static
+/// subgraphs can be reused without recomputation. Dynamic source nodes such as
+/// video, MIDI, noise, and signal-envelope handlers always re-execute.
 pub struct GraphExecutor {
     /// For uploading CPU textures to GPU
     upload_stager: UploadStager,
 
     /// Cache of node outputs from the current execution
     /// Maps: EngineNodeId -> { "output_name" -> NodeValue }
-    output_cache: HashMap<EngineNodeId, HashMap<String, NodeValue>>,
+    output_cache: HashMap<EngineNodeId, CachedNodeOutput>,
 
     /// Cache of compiled pipelines
-    /// Maps: definition_name -> compiled pipeline
     pub(crate) pipeline_cache: HashMap<String, Box<dyn PipelineBase>>,
 
     /// Cache of compiled compute pipelines for algorithm stages
@@ -101,6 +104,11 @@ struct CachedRenderTarget {
     size: wgpu::Extent3d,
 }
 
+#[derive(Debug, Clone)]
+struct CachedNodeOutput {
+    input_signature: u64,
+    outputs: HashMap<String, NodeValue>,
+}
 /// NOTE: This will change depending on the Media producer API changes in the future.
 /// Execution context supplied by the app for time-based playback control.
 ///
@@ -195,7 +203,7 @@ impl GraphExecutor {
     /// Get the cached outputs for a specific node, if available.
     /// Returns None if the node hasn't been executed yet.
     pub fn get_node_outputs(&self, node_id: EngineNodeId) -> Option<&HashMap<String, NodeValue>> {
-        self.output_cache.get(&node_id)
+        self.output_cache.get(&node_id).map(|entry| &entry.outputs)
     }
 
     /// Get the ID of the current output node (from the last execution)
@@ -253,9 +261,6 @@ impl GraphExecutor {
         queue: &wgpu::Queue,
         target_node_id: Option<EngineNodeId>, // runs a graph up to this node
     ) -> Result<ExecutionResult<'a>, ExecutionError> {
-        // Clear cache from previous execution
-        self.output_cache.clear();
-
         if let Some(target) = target_node_id
             && graph.get_instance(target).is_none()
         {
@@ -311,6 +316,8 @@ impl GraphExecutor {
             .retain(|node_id, _| live_node_ids.contains(node_id));
         self.compute_stage_target_cache
             .retain(|(node_id, _, _), _| live_node_ids.contains(node_id));
+        self.output_cache
+            .retain(|node_id, _| live_node_ids.contains(node_id));
 
         for &node_id in &execution_node_ids {
             let instance = graph
@@ -326,6 +333,17 @@ impl GraphExecutor {
 
             // Resolve all inputs for this node
             let resolved_inputs = self.resolve_inputs(instance)?;
+
+            let input_signature = Self::hash_node_inputs(&resolved_inputs);
+            if Self::is_cacheable_node(definition)
+                && let Some(cached) = self.output_cache.get(&node_id)
+                && cached.input_signature == input_signature
+            {
+                if Some(node_id) == target_node_id {
+                    break;
+                }
+                continue;
+            }
 
             // Execute the node based on its type
             let outputs = match &definition.node.executor {
@@ -345,7 +363,13 @@ impl GraphExecutor {
             };
 
             // Cache the outputs
-            self.output_cache.insert(node_id, outputs);
+            self.output_cache.insert(
+                node_id,
+                CachedNodeOutput {
+                    input_signature,
+                    outputs,
+                },
+            );
 
             if Some(node_id) == target_node_id {
                 break;
@@ -369,6 +393,7 @@ impl GraphExecutor {
         let outputs = self
             .output_cache
             .get(&output_node_id)
+            .map(|entry| &entry.outputs)
             .ok_or(ExecutionError::NoOutputProduced)?;
 
         Ok(ExecutionResult {
@@ -425,7 +450,7 @@ impl GraphExecutor {
                         .get(from_node)
                         .ok_or(ExecutionError::NodeNotExecuted(*from_node))?;
 
-                    let output = source_outputs.get(output_name).ok_or_else(|| {
+                    let output = source_outputs.outputs.get(output_name).ok_or_else(|| {
                         ExecutionError::OutputNotFound(*from_node, output_name.clone())
                     })?;
 
@@ -698,20 +723,63 @@ impl GraphExecutor {
         cached.view.clone()
     }
 
-    /// Convert resolved inputs into shader parameters
-    pub(crate) fn inputs_to_shader_params(
-        &self,
-        inputs: &HashMap<String, NodeValue>,
-    ) -> Result<Box<dyn Any>, ExecutionError> {
-        // Filter out Frame inputs (they're bound as textures, not uniform params)
-        let shader_params: HashMap<String, NodeValue> = inputs
-            .iter()
-            .filter(|(.., value)| !matches!(value, NodeValue::Frame(_)))
-            .map(|(name, value)| (name.clone(), value.clone()))
-            .collect();
-
-        Ok(Box::new(shader_params))
+    fn is_cacheable_node(definition: &NodeDefinition) -> bool {
+        !matches!(
+            definition.node.executor,
+            NodeExecutionPlan::BuiltIn(BuiltInHandler::VideoSource)
+                | NodeExecutionPlan::BuiltIn(BuiltInHandler::MidiSource)
+                | NodeExecutionPlan::BuiltIn(BuiltInHandler::Noise(_))
+                | NodeExecutionPlan::BuiltIn(BuiltInHandler::SignalEnvelope)
+        )
     }
+
+    fn hash_node_inputs(inputs: &HashMap<String, NodeValue>) -> u64 {
+        let mut entries: Vec<(&String, &NodeValue)> = inputs.iter().collect();
+        entries.sort_by(|(left_key, _), (right_key, _)| left_key.cmp(right_key));
+
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        for (key, value) in entries {
+            key.hash(&mut hasher);
+            Self::hash_node_value(value, &mut hasher);
+        }
+
+        hasher.finish()
+    }
+
+    fn hash_node_value(value: &NodeValue, hasher: &mut impl Hasher) {
+        std::mem::discriminant(value).hash(hasher);
+
+        match value {
+            NodeValue::Frame(frame) => {
+                (std::sync::Arc::as_ptr(&frame.view) as usize).hash(hasher);
+                frame.size.width.hash(hasher);
+                frame.size.height.hash(hasher);
+                frame.size.depth_or_array_layers.hash(hasher);
+            }
+            NodeValue::Midi(packet) => {
+                for (key, velocity) in packet.key_velocities() {
+                    key.hash(hasher);
+                    velocity.hash(hasher);
+                }
+            }
+            NodeValue::Bool(value) => value.hash(hasher),
+            NodeValue::Int(value) => value.hash(hasher),
+            NodeValue::Float(value) => value.to_bits().hash(hasher),
+            NodeValue::Dimensions(width, height) => {
+                width.hash(hasher);
+                height.hash(hasher);
+            }
+            NodeValue::Pixel(values) => {
+                for component in values {
+                    component.to_bits().hash(hasher);
+                }
+            }
+            NodeValue::Text(value) => value.hash(hasher),
+            NodeValue::Enum(value) => value.hash(hasher),
+            NodeValue::File(path) => path.hash(hasher),
+        }
+    }
+
 }
 
 fn format_to_cache_key(format: wgpu::TextureFormat) -> String {

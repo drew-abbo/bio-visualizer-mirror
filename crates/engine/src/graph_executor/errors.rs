@@ -68,6 +68,9 @@ pub enum ExecutionError {
     #[error("GPU readback error: {0}")]
     GpuReadbackError(String),
 
+    #[error("GPU readback is not ready yet")]
+    GpuReadbackNotReady,
+
     #[error("Unsupported algorithm backend {backend:?} in stage '{stage}'")]
     UnsupportedAlgorithmBackend {
         stage: String,

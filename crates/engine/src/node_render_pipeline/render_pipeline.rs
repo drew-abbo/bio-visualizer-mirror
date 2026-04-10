@@ -16,6 +16,7 @@
 //!   [crate::graph_executor::GraphExecutor] to render node outputs.
 //!
 //! See [PipelineBase] for the runtime-facing trait used by the executor.
+//! Version 2.0
 
 use std::any::Any;
 use std::collections::HashMap;
