@@ -50,6 +50,9 @@ pub enum ExecutionError {
     #[error("MIDI stream error: {0}")]
     MidiStreamError(String),
 
+    #[error("Signal envelope error: {0}")]
+    SignalEnvelopeError(String),
+
     #[error("Render error: {0:?}")]
     RenderError(crate::engine_errors::EngineError),
 
@@ -58,6 +61,12 @@ pub enum ExecutionError {
 
     #[error("Unsupported output type: {0:?}")]
     UnsupportedOutputType(NodeOutputKind),
+
+    #[error("Shader and algorithm nodes cannot currently mix Frame outputs with scalar outputs")]
+    UnsupportedNodeOutputCombination,
+
+    #[error("GPU readback error: {0}")]
+    GpuReadbackError(String),
 
     #[error("Unsupported algorithm backend {backend:?} in stage '{stage}'")]
     UnsupportedAlgorithmBackend {

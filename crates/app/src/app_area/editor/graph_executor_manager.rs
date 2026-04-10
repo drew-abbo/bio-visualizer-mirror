@@ -118,10 +118,33 @@ impl GraphExecutorManager {
             Some(target_node_id),
         )?;
 
-        Ok(result.outputs.values().find_map(|value| match value {
+        let frame_output = result.outputs.values().find_map(|value| match value {
             NodeValue::Frame(_) => Some(value.clone()),
             _ => None,
-        }))
+        });
+
+        if frame_output.is_some() {
+            return Ok(frame_output);
+        }
+
+        if Some(target_node_id) != self.output_source_engine_node
+            && let Some(output_node_id) = self.output_source_engine_node
+        {
+            let output_result = self.graph_executor.execute(
+                &self.engine_graph,
+                node_library,
+                &render_state.device,
+                &render_state.queue,
+                Some(output_node_id),
+            )?;
+
+            return Ok(output_result.outputs.values().find_map(|value| match value {
+                NodeValue::Frame(_) => Some(value.clone()),
+                _ => None,
+            }));
+        }
+
+        Ok(None)
     }
 
     /// Query target FPS for a specific node id directly from the executor.

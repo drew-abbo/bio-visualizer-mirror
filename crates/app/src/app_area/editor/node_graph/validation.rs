@@ -1,5 +1,4 @@
 use egui_snarl::{NodeId as SnarlNodeId, Snarl};
-use engine::node::engine_node::{BuiltInHandler, NodeExecutionPlan};
 use engine::node::NodeInputKind;
 use engine::node::NodeLibrary;
 use engine::node_graph::InputValue;
@@ -83,81 +82,4 @@ pub fn are_inputs_satisfied(
     }
 
     true
-}
-
-/// Check if a node is an active source.
-///
-/// Active sources currently include:
-/// - File-based sources with a configured file
-/// - Built-in MIDI source nodes
-pub fn is_active_source(
-    snarl: &Snarl<NodeData>,
-    node_id: SnarlNodeId,
-    node_library: &NodeLibrary,
-) -> bool {
-    let node = &snarl[node_id];
-    if node.definition_name == VIRTUAL_OUTPUT_SINK_NAME {
-        return false;
-    }
-
-    let Some(definition) = node_library.get_definition(&node.definition_name) else {
-        return false;
-    };
-
-    if matches!(
-        definition.node.executor,
-        NodeExecutionPlan::BuiltIn(BuiltInHandler::MidiSource)
-    ) {
-        return true;
-    }
-
-    let is_source = definition
-        .node
-        .inputs
-        .iter()
-        .any(|input| matches!(input.kind, NodeInputKind::File { .. }));
-
-    // Check if file input is configured
-    is_source
-        && node
-            .input_values
-            .values()
-            .any(|v| matches!(v, InputValue::File(_)))
-}
-
-/// Check if a node is connected (directly or indirectly) to an active source
-pub fn is_connected_to_source(
-    snarl: &Snarl<NodeData>,
-    node_id: SnarlNodeId,
-    node_library: &NodeLibrary,
-) -> bool {
-    // If it's an active source itself, return true
-    if is_active_source(snarl, node_id, node_library) {
-        return true;
-    }
-
-    // Use BFS to check if any input leads to an active source
-    let mut visited = HashSet::new();
-    let mut queue = vec![node_id];
-
-    while let Some(current_id) = queue.pop() {
-        if visited.contains(&current_id) {
-            continue;
-        }
-        visited.insert(current_id);
-
-        // Check all input connections
-        for (wire_from, wire_to) in snarl.wires() {
-            if wire_to.node == current_id {
-                // This node receives input from wire_from.node
-                let source_node = wire_from.node;
-                if is_active_source(snarl, source_node, node_library) {
-                    return true;
-                }
-                queue.push(source_node);
-            }
-        }
-    }
-
-    false
 }

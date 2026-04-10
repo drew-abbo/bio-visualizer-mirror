@@ -7,6 +7,7 @@ mod sync;
 mod validation;
 
 pub use input_widgets::InputWidgetState;
+pub use sync::normalize_node_inputs;
 
 use egui;
 use egui::emath::TSTransform;

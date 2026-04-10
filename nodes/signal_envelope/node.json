@@ -1,0 +1,83 @@
+{
+  "name": "Signal Envelope",
+  "inputs": [
+    {
+      "name": "Input",
+      "kind": {
+        "Float": {
+          "default": 0.0,
+          "min": 0.0,
+          "max": 1.0,
+          "step": 0.01,
+          "input_ui": "Slider"
+        }
+      }
+    },
+    {
+      "name": "Attack",
+      "kind": {
+        "Float": {
+          "default": 0.4,
+          "min": 0.0,
+          "max": 1.0,
+          "step": 0.01,
+          "input_ui": "Slider"
+        }
+      },
+      "show_pin": false
+    },
+    {
+      "name": "Release",
+      "kind": {
+        "Float": {
+          "default": 0.08,
+          "min": 0.0,
+          "max": 1.0,
+          "step": 0.01,
+          "input_ui": "Slider"
+        }
+      },
+      "show_pin": false
+    },
+    {
+      "name": "Hold Frames",
+      "kind": {
+        "Int": {
+          "default": 0,
+          "min": 0,
+          "max": 120,
+          "step": 1,
+          "input_ui": "Slider"
+        }
+      },
+      "show_pin": false
+    },
+    {
+      "name": "Threshold",
+      "kind": {
+        "Float": {
+          "default": 0.0,
+          "min": 0.0,
+          "max": 1.0,
+          "step": 0.001,
+          "input_ui": "Slider"
+        }
+      },
+      "show_pin": false
+    }
+  ],
+  "outputs": [
+    {
+      "name": "Output",
+      "kind": "Float"
+    }
+  ],
+  "executor": {
+    "BuiltIn": "SignalEnvelope"
+  },
+  "short_description": "Applies attack and release smoothing to a float signal",
+  "long_description": "Smooths abrupt value changes using separate attack and release response controls. This is useful for turning binary or noisy control signals (such as MIDI note velocity or procedural noise) into more organic modulation.",
+  "category": "Input",
+  "subcategories": [],
+  "search_keywords": ["smooth", "smoothing", "envelope", "attack", "release", "signal", "midi", "noise", "modulation"]
+}

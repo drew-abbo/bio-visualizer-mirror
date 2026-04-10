@@ -83,6 +83,17 @@ impl EditorArea {
         &mut self.editor_state_context
     }
 
+    /// Load a project, normalizing node inputs to match current schema definitions.
+    /// This ensures missing inputs from schema changes are populated with defaults.
+    pub fn load_project(
+        &mut self,
+        mut project: util::local_data::project::OpenProject<NodeGraphState>,
+    ) {
+        // Normalize inputs to handle schema changes since project was saved
+        super::node_graph::normalize_node_inputs(project.data_mut(), &self.node_library);
+        self.editor_state_context.set_project(project);
+    }
+
     fn set_playback_enabled(&mut self, enabled: bool) {
         if self.playback_enabled != enabled {
             self.playback_timer = None;

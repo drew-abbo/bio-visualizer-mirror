@@ -79,9 +79,9 @@ impl PipelineBase for NodeRenderPipeline {
         // - Writes the [params] (expected to be [HashMap<String, NodeValue>]) into
         //   the uniform buffer using [param_layout] rules.
         // - Builds a bind group and issues the render pass that draws into [output].
-        // Validate input count
+        // Validate input count. For pipelines with zero frame inputs, no textures are expected.
         let expected = self.texture_input_count.saturating_sub(1);
-        if additional_inputs.len() != expected {
+        if self.texture_input_count > 0 && additional_inputs.len() != expected {
             return Err(EngineError::InvalidInputCount {
                 expected,
                 actual: additional_inputs.len(),
@@ -107,21 +107,23 @@ impl PipelineBase for NodeRenderPipeline {
         }
 
         // Build bind group
-        let mut entries = vec![
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::Sampler(&self.sampler),
-            },
-            wgpu::BindGroupEntry {
+        let mut entries = vec![wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::Sampler(&self.sampler),
+        }];
+
+        if self.texture_input_count > 0 {
+            entries.push(wgpu::BindGroupEntry {
                 binding: 1,
                 resource: wgpu::BindingResource::TextureView(primary_input),
-            },
-        ];
-        for (i, texture) in additional_inputs.iter().enumerate() {
-            entries.push(wgpu::BindGroupEntry {
-                binding: (i + 2) as u32,
-                resource: wgpu::BindingResource::TextureView(texture),
             });
+
+            for (i, texture) in additional_inputs.iter().enumerate() {
+                entries.push(wgpu::BindGroupEntry {
+                    binding: (i + 2) as u32,
+                    resource: wgpu::BindingResource::TextureView(texture),
+                });
+            }
         }
 
         entries.push(wgpu::BindGroupEntry {

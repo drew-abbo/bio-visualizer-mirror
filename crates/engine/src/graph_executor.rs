@@ -5,16 +5,16 @@ mod errors;
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
 
-use crate::gpu_frame::GpuFrame;
 use crate::graph_executor_effects::EffectStage;
 use crate::node::NodeDefinition;
 use crate::node::NodeLibrary;
 use crate::node::engine_node::{
-    AlgorithmStageBackend, BuiltInHandler, NodeExecutionPlan, NodeOutputKind,
+    AlgorithmStageBackend, BuiltInHandler, NodeExecutionPlan,
 };
 use crate::node::handler::{
     FrameStreamHandler, MidiStreamHandler, NodeFrameStreamRequest, NodeMidiStreamRequest,
-    NodeNoiseStreamRequest, NoiseStreamHandler, StreamKind,
+    NodeNoiseStreamRequest, NodeSignalEnvelopeRequest, NoiseStreamHandler,
+    SignalEnvelopeHandler, StreamKind,
 };
 use crate::node_graph::EngineNodeId;
 use crate::node_graph::{InputValue, NodeGraph, NodeInstance};
@@ -62,6 +62,9 @@ pub struct GraphExecutor {
 
     /// Handles built-in live MIDI source nodes
     midi_stream_handler: MidiStreamHandler,
+
+    /// Handles built-in scalar smoothing nodes
+    signal_envelope_handler: SignalEnvelopeHandler,
 
     /// Last globally requested target FPS for stream handlers.
     global_stream_target_fps: Option<Fps>,
@@ -157,6 +160,7 @@ impl GraphExecutor {
             frame_stream_handler: FrameStreamHandler::new(),
             noise_stream_handler: NoiseStreamHandler::new(),
             midi_stream_handler: MidiStreamHandler::new(),
+            signal_envelope_handler: SignalEnvelopeHandler::new(),
             global_stream_target_fps: None,
             target_format: format,
             cached_execution_order: None,
@@ -175,6 +179,7 @@ impl GraphExecutor {
     pub fn clear_producer_cache(&mut self) {
         self.frame_stream_handler.clear_cache();
         self.midi_stream_handler.clear_cache();
+        self.signal_envelope_handler.clear_cache();
     }
 
     /// Clear image cache to release textures.
@@ -307,11 +312,6 @@ impl GraphExecutor {
         self.compute_stage_target_cache
             .retain(|(node_id, _, _), _| live_node_ids.contains(node_id));
 
-        let mut graph_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("graph_execution"),
-        });
-        let mut has_shader_commands = false;
-
         for &node_id in &execution_node_ids {
             let instance = graph
                 .get_instance(node_id)
@@ -330,27 +330,10 @@ impl GraphExecutor {
             // Execute the node based on its type
             let outputs = match &definition.node.executor {
                 NodeExecutionPlan::Shader { .. } => {
-                    has_shader_commands = true;
-                    self.execute_shader_node(
-                        node_id,
-                        device,
-                        queue,
-                        &mut graph_encoder,
-                        definition,
-                        &resolved_inputs,
-                    )?
+                    self.execute_shader_node(node_id, device, queue, definition, &resolved_inputs)?
                 }
-                NodeExecutionPlan::Algorithm { .. } => {
-                    has_shader_commands = true;
-                    self.execute_algorithm_node(
-                        node_id,
-                        device,
-                        queue,
-                        &mut graph_encoder,
-                        definition,
-                        &resolved_inputs,
-                    )?
-                }
+                NodeExecutionPlan::Algorithm { .. } => self
+                    .execute_algorithm_node(node_id, device, queue, definition, &resolved_inputs)?,
                 NodeExecutionPlan::BuiltIn(handler) => self.execute_builtin_node(
                     node_id,
                     handler,
@@ -367,10 +350,6 @@ impl GraphExecutor {
             if Some(node_id) == target_node_id {
                 break;
             }
-        }
-
-        if has_shader_commands {
-            queue.submit(Some(graph_encoder.finish()));
         }
 
         // Determine output node id
@@ -481,7 +460,6 @@ impl GraphExecutor {
         node_id: EngineNodeId,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        encoder: &mut wgpu::CommandEncoder,
         definition: &NodeDefinition,
         inputs: &HashMap<String, NodeValue>,
     ) -> Result<HashMap<String, NodeValue>, ExecutionError> {
@@ -510,103 +488,18 @@ impl GraphExecutor {
             });
 
             return self.execute_effect_stages(
-                node_id, device, queue, encoder, definition, inputs, &stages,
+                node_id, device, queue, definition, inputs, &stages,
             );
         }
 
-        // Get or create the pipeline for this shader
-        let cache_key = definition.node.name.clone();
+        let stages = [EffectStage {
+            backend: AlgorithmStageBackend::Render,
+            source: source.as_path(),
+            extra_frame_inputs: 0,
+            dispatch: None,
+        }];
 
-        if !self.pipeline_cache.contains_key(&cache_key) {
-            // Load shader code
-            let shader_code = definition.load_shader_code().map_err(|e| {
-                ExecutionError::ShaderLoadError(
-                    definition.shader_path.clone().unwrap(),
-                    e.to_string(),
-                )
-            })?;
-
-            // Create pipeline from shader
-            let pipeline = self.create_shader_pipeline(device, &shader_code, definition)?;
-
-            self.pipeline_cache.insert(cache_key.clone(), pipeline);
-        }
-
-        // Collect frame inputs in the order defined by the node definition
-        let frame_inputs: Vec<&GpuFrame> = definition
-            .node
-            .inputs
-            .iter()
-            .filter_map(|input_def| {
-                if matches!(
-                    input_def.kind,
-                    crate::node::engine_node::NodeInputKind::Frame
-                ) {
-                    inputs.get(&input_def.name).and_then(|input| match input {
-                        NodeValue::Frame(frame) => Some(frame),
-                        _ => None,
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        let primary_frame = frame_inputs
-            .first()
-            .ok_or(ExecutionError::NoFrameInput(definition.node.name.clone()))?;
-
-        let additional_frames: Vec<&wgpu::TextureView> = frame_inputs
-            .iter()
-            .skip(1)
-            .map(|frame| frame.view())
-            .collect();
-
-        let output_size = primary_frame.size();
-
-        let output_view_arc = self.get_or_create_render_target(device, node_id, output_size);
-
-        let pipeline = self.pipeline_cache.get(&cache_key).unwrap();
-
-        let output_frame = GpuFrame {
-            view: output_view_arc.clone(),
-            size: output_size,
-        };
-
-        // Convert inputs to shader parameters
-        let params = self.inputs_to_shader_params(inputs)?;
-
-        // Execute the pipeline
-        pipeline
-            .apply(
-                device,
-                queue,
-                encoder,
-                primary_frame.view(),
-                &additional_frames,
-                &output_view_arc,
-                params.as_ref(),
-            )
-            .map_err(ExecutionError::RenderError)?;
-
-        // Return outputs based on node definition
-        let mut outputs = HashMap::new();
-        for output_def in &definition.node.outputs {
-            match output_def.kind {
-                NodeOutputKind::Frame => {
-                    outputs.insert(
-                        output_def.name.clone(),
-                        NodeValue::Frame(output_frame.clone()),
-                    );
-                }
-                _ => {
-                    // Non-frame outputs from shaders not yet supported
-                    return Err(ExecutionError::UnsupportedOutputType(output_def.kind));
-                }
-            }
-        }
-
-        Ok(outputs)
+        self.execute_effect_stages(node_id, device, queue, definition, inputs, &stages)
     }
 
     /// Execute a built-in node
@@ -691,6 +584,13 @@ impl GraphExecutor {
                 self.midi_stream_handler
                     .extract_properties(inputs)
                     .map_err(|error| ExecutionError::MidiStreamError(error.to_string()))?
+            }
+            BuiltInHandler::SignalEnvelope => {
+                let request = NodeSignalEnvelopeRequest { node_id, inputs };
+
+                self.signal_envelope_handler
+                    .execute_handler(&request)
+                    .map_err(|error| ExecutionError::SignalEnvelopeError(error.to_string()))?
             }
         };
 

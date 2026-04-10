@@ -38,7 +38,7 @@ impl AppArea {
                 .and_then(|p| p.open::<NodeGraphState>())
             {
                 Ok(project) => {
-                    editor_area.editor_state_context_mut().set_project(project);
+                    editor_area.load_project(project);
                     util::debug_log_info!("Successfully opened project: {}", args.open_project);
                 }
                 Err(e) => {

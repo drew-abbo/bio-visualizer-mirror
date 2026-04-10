@@ -231,21 +231,9 @@ pub fn sync_node_to_engine(
         return;
     };
 
-    let is_source = definition
-        .node
-        .inputs
-        .iter()
-        .any(|input| matches!(input.kind, NodeInputKind::File { .. }));
-
-    let has_file = input_values
-        .values()
-        .any(|v| matches!(v, InputValue::File(_)));
-
-    let should_add = if is_source {
-        has_file
-    } else {
-        validation::is_connected_to_source(&state.snarl, node_id, node_library)
-    };
+    // Use the same admission rule as the full-graph sync path so scalar
+    // generators like noise are not incorrectly excluded.
+    let should_add = validation::are_inputs_satisfied(&state.snarl, node_id, node_library);
 
     if !should_add {
         return;
@@ -474,5 +462,63 @@ fn default_input_value(input_def: &NodeInput) -> Option<InputValue> {
         NodeInputKind::File { default, .. } => default.clone().map(InputValue::File),
         NodeInputKind::Frame | NodeInputKind::MidiPacket => None,
         NodeInputKind::PortSelection => Some(InputValue::Text(String::new())),
+    }
+}
+
+/// Normalize all node inputs to match their current schema definitions.
+/// This ensures that when a project is loaded, any missing inputs (from schema changes) are
+/// populated with defaults, and any orphaned inputs (no longer in schema) are removed.
+pub fn normalize_node_inputs(state: &mut NodeGraphState, node_library: &NodeLibrary) {
+    let all_node_ids: Vec<SnarlNodeId> = state.snarl.node_ids().map(|(id, _)| id).collect();
+
+    for node_id in all_node_ids {
+        let node = &state.snarl[node_id];
+
+        // Skip the virtual output sink
+        if node.definition_name == VIRTUAL_OUTPUT_SINK_NAME {
+            continue;
+        }
+
+        let Some(definition) = node_library.get_definition(&node.definition_name) else {
+            continue;
+        };
+
+        // Get the list of connected inputs for this node
+        let connected_inputs = connected_input_names(&state.snarl, node_id, definition);
+
+        // Ensure all inputs from the definition are present in input_values
+        for input_def in &definition.node.inputs {
+            // Skip connected inputs (those are managed by wires)
+            if connected_inputs.contains(&input_def.name) {
+                continue;
+            }
+
+            // Skip inputs that are already set
+            if state.snarl[node_id].input_values.contains_key(&input_def.name) {
+                continue;
+            }
+
+            // Add default value if available
+            if let Some(default_val) = default_input_value(input_def) {
+                state.snarl[node_id]
+                    .input_values
+                    .insert(input_def.name.clone(), default_val);
+            }
+        }
+
+        // Remove inputs that are no longer in the schema
+        let defined_input_names: std::collections::HashSet<_> =
+            definition.node.inputs.iter().map(|i| i.name.clone()).collect();
+
+        let orphaned_inputs: Vec<_> = state.snarl[node_id]
+            .input_values
+            .keys()
+            .filter(|key| !defined_input_names.contains(*key))
+            .cloned()
+            .collect();
+
+        for orphaned_key in orphaned_inputs {
+            state.snarl[node_id].input_values.remove(&orphaned_key);
+        }
     }
 }
