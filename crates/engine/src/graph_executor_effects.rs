@@ -166,6 +166,8 @@ impl GraphExecutor {
         for (stage_index, stage) in stages.iter().enumerate() {
             let stage_name = format!("{}::stage{stage_index}", definition.node.name);
 
+            // Every stage sees original secondary inputs plus all prior pass outputs.
+            // This allows later passes to consume intermediate textures by declaration order.
             let mut stage_additional_inputs = additional_inputs.clone();
             stage_additional_inputs.extend(intermediate_views.iter().map(|view| view.as_ref()));
 
@@ -274,6 +276,10 @@ impl GraphExecutor {
 
                     let compute_pipeline = &self.compute_pipeline_cache[&cache_key];
 
+                    // Dispatch selection priority:
+                    // 1) scalar-only nodes always dispatch exactly one invocation,
+                    // 2) stage-level override from node metadata,
+                    // 3) backend default based on workgroup size and output dimensions.
                     let dispatch_override = if !has_frame_output && has_scalar_output {
                         // Scalar-only compute nodes write one pixel and should not fan out
                         // dispatch across full frame dimensions.
@@ -350,6 +356,7 @@ impl GraphExecutor {
                     "scalar output texture missing".to_string(),
                 ))?;
             let bytes_per_pixel = 4_u32;
+            // WebGPU requires bytes_per_row alignment for copy_texture_to_buffer.
             let bytes_per_row = 256_u32;
             let readback_buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("effect_stages_scalar_readback"),
@@ -389,6 +396,7 @@ impl GraphExecutor {
             });
             let _ = device.poll(wgpu::PollType::Poll);
 
+            // Non-blocking receive: if mapping has not completed yet, surface a retryable error.
             let Ok(map_result) = rx.try_recv() else {
                 return Err(ExecutionError::GpuReadbackNotReady);
             };
@@ -407,6 +415,7 @@ impl GraphExecutor {
         }
 
         let mut outputs = HashMap::new();
+        // For scalar outputs packed into RGBA, consume channels in declaration order.
         let mut scalar_channel_idx = 0usize;
         for output_def in &definition.node.outputs {
             match output_def.kind {
