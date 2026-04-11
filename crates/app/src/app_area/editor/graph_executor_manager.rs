@@ -122,7 +122,6 @@ impl GraphExecutorManager {
             target_node_id
         };
 
-        // let t0 = std::time::Instant::now();
         self.graph_executor.execute(
             &self.engine_graph,
             node_library,
@@ -130,7 +129,7 @@ impl GraphExecutorManager {
             &render_state.queue,
             Some(exec_target),
         )?;
-        // util::debug_log_info!("graph execute: {:?}", t0.elapsed());
+        
         // Try selected node's output first, then fall back to output node - both
         // are already in the output_cache from the single execute call above.
         let frame_from_selected = selected_engine_node
@@ -174,13 +173,6 @@ impl GraphExecutorManager {
     }
 
     /// Resolve a recommended global playback FPS for the display node subgraph.
-    ///
-    /// Policy:
-    /// - If any upstream video source exists, use the max measured video FPS.
-    /// - Else if any upstream noise source exists, default to 30 FPS.
-    /// - Else if any upstream MIDI source exists, default to 30 FPS.
-    /// - Else if any upstream image source exists, default to 1 FPS.
-    /// - Else return None.
     pub fn get_target_fps_for_display_node(
         &mut self,
         node_library: &NodeLibrary,
@@ -223,6 +215,7 @@ impl GraphExecutorManager {
         if let Some(fps) = best_video_fps {
             return Some(fps);
         } else {
+            // default to 30
             return Some(FPS_30);
         }
     }
