@@ -403,7 +403,7 @@ impl SnarlViewer<NodeData> for NodeGraphViewer<'_> {
                     &node_name,
                     &self.node_library,
                     pin.id.node,
-                    &mut self.input_widget_state,
+                    self.input_widget_state,
                 );
             } else if let Some(remote) = pin.remotes.first() {
                 // Show connected value

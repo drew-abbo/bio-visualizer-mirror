@@ -189,18 +189,14 @@ impl GraphExecutorManager {
 
             if let Some(instance) = self.engine_graph.get_instance(current)
                 && let Some(definition) = node_library.get_definition(&instance.definition_name)
+                && let NodeExecutionPlan::BuiltIn(BuiltInHandler::VideoSource) =
+                    definition.node.executor
+                && let Some(fps) = self.get_target_fps_for_node(node_library, current)
             {
-                match definition.node.executor {
-                    NodeExecutionPlan::BuiltIn(BuiltInHandler::VideoSource) => {
-                        if let Some(fps) = self.get_target_fps_for_node(node_library, current) {
-                            best_video_fps = Some(match best_video_fps {
-                                Some(existing) => existing.max(fps),
-                                None => fps,
-                            });
-                        }
-                    }
-                    _ => {}
-                }
+                best_video_fps = Some(match best_video_fps {
+                    Some(existing) => existing.max(fps),
+                    None => fps,
+                });
             }
 
             if let Some(instance) = self.engine_graph.get_instance(current) {
@@ -213,10 +209,10 @@ impl GraphExecutorManager {
         }
 
         if let Some(fps) = best_video_fps {
-            return Some(fps);
+            Some(fps)
         } else {
             // default to 30
-            return Some(FPS_30);
+            Some(FPS_30)
         }
     }
 
