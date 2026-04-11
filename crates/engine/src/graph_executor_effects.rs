@@ -9,8 +9,7 @@ use crate::node::engine_node::{
     NodeInput, NodeInputKind, NodeOutputKind,
 };
 use crate::node_graph::EngineNodeId;
-use crate::node_render_pipeline::PipelineBase;
-use crate::node_render_pipeline::{ComputePipeline, NodeRenderPipeline};
+use crate::node_pipelines::{ComputePipeline, RenderPipeline};
 
 #[derive(Clone, Copy)]
 pub(crate) struct EffectStage<'a> {
@@ -517,7 +516,7 @@ impl GraphExecutor {
         device: &wgpu::Device,
         shader_code: &str,
         definition: &NodeDefinition,
-    ) -> Result<&'a dyn PipelineBase, ExecutionError> {
+    ) -> Result<&'a RenderPipeline, ExecutionError> {
         if !self.pipeline_cache.contains_key(&cache_key) {
             let pipeline = self.create_shader_pipeline(device, shader_code, definition)?;
             self.pipeline_cache.insert(cache_key.clone(), pipeline);
@@ -526,8 +525,7 @@ impl GraphExecutor {
         Ok(self
             .pipeline_cache
             .get(&cache_key)
-            .expect("pipeline inserted above")
-            .as_ref())
+            .expect("pipeline inserted above"))
     }
 
     pub(crate) fn create_shader_pipeline(
@@ -535,9 +533,8 @@ impl GraphExecutor {
         device: &wgpu::Device,
         shader_code: &str,
         definition: &NodeDefinition,
-    ) -> Result<Box<dyn PipelineBase>, ExecutionError> {
-        NodeRenderPipeline::from_shader(device, shader_code, definition, self.target_format)
-            .map(|pipeline| Box::new(pipeline) as Box<dyn PipelineBase>)
+    ) -> Result<RenderPipeline, ExecutionError> {
+        RenderPipeline::from_shader(device, shader_code, definition, self.target_format)
             .map_err(ExecutionError::PipelineCreationError)
     }
 }

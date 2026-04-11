@@ -1,6 +1,6 @@
 //! Compute pipeline abstraction for algorithm stages that require buffer operations.
 //!
-//! A [ComputePipeline] is to compute shaders what [crate::node_render_pipeline::NodeRenderPipeline]
+//! A [ComputePipeline] is to compute shaders what [crate::node_pipelines::RenderPipeline]
 //! is to render shaders. It:
 //! - Compiles a WGSL compute shader
 //! - Manages bind group layout and bind group for textures, buffers, and parameters
@@ -19,7 +19,7 @@ use crate::engine_errors::EngineError;
 use crate::graph_executor::NodeValue;
 use crate::node::NodeDefinition;
 use crate::node::engine_node::NodeInputKind;
-use crate::node_render_pipeline::helpers::{align_to, uniform_param_size};
+use super::helpers::{align_to, uniform_param_size};
 
 /// Runtime compute pipeline constructed from WGSL and a [NodeDefinition].
 /// Responsible for creating the [wgpu::ComputePipeline], bind group layout,

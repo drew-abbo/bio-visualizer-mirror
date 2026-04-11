@@ -11,7 +11,7 @@
 //!   `pipeline_cache`.
 //! - `node/handler` - built-in handlers for loading media and generating procedural noise values.
 //! - `upload_stager` - utilities to upload CPU image/frame data to GPU textures ([UploadStager]).
-//! - `node_render_pipeline` - dynamic creation of GPU render pipelines from WGSL shaders.
+//! - `node_pipelines` - dynamic creation of GPU render and compute pipelines from WGSL shaders.
 //!
 //! Usage
 //! -------------
@@ -71,7 +71,7 @@ pub mod graph_executor;
 mod graph_executor_effects;
 pub mod node;
 pub mod node_graph;
-pub mod node_render_pipeline;
+pub mod node_pipelines;
 
 mod gpu_frame;
 mod upload_stager;

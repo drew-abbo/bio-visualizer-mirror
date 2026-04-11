@@ -1,4 +1,4 @@
-//! This module contains [NodeRenderPipeline], a small runtime pipeline builder
+//! This module contains [RenderPipeline], a small runtime pipeline builder
 //! that creates a GPU render pipeline from a node's WGSL shader and its
 //! [NodeDefinition]. The pipeline binds a sampler, one or more input textures
 //! (for [NodeInputKind::Frame] inputs), and a uniform buffer containing non-texture
@@ -10,12 +10,12 @@
 //! node's output texture.
 //!
 //! Public API:
-//! - [NodeRenderPipeline::from_shader] builds a pipeline for a node definition
+//! - [RenderPipeline::from_shader] builds a pipeline for a node definition
 //!   from WGSL source.
-//! - The pipeline implements [PipelineBase] and can be invoked by the
+//! - The pipeline can be invoked by the
 //!   [crate::graph_executor::GraphExecutor] to render node outputs.
 //!
-//! See [PipelineBase] for the runtime-facing trait used by the executor.
+//! See [RenderPipeline::apply] for the runtime execution entry point used by the executor.
 //! Version 2.0
 
 use std::any::Any;
@@ -25,8 +25,7 @@ use crate::engine_errors::EngineError;
 use crate::graph_executor::NodeValue;
 use crate::node::NodeDefinition;
 use crate::node::engine_node::NodeInputKind;
-use crate::node_render_pipeline::helpers::create_linear_sampler;
-use crate::node_render_pipeline::pipeline_base::PipelineBase;
+use super::helpers::create_linear_sampler;
 
 /// Pipeline created dynamically from node definition and WGSL shader.
 /// Responsibilities:
@@ -37,8 +36,8 @@ use crate::node_render_pipeline::pipeline_base::PipelineBase;
 ///
 /// Runtime GPU render pipeline constructed from WGSL and a [NodeDefinition].
 /// Responsible for creating the [wgpu::RenderPipeline], bind group layout,
-/// uniform buffer for parameters and providing a `PipelineBase::apply` implementation.
-pub struct NodeRenderPipeline {
+/// uniform buffer for parameters and providing an [RenderPipeline::apply] implementation.
+pub struct RenderPipeline {
     // GPU resources
     pipeline: wgpu::RenderPipeline,
     bgl: wgpu::BindGroupLayout,
@@ -62,8 +61,9 @@ struct ShaderParam {
     offset: usize,
 }
 
-impl PipelineBase for NodeRenderPipeline {
-    fn apply(
+impl RenderPipeline {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn apply(
         &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -162,7 +162,7 @@ impl PipelineBase for NodeRenderPipeline {
     }
 }
 
-impl NodeRenderPipeline {
+impl RenderPipeline {
     /// Create pipeline from WGSL shader code and node definition
     pub fn from_shader(
         device: &wgpu::Device,
@@ -170,7 +170,7 @@ impl NodeRenderPipeline {
         definition: &NodeDefinition,
         target_format: wgpu::TextureFormat,
     ) -> Result<Self, String> {
-        // Construct a [NodeRenderPipeline] from raw WGSL shader code and a
+        // Construct a [RenderPipeline] from raw WGSL shader code and a
         // [NodeDefinition] describing inputs/outputs.
         //
         // This will create the pipeline, a matching bind-group-layout and a

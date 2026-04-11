@@ -18,7 +18,7 @@ use crate::node::handler::{
 };
 use crate::node_graph::EngineNodeId;
 use crate::node_graph::{InputValue, NodeGraph, NodeInstance};
-use crate::node_render_pipeline::{ComputePipeline, PipelineBase};
+use crate::node_pipelines::{ComputePipeline, RenderPipeline};
 use crate::upload_stager::UploadStager;
 use media::fps::Fps;
 
@@ -42,8 +42,8 @@ pub struct GraphExecutor {
     /// Maps: EngineNodeId -> { "output_name" -> NodeValue }
     output_cache: HashMap<EngineNodeId, CachedNodeOutput>,
 
-    /// Cache of compiled pipelines
-    pub(crate) pipeline_cache: HashMap<String, Box<dyn PipelineBase>>,
+    /// Cache of compiled render pipelines
+    pub(crate) pipeline_cache: HashMap<String, RenderPipeline>,
 
     /// Cache of compiled compute pipelines for algorithm stages
     pub(crate) compute_pipeline_cache: HashMap<String, ComputePipeline>,
