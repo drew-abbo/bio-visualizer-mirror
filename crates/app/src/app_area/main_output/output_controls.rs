@@ -40,14 +40,22 @@ impl OutputControls {
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui) {
+        let palette = util::ui::app_palette();
         ui.horizontal(|ui| {
             let play_pause_label = if self.playback_enabled {
-                "Pause"
+                "|| Pause"
             } else {
-                "Play"
+                "> Play"
             };
 
-            if ui.button(play_pause_label).clicked() {
+            if ui
+                .add(
+                    egui::Button::new(play_pause_label)
+                        .fill(egui::Color32::from_rgb(20, 56, 72))
+                        .stroke(egui::Stroke::new(1.0, palette.accent_secondary)),
+                )
+                .clicked()
+            {
                 self.playback_enabled = !self.playback_enabled;
             }
 

@@ -10,7 +10,106 @@ use std::process::Command;
 
 use egui::gui_zoom::{self, kb_shortcuts};
 use egui::load::{ImagePoll, LoadError};
-use egui::{Context, ImageSource, Key, Modal, Modifiers, RichText, SizeHint, Ui, Vec2};
+use egui::{
+    Color32, Context, FontFamily, FontId, ImageSource, Key, Modal, Modifiers, RichText,
+    SizeHint, TextStyle, Ui, Vec2,
+};
+
+/// Shared palette used across launcher and app.
+#[derive(Debug, Clone, Copy)]
+pub struct AppPalette {
+    pub accent_primary: Color32,
+    pub accent_secondary: Color32,
+    pub surface_blue: Color32,
+    pub surface_dark: Color32,
+    pub panel: Color32,
+    pub panel_raised: Color32,
+    pub text_primary: Color32,
+    pub text_muted: Color32,
+    pub border: Color32,
+    pub selection_fill: Color32,
+}
+
+impl Default for AppPalette {
+    fn default() -> Self {
+        Self {
+            accent_primary: Color32::from_rgb(235, 12, 183),
+            accent_secondary: Color32::from_rgb(194, 182, 7),
+            surface_blue: Color32::from_rgb(2, 44, 64),
+            surface_dark: Color32::from_rgb(26, 26, 26),
+            panel: Color32::from_rgb(20, 30, 38),
+            panel_raised: Color32::from_rgb(26, 40, 50),
+            text_primary: Color32::from_rgb(230, 234, 237),
+            text_muted: Color32::from_rgb(170, 180, 188),
+            border: Color32::from_rgb(56, 74, 86),
+            selection_fill: Color32::from_rgba_unmultiplied(235, 12, 183, 45),
+        }
+    }
+}
+
+pub fn app_palette() -> AppPalette {
+    AppPalette::default()
+}
+
+/// Applies the default biovis UI style with rounded controls and consistent sizing.
+pub fn apply_app_style(ctx: &Context) {
+    let palette = app_palette();
+    ctx.style_mut(|style| {
+        style.spacing.item_spacing = egui::vec2(8.0, 8.0);
+        style.spacing.button_padding = egui::vec2(10.0, 6.0);
+        style.spacing.window_margin = egui::Margin::same(12);
+
+        style.text_styles.insert(
+            TextStyle::Heading,
+            FontId::new(22.0, FontFamily::Proportional),
+        );
+        style
+            .text_styles
+            .insert(TextStyle::Body, FontId::new(15.0, FontFamily::Proportional));
+        style
+            .text_styles
+            .insert(TextStyle::Button, FontId::new(15.0, FontFamily::Proportional));
+        style
+            .text_styles
+            .insert(TextStyle::Small, FontId::new(12.0, FontFamily::Proportional));
+
+        style.visuals.override_text_color = Some(palette.text_primary);
+        style.visuals.panel_fill = palette.panel;
+        style.visuals.window_fill = palette.panel_raised;
+        style.visuals.faint_bg_color = palette.surface_dark;
+        style.visuals.extreme_bg_color = palette.surface_dark;
+        style.visuals.code_bg_color = palette.surface_dark;
+        style.visuals.selection.bg_fill = palette.selection_fill;
+        style.visuals.selection.stroke = egui::Stroke::new(1.5, palette.accent_primary);
+        style.visuals.window_stroke = egui::Stroke::new(1.0, palette.border);
+        style.visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, palette.border);
+        style.visuals.widgets.noninteractive.fg_stroke.color = palette.text_muted;
+
+        style.visuals.widgets.inactive.bg_fill = palette.surface_blue;
+        style.visuals.widgets.inactive.weak_bg_fill = palette.surface_blue;
+        style.visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, palette.border);
+        style.visuals.widgets.inactive.fg_stroke.color = palette.text_primary;
+
+        style.visuals.widgets.hovered.bg_fill = Color32::from_rgb(12, 56, 80);
+        style.visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(12, 56, 80);
+        style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, palette.accent_secondary);
+
+        style.visuals.widgets.active.bg_fill = Color32::from_rgb(18, 78, 105);
+        style.visuals.widgets.active.weak_bg_fill = Color32::from_rgb(18, 78, 105);
+        style.visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, palette.accent_primary);
+
+        style.visuals.widgets.open.bg_fill = palette.panel_raised;
+        style.visuals.widgets.open.bg_stroke = egui::Stroke::new(1.0, palette.border);
+
+        style.visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(8);
+        style.visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(8);
+        style.visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(8);
+        style.visuals.widgets.active.corner_radius = egui::CornerRadius::same(8);
+        style.visuals.widgets.open.corner_radius = egui::CornerRadius::same(8);
+        style.visuals.menu_corner_radius = egui::CornerRadius::same(10);
+        style.visuals.window_corner_radius = egui::CornerRadius::same(12);
+    });
+}
 
 /// A hacky fix to make scrolling smooth on trackpads w/ Windows. See issue:
 /// <https://github.com/emilk/egui/issues/4350>

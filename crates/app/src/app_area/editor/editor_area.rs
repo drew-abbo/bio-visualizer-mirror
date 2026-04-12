@@ -38,6 +38,11 @@ pub struct EditorArea {
     snarl_view_generation: u64,
     apply_saved_graph_zoom_once: bool,
     last_synced_content_hash: Option<u64>,
+    node_menu_search: String,
+    node_menu_focus_requested: bool,
+    node_menu_visible_last_frame: bool,
+    /// Persistent open state for the node menu
+    pub node_menu_open: bool,
 }
 
 impl EditorArea {
@@ -68,6 +73,10 @@ impl EditorArea {
             snarl_view_generation: 0,
             apply_saved_graph_zoom_once: true,
             last_synced_content_hash: None,
+            node_menu_search: String::new(),
+            node_menu_focus_requested: false,
+            node_menu_visible_last_frame: false,
+            node_menu_open: false,
         }
     }
 
@@ -179,11 +188,7 @@ impl EditorArea {
         // Render graph UI, then update preview/output from current selection.
         let selected_nodes = self.show_node_graph(ctx);
         let selected_snarl_node = self.update_output_selection(&selected_nodes);
-        self.update_output_from_graph(
-            frame,
-            selected_snarl_node,
-            preview_selected_node_enabled,
-        );
+        self.update_output_from_graph(frame, selected_snarl_node, preview_selected_node_enabled);
 
         self.show_any_error_popups(ctx);
     }
@@ -218,16 +223,68 @@ impl EditorArea {
     }
 
     fn show_node_graph(&mut self, ctx: &egui::Context) -> Vec<egui_snarl::NodeId> {
+
         let mut selected_nodes = Vec::new();
         let mut pending_errors = Vec::new();
         let mut input_widget_state = std::mem::take(&mut self.input_widget_state);
+        let mut node_menu_search = std::mem::take(&mut self.node_menu_search);
+        let mut node_menu_focus_requested = self.node_menu_focus_requested;
+        let mut menu_pos = None;
 
         // First, render the UI
+        let palette = util::ui::app_palette();
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(egui::Color32::from_rgb(16, 20, 22)))
+            .frame(egui::Frame::new().fill(palette.surface_dark))
             .show(ctx, |ui| {
-                let mut viewer =
-                    NodeGraphViewer::new(self.node_library.clone(), &mut input_widget_state);
+                // Detect right-click to open menu
+                if ui.ctx().input(|i| i.pointer.secondary_clicked()) {
+                    if let Some(pos) = ui.ctx().pointer_latest_pos() {
+                        self.node_menu_open = true;
+                        menu_pos = Some(pos);
+                    }
+                }
+
+                // Show node menu if open, in its own scope to avoid borrow conflicts
+                if self.node_menu_open {
+                    {
+                        let pos = menu_pos.unwrap_or_else(|| ui.ctx().pointer_latest_pos().unwrap_or(egui::pos2(200.0, 200.0)));
+                        let mut node_inserted = false;
+                        egui::Area::new("node_menu_popup".into())
+                            .fixed_pos(pos)
+                            .order(egui::Order::Foreground)
+                            .show(ui.ctx(), |ui| {
+                                let mut viewer = NodeGraphViewer::new(
+                                    self.node_library.clone(),
+                                    &mut input_widget_state,
+                                    &mut node_menu_search,
+                                    &mut node_menu_focus_requested,
+                                );
+                                let node_graph = self.active_node_graph_mut();
+                                node_graph.ensure_output_sink();
+                                viewer.set_initial_graph_view(
+                                    node_graph.graph_view,
+                                    node_graph.legacy_graph_view_zoom,
+                                    false,
+                                );
+                                // Custom menu rendering logic
+                                viewer.show_graph_menu_with_flag(pos, ui, &mut node_graph.snarl, &mut node_inserted);
+                                if node_inserted {
+                                    self.node_menu_open = false;
+                                }
+                                // Close on Escape
+                                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                    self.node_menu_open = false;
+                                }
+                            });
+                    }
+                }
+
+                let mut viewer = NodeGraphViewer::new(
+                    self.node_library.clone(),
+                    &mut input_widget_state,
+                    &mut node_menu_search,
+                    &mut node_menu_focus_requested,
+                );
 
                 let snarl_widget = egui_snarl::ui::SnarlWidget::new()
                     .id(egui::Id::new(("node_graph", self.snarl_view_generation)))
@@ -263,9 +320,15 @@ impl EditorArea {
 
                 selected_nodes = snarl_widget.get_selected_nodes(ui);
                 pending_errors = viewer.take_pending_errors();
+                self.node_menu_visible_last_frame = viewer.graph_menu_visible_this_frame();
             });
 
         self.input_widget_state = input_widget_state;
+        self.node_menu_search = node_menu_search;
+        self.node_menu_focus_requested = node_menu_focus_requested;
+        if !self.node_menu_visible_last_frame {
+            self.node_menu_focus_requested = false;
+        }
 
         for error in pending_errors {
             self.error_popup_queue.push_back(error);
@@ -451,14 +514,13 @@ impl EditorArea {
         // playback clock so UI interactions cannot speed up stream consumption.
         let has_timed_playback =
             self.playback_enabled && self.fps_override.or(self.last_fps_output).is_some();
-        let graph_execute_due = !has_timed_playback && (graph_changed || self.pending_graph_execute);
+        let graph_execute_due =
+            !has_timed_playback && (graph_changed || self.pending_graph_execute);
 
-        
         let should_execute = self.displayed_frame.is_none()
             || should_advance
             || selection_changed
             || graph_execute_due;
-
 
         if should_execute {
             match self.executor_manager.execute(

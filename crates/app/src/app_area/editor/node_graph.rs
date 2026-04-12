@@ -20,6 +20,7 @@ use media::midi::streams::list_ports;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use util::fuzzy_search::{FuzzySearchable, FuzzySearcher};
 
 const VIRTUAL_OUTPUT_SINK_NAME: &str = "__virtual_output_sink__";
 
@@ -235,6 +236,9 @@ pub struct NodeGraphViewer<'a> {
     node_library: Arc<NodeLibrary>,
     pending_errors: Vec<String>,
     input_widget_state: &'a mut input_widgets::InputWidgetState,
+    node_menu_search: &'a mut String,
+    node_menu_focus_requested: &'a mut bool,
+    graph_menu_visible_this_frame: bool,
     initial_graph_view: Option<GraphViewState>,
     initial_graph_view_zoom: Option<f32>,
     apply_initial_graph_view: bool,
@@ -242,15 +246,35 @@ pub struct NodeGraphViewer<'a> {
     reset_view_requested: bool,
 }
 
+#[derive(Clone)]
+struct NodeMenuSearchItem {
+    definition_name: String,
+    display_name: String,
+    category: String,
+    subcategories: Vec<String>,
+    search_text: String,
+}
+
+impl FuzzySearchable for NodeMenuSearchItem {
+    fn as_search_string(&self) -> &str {
+        &self.search_text
+    }
+}
+
 impl<'a> NodeGraphViewer<'a> {
     pub fn new(
         node_library: Arc<NodeLibrary>,
         input_widget_state: &'a mut input_widgets::InputWidgetState,
+        node_menu_search: &'a mut String,
+        node_menu_focus_requested: &'a mut bool,
     ) -> Self {
         Self {
             node_library,
             pending_errors: Vec::new(),
             input_widget_state,
+            node_menu_search,
+            node_menu_focus_requested,
+            graph_menu_visible_this_frame: false,
             initial_graph_view: None,
             initial_graph_view_zoom: None,
             apply_initial_graph_view: false,
@@ -286,6 +310,26 @@ impl<'a> NodeGraphViewer<'a> {
         self.pending_errors.push(msg.into());
     }
 
+    fn insert_node_from_definition_name(
+        &self,
+        pos: egui::Pos2,
+        definition_name: &str,
+        ui: &mut egui::Ui,
+        snarl: &mut Snarl<NodeData>,
+        node_inserted: &mut bool,
+    ) {
+        snarl.insert_node(
+            pos,
+            NodeData {
+                definition_name: definition_name.to_string(),
+                input_values: HashMap::new(),
+                engine_node_id: None,
+            },
+        );
+        ui.close();
+        *node_inserted = true;
+    }
+
     /// Simple DFS to check if connecting would create a cycle in the graph
     fn would_create_cycle(snarl: &Snarl<NodeData>, from: SnarlNodeId, to: SnarlNodeId) -> bool {
         let mut stack = vec![to];
@@ -307,6 +351,66 @@ impl<'a> NodeGraphViewer<'a> {
         }
 
         false
+    }
+
+    fn midi_source_has_valid_selected_port(node: &NodeData) -> bool {
+        let Some(InputValue::Text(selected_port)) = node.input_values.get("Port") else {
+            return false;
+        };
+
+        let selected_port = selected_port.trim();
+        if selected_port.is_empty() || selected_port.eq_ignore_ascii_case("No ports available") {
+            return false;
+        }
+
+        let Ok(ports) = list_ports() else {
+            return false;
+        };
+
+        let available_ports: Vec<String> = ports.map(|port| port.port_name().to_string()).collect();
+        if available_ports.is_empty() {
+            return false;
+        }
+
+        if let Ok(port_index) = selected_port.parse::<usize>() {
+            return port_index < available_ports.len();
+        }
+
+        available_ports.iter().any(|port| port == selected_port)
+    }
+
+    fn build_node_search_items(&self) -> Vec<NodeMenuSearchItem> {
+        let mut items: Vec<NodeMenuSearchItem> = self
+            .node_library
+            .definitions()
+            .iter()
+            .map(|(definition_name, definition)| {
+                let mut search_tokens = vec![
+                    definition.node.name.clone(),
+                    definition.node.short_description.clone(),
+                    definition.node.long_description.clone(),
+                    definition.node.category.clone(),
+                    definition.node.subcategories.join(" "),
+                    definition.node.search_keywords.join(" "),
+                ];
+                search_tokens.retain(|s| !s.trim().is_empty());
+
+                NodeMenuSearchItem {
+                    definition_name: definition_name.clone(),
+                    display_name: definition.node.name.clone(),
+                    category: definition.node.category.clone(),
+                    subcategories: definition.node.subcategories.clone(),
+                    search_text: search_tokens.join(" "),
+                }
+            })
+            .collect();
+
+        items.sort_by(|a, b| a.display_name.cmp(&b.display_name));
+        items
+    }
+
+    pub fn graph_menu_visible_this_frame(&self) -> bool {
+        self.graph_menu_visible_this_frame
     }
 }
 
@@ -366,12 +470,17 @@ impl SnarlViewer<NodeData> for NodeGraphViewer<'_> {
         let node_name = snarl[pin.id.node].definition_name.clone();
         if node_name == VIRTUAL_OUTPUT_SINK_NAME {
             ui.label("Output");
-            return PinInfo::circle().with_fill(colors::input_kind_color(&NodeInputKind::Frame));
+            let frame_color = colors::input_kind_color(&NodeInputKind::Frame);
+            return PinInfo::circle()
+                .with_fill(frame_color)
+                .with_wire_color(frame_color);
         }
 
         if let Some(def) = self.node_library.get_definition(&node_name)
             && let Some(input_def) = def.node.inputs.get(pin.id.input)
         {
+            let show_pin = input_def.show_pin;
+
             let mut missing_file_error = None;
             ui.label(&input_def.name);
 
@@ -417,7 +526,14 @@ impl SnarlViewer<NodeData> for NodeGraphViewer<'_> {
                 self.push_error(error);
             }
 
-            return PinInfo::circle().with_fill(color);
+            if !show_pin {
+                return PinInfo::circle()
+                    .with_fill(egui::Color32::TRANSPARENT)
+                    .with_stroke(egui::Stroke::NONE)
+                    .with_wire_color(egui::Color32::TRANSPARENT);
+            }
+
+            return PinInfo::circle().with_fill(color).with_wire_color(color);
         }
 
         ui.label("input");
@@ -439,9 +555,16 @@ impl SnarlViewer<NodeData> for NodeGraphViewer<'_> {
         if let Some(def) = self.node_library.get_definition(node_name)
             && let Some(output_def) = def.node.outputs.get(pin.id.output)
         {
+            if !output_def.show_pin {
+                return PinInfo::circle()
+                    .with_fill(egui::Color32::TRANSPARENT)
+                    .with_stroke(egui::Stroke::NONE)
+                    .with_wire_color(egui::Color32::TRANSPARENT);
+            }
+
             ui.label(&output_def.name);
             let color = colors::output_kind_color(&output_def.kind);
-            return PinInfo::circle().with_fill(color);
+            return PinInfo::circle().with_fill(color).with_wire_color(color);
         }
 
         ui.label("output");
@@ -452,39 +575,138 @@ impl SnarlViewer<NodeData> for NodeGraphViewer<'_> {
         true
     }
 
-    fn show_graph_menu(&mut self, pos: egui::Pos2, ui: &mut egui::Ui, snarl: &mut Snarl<NodeData>) {
-        ui.label("Add Node");
-        ui.separator();
+}
 
-        // This should be moved somewhere else that makese sense I was just playing around with it.
-        if ui.button("Reset View").clicked() {
-            self.reset_view_requested = true;
-            ui.close();
-            return;
-        }
+impl<'a> NodeGraphViewer<'a> {
+    pub fn show_graph_menu_with_flag(&mut self, pos: egui::Pos2, ui: &mut egui::Ui, snarl: &mut Snarl<NodeData>, node_inserted: &mut bool) {
+        self.graph_menu_visible_this_frame = true;
+        let menu_config = egui::containers::menu::MenuConfig::new()
+            .close_behavior(egui::PopupCloseBehavior::IgnoreClicks);
 
-        ui.separator();
+        let stack_info = egui::UiStackInfo::new(egui::UiKind::Menu).with_tag_value(
+            egui::containers::menu::MenuConfig::MENU_CONFIG_TAG,
+            menu_config,
+        );
 
-        egui::ScrollArea::vertical()
-            .max_height(400.0)
-            .show(ui, |ui| {
-                let mut definitions: Vec<_> = self.node_library.definitions().iter().collect();
-                definitions.sort_by(|(_, a), (_, b)| a.node.name.cmp(&b.node.name));
+        ui.scope_builder(egui::UiBuilder::new().ui_stack_info(stack_info), |ui| {
+            let palette = util::ui::app_palette();
+            egui::Frame::new()
+                .fill(egui::Color32::from_rgb(22, 34, 43))
+                .stroke(egui::Stroke::new(1.0, palette.border))
+                .corner_radius(egui::CornerRadius::same(10))
+                .inner_margin(egui::Margin::same(8))
+                .show(ui, |ui| {
+                    ui.set_width(340.0); // Fixed menu width
+                    ui.label(egui::RichText::new("Add Node").strong());
+                    ui.separator();
 
-                for (definition_name, definition) in definitions {
-                    if ui.button(&definition.node.name).clicked() {
-                        snarl.insert_node(
-                            pos,
-                            NodeData {
-                                definition_name: definition_name.clone(),
-                                input_values: HashMap::new(),
-                                engine_node_id: None,
-                            },
-                        );
-                        ui.close();
+                    let search_response = ui
+                        .horizontal(|ui| {
+                            let search = ui.add(
+                                egui::TextEdit::singleline(self.node_menu_search)
+                                    .hint_text("Search nodes...")
+                                    .desired_width(220.0),
+                            );
+
+                            let clear = ui.add_enabled(
+                                !self.node_menu_search.is_empty(),
+                                egui::Button::new("Clear"),
+                            );
+                            if clear.clicked() {
+                                self.node_menu_search.clear();
+                            }
+
+                            search
+                        })
+                        .inner;
+                    if !*self.node_menu_focus_requested {
+                        search_response.request_focus();
+                        *self.node_menu_focus_requested = true;
                     }
-                }
-            });
+                    ui.separator();
+
+                    egui::ScrollArea::vertical()
+                        .max_height(420.0)
+                        .show(ui, |ui| {
+                            let query = self.node_menu_search.trim();
+
+                            if !query.is_empty() {
+                                let mut searcher = FuzzySearcher::new(query);
+                                let results: Vec<NodeMenuSearchItem> = searcher
+                                    .search(self.build_node_search_items().into_iter())
+                                    .collect();
+
+                                if results.is_empty() {
+                                    ui.label(egui::RichText::new("No matching nodes").weak());
+                                    return;
+                                }
+
+                                for item in results {
+                                    if ui.button(&item.display_name).clicked() {
+                                        self.insert_node_from_definition_name(
+                                            pos,
+                                            &item.definition_name,
+                                            ui,
+                                            snarl,
+                                            node_inserted,
+                                        );
+                                    }
+
+                                    let mut location = item.category;
+                                    if !item.subcategories.is_empty() {
+                                        location.push_str(" / ");
+                                        location.push_str(&item.subcategories.join(" / "));
+                                    }
+
+                                    if !location.trim().is_empty() {
+                                        ui.label(egui::RichText::new(location).small().weak());
+                                    }
+                                    ui.add_space(4.0);
+                                }
+                                return;
+                            }
+
+                            let mut categories = self.node_library.get_all_category_info();
+                            categories.sort_by(|a, b| a.name.cmp(&b.name));
+
+                            for category in categories {
+                                let mut direct_nodes = category.direct_nodes.clone();
+                                direct_nodes.sort();
+
+                                let mut subcategories = category.subcategories.clone();
+                                subcategories.sort_by(|a, b| a.name.cmp(&b.name));
+
+                                egui::CollapsingHeader::new(&category.name)
+                                    .default_open(false)
+                                    .show(ui, |ui| {
+                                        for node_name in &direct_nodes {
+                                            if ui.button(node_name).clicked() {
+                                                self.insert_node_from_definition_name(
+                                                    pos, node_name, ui, snarl, node_inserted,
+                                                );
+                                            }
+                                        }
+                                        for subcategory in &subcategories {
+                                            egui::CollapsingHeader::new(&subcategory.name)
+                                                .default_open(false)
+                                                .show(ui, |ui| {
+                                                    let mut sub_nodes = subcategory.nodes.clone();
+                                                    sub_nodes.sort();
+                                                    for node_name in &sub_nodes {
+                                                        if ui.button(node_name).clicked() {
+                                                            self.insert_node_from_definition_name(
+                                                                pos, node_name, ui, snarl, node_inserted,
+                                                            );
+                                                        }
+                                                    }
+                                                });
+                                        }
+                                    });
+                            }
+                        });
+                });
+        });
+        // No return value; node_inserted is updated via mutable reference
     }
 
     fn has_node_menu(&mut self, _node: &NodeData) -> bool {
@@ -581,15 +803,8 @@ impl SnarlViewer<NodeData> for NodeGraphViewer<'_> {
             from_def.node.executor,
             NodeExecutionPlan::BuiltIn(BuiltInHandler::MidiSource)
         ) {
-            let has_midi_ports = match list_ports() {
-                Ok(ports) => ports.count() > 0,
-                Err(_) => false,
-            };
-
-            if !has_midi_ports {
-                self.push_error(
-                    "Cannot connect MIDI node: no MIDI input port is selected or available.",
-                );
+            if !Self::midi_source_has_valid_selected_port(from_node) {
+                self.push_error("Cannot connect MIDI node: select a valid MIDI input port first.");
                 return;
             }
         }

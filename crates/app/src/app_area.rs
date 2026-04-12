@@ -25,6 +25,8 @@ pub struct AppArea {
 
 impl AppArea {
     pub fn new(cc: &eframe::CreationContext<'_>, args: Args) -> Self {
+        util::ui::apply_app_style(&cc.egui_ctx);
+
         let mut fonts = egui::FontDefinitions::default();
         egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
         cc.egui_ctx.set_fonts(fonts);
@@ -68,10 +70,12 @@ impl AppArea {
     }
 
     fn show_top_bar(&mut self, ctx: &egui::Context) {
+        let palette = util::ui::app_palette();
         egui::TopBottomPanel::top("menu")
             .frame(
                 egui::Frame::NONE
-                    .fill(egui::Color32::from_rgb(24, 29, 31))
+                    .fill(palette.surface_dark)
+                    .stroke(egui::Stroke::new(1.0, palette.border))
                     .inner_margin(egui::Margin::symmetric(12, 6)),
             )
             .show(ctx, |ui| {
@@ -124,7 +128,6 @@ impl AppArea {
 
 impl eframe::App for AppArea {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-
         self.request_startup_maximized(ctx);
         self.process_pending_commands();
 

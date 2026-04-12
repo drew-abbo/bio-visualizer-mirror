@@ -20,6 +20,7 @@ impl TitleBarArea {
 impl TitleBarArea {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
+        let palette = util::ui::app_palette();
 
         // Render toolbar on the left, and window controls on the right.
         ui.horizontal_centered(|ui| {
@@ -66,7 +67,7 @@ impl TitleBarArea {
             }
 
             // Right: window controls
-            let button_color = ui.visuals().text_color();
+            let button_color = palette.text_primary;
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
 
@@ -85,8 +86,8 @@ impl TitleBarArea {
                 if close_response.hovered() {
                     ui.painter().rect_filled(
                         close_response.rect,
-                        4.0,
-                        egui::Color32::from_rgba_unmultiplied(255, 255, 255, 15),
+                        6.0,
+                        egui::Color32::from_rgba_unmultiplied(235, 12, 183, 55),
                     );
                 }
                 if close_response.clicked() {
@@ -110,8 +111,8 @@ impl TitleBarArea {
                     if maximize_response.hovered() {
                         ui.painter().rect_filled(
                             maximize_response.rect,
-                            4.0,
-                            egui::Color32::from_rgba_unmultiplied(255, 255, 255, 15),
+                            6.0,
+                            egui::Color32::from_rgba_unmultiplied(194, 182, 7, 45),
                         );
                     }
                     if maximize_response.clicked() {
@@ -133,8 +134,8 @@ impl TitleBarArea {
                     if maximize_response.hovered() {
                         ui.painter().rect_filled(
                             maximize_response.rect,
-                            4.0,
-                            egui::Color32::from_rgba_unmultiplied(255, 255, 255, 15),
+                            6.0,
+                            egui::Color32::from_rgba_unmultiplied(194, 182, 7, 45),
                         );
                     }
                     if maximize_response.clicked() {
@@ -157,8 +158,8 @@ impl TitleBarArea {
                 if minimize_response.hovered() {
                     ui.painter().rect_filled(
                         minimize_response.rect,
-                        4.0,
-                        egui::Color32::from_rgba_unmultiplied(255, 255, 255, 15),
+                        6.0,
+                        egui::Color32::from_rgba_unmultiplied(2, 44, 64, 120),
                     );
                 }
                 if minimize_response.clicked() {

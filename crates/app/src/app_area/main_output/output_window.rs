@@ -86,9 +86,11 @@ impl OutputWindow {
 
     /// Render the output window to a UI
     pub fn show(&mut self, ui: &mut egui::Ui, controls: &mut OutputControls) {
+        let palette = util::ui::app_palette();
         egui::Frame::new()
-            .fill(egui::Color32::from_rgb(12, 16, 18))
-            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(38, 47, 51)))
+            .fill(egui::Color32::from_rgb(16, 24, 30))
+            .stroke(egui::Stroke::new(1.0, palette.border))
+            .corner_radius(egui::CornerRadius::same(12))
             .inner_margin(egui::Margin::same(10))
             .show(ui, |ui| {
                 ui.vertical(|ui| {
@@ -112,6 +114,9 @@ impl OutputWindow {
 
                         // Display the frame
                         egui::Frame::canvas(ui.style())
+                            .fill(egui::Color32::from_rgb(8, 12, 15))
+                            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(37, 49, 57)))
+                            .corner_radius(egui::CornerRadius::same(8))
                             .inner_margin(egui::Margin::same(5))
                             .show(ui, |ui| {
                                 self.frame_display.render_content(ui);

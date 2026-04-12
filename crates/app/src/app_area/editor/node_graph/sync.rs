@@ -494,7 +494,10 @@ pub fn normalize_node_inputs(state: &mut NodeGraphState, node_library: &NodeLibr
             }
 
             // Skip inputs that are already set
-            if state.snarl[node_id].input_values.contains_key(&input_def.name) {
+            if state.snarl[node_id]
+                .input_values
+                .contains_key(&input_def.name)
+            {
                 continue;
             }
 
@@ -507,8 +510,12 @@ pub fn normalize_node_inputs(state: &mut NodeGraphState, node_library: &NodeLibr
         }
 
         // Remove inputs that are no longer in the schema
-        let defined_input_names: std::collections::HashSet<_> =
-            definition.node.inputs.iter().map(|i| i.name.clone()).collect();
+        let defined_input_names: std::collections::HashSet<_> = definition
+            .node
+            .inputs
+            .iter()
+            .map(|i| i.name.clone())
+            .collect();
 
         let orphaned_inputs: Vec<_> = state.snarl[node_id]
             .input_values

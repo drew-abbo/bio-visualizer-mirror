@@ -6,7 +6,7 @@ use std::fmt::Debug;
 use std::time::{self, Duration, SystemTime};
 
 use eframe::{App, Frame};
-use egui::{CentralPanel, Context, Ui, UserAttentionType, Vec2, ViewportCommand, Visuals};
+use egui::{CentralPanel, Context, Ui, UserAttentionType, Vec2, ViewportCommand};
 
 use util::channels::request_channel::Request;
 use util::local_data::project::ProjectId;
@@ -416,8 +416,7 @@ const ZOOM_LIMITS: (f32, f32) = (0.5, 2.0);
 const GENERIC_ERROR_MSG: &str = "Something went wrong, consider restarting.";
 
 fn apply_base_style(ctx: &Context) {
-    // Disable light mode, always use dark.
-    ctx.set_visuals(Visuals::dark());
+    util::ui::apply_app_style(ctx);
 
     ctx.style_mut(|style| {
         // Add some padding to the inside of buttons.

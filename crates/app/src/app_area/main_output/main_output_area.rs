@@ -50,6 +50,8 @@ impl MainOutputArea {
     }
 
     pub fn show(&mut self, ctx: &egui::Context) {
+        let palette = util::ui::app_palette();
+
         // Keep output window orchestration in the output area so AppArea only delegates.
         egui::Window::new("Output")
             .default_pos(egui::pos2(100.0, 100.0))
@@ -59,8 +61,9 @@ impl MainOutputArea {
             .collapsible(true)
             .frame(
                 egui::Frame::new()
-                    .fill(egui::Color32::from_rgb(18, 22, 24))
-                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(44, 54, 58)))
+                    .fill(palette.panel)
+                    .stroke(egui::Stroke::new(1.0, palette.border))
+                    .corner_radius(egui::CornerRadius::same(12))
                     .inner_margin(egui::Margin::same(10)),
             )
             .show(ctx, |ui| {
