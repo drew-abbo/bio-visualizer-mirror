@@ -68,17 +68,6 @@ impl MainOutputArea {
                     });
                 });
 
-            egui::Area::new(egui::Id::new("fullscreen_hint"))
-                .fixed_pos(egui::pos2(8.0, 8.0))
-                .order(egui::Order::Tooltip)
-                .show(ctx, |ui| {
-                    ui.label(
-                        egui::RichText::new("ESC to exit fullscreen")
-                            .color(egui::Color32::from_rgba_unmultiplied(200, 200, 200, 120))
-                            .small(),
-                    );
-                });
-
             return;
         }
 
