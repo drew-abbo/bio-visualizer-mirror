@@ -129,7 +129,7 @@ impl GraphExecutorManager {
             &render_state.queue,
             Some(exec_target),
         )?;
-        
+
         // Try selected node's output first, then fall back to output node - both
         // are already in the output_cache from the single execute call above.
         let frame_from_selected = selected_engine_node

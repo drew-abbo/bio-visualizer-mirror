@@ -124,7 +124,6 @@ impl AppArea {
 
 impl eframe::App for AppArea {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-
         self.request_startup_maximized(ctx);
         self.process_pending_commands();
 

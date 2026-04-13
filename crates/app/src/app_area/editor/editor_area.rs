@@ -179,11 +179,7 @@ impl EditorArea {
         // Render graph UI, then update preview/output from current selection.
         let selected_nodes = self.show_node_graph(ctx);
         let selected_snarl_node = self.update_output_selection(&selected_nodes);
-        self.update_output_from_graph(
-            frame,
-            selected_snarl_node,
-            preview_selected_node_enabled,
-        );
+        self.update_output_from_graph(frame, selected_snarl_node, preview_selected_node_enabled);
 
         self.show_any_error_popups(ctx);
     }
@@ -451,14 +447,13 @@ impl EditorArea {
         // playback clock so UI interactions cannot speed up stream consumption.
         let has_timed_playback =
             self.playback_enabled && self.fps_override.or(self.last_fps_output).is_some();
-        let graph_execute_due = !has_timed_playback && (graph_changed || self.pending_graph_execute);
+        let graph_execute_due =
+            !has_timed_playback && (graph_changed || self.pending_graph_execute);
 
-        
         let should_execute = self.displayed_frame.is_none()
             || should_advance
             || selection_changed
             || graph_execute_due;
-
 
         if should_execute {
             match self.executor_manager.execute(

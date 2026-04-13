@@ -5,27 +5,25 @@ use media::fps::Fps;
 
 /// Main output window for displaying frames with native FPS tracking
 pub struct OutputWindow {
-    frame_display: FrameDisplay,
     current_output: Option<NodeValue>,
     playback_fps: Option<Fps>,
     last_texture_view_ptr: Option<usize>,
     last_renderer_ptr: Option<usize>,
-
-    // Metadata
     frame_width: u32,
     frame_height: u32,
+    frame_display: FrameDisplay,
 }
 
 impl OutputWindow {
     pub fn new() -> Self {
         Self {
-            frame_display: FrameDisplay::default_config(),
             current_output: None,
             playback_fps: None,
             last_texture_view_ptr: None,
             last_renderer_ptr: None,
             frame_width: 0,
             frame_height: 0,
+            frame_display: FrameDisplay::new(),
         }
     }
 
@@ -110,14 +108,15 @@ impl OutputWindow {
                             ui.separator();
                         }
 
-                        // Display the frame
-                        egui::Frame::canvas(ui.style())
-                            .inner_margin(egui::Margin::same(5))
-                            .show(ui, |ui| {
-                                self.frame_display.render_content(ui);
-                            });
+                        // Allocate all remaining vertical space for the frame
+                        let available = ui.available_size();
+                        ui.allocate_ui(available, |ui| {
+                            self.frame_display.render_content(ui);
+                        });
                     } else {
-                        ui.label(egui::RichText::new("No output available").weak());
+                        ui.centered_and_justified(|ui| {
+                            ui.label(egui::RichText::new("No output available").weak());
+                        });
                     }
                 });
             });
