@@ -50,7 +50,38 @@ impl MainOutputArea {
     }
 
     pub fn show(&mut self, ctx: &egui::Context) {
-        // Keep output window orchestration in the output area so AppArea only delegates.
+        if self.controls.fullscreen_enabled() && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            *self.controls.fullscreen_enabled_mut() = false;
+        }
+
+        if self.controls.fullscreen_enabled() {
+            egui::Area::new(egui::Id::new("fullscreen_output"))
+                .fixed_pos(egui::pos2(0.0, 0.0))
+                .order(egui::Order::Foreground)
+                .show(ctx, |ui| {
+                    let screen_rect = ctx.content_rect();
+                    ui.painter()
+                        .rect_filled(screen_rect, 0.0, egui::Color32::BLACK);
+                    ui.set_clip_rect(screen_rect);
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(screen_rect), |ui| {
+                        self.output_window.render_fullscreen(ui);
+                    });
+                });
+
+            egui::Area::new(egui::Id::new("fullscreen_hint"))
+                .fixed_pos(egui::pos2(8.0, 8.0))
+                .order(egui::Order::Tooltip)
+                .show(ctx, |ui| {
+                    ui.label(
+                        egui::RichText::new("ESC to exit fullscreen")
+                            .color(egui::Color32::from_rgba_unmultiplied(200, 200, 200, 120))
+                            .small(),
+                    );
+                });
+
+            return;
+        }
+
         egui::Window::new("Output")
             .default_pos(egui::pos2(100.0, 100.0))
             .default_size(egui::vec2(520.0, 620.0))

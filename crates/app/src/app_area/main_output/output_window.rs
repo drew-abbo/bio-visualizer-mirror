@@ -82,6 +82,14 @@ impl OutputWindow {
         }
     }
 
+    pub fn render_fullscreen(&mut self, ui: &mut egui::Ui) {
+        egui::Frame::new()
+            .fill(egui::Color32::BLACK)
+            .show(ui, |ui| {
+                self.frame_display.render_content(ui);
+            });
+    }
+
     /// Render the output window to a UI
     pub fn show(&mut self, ui: &mut egui::Ui, controls: &mut OutputControls) {
         egui::Frame::new()
