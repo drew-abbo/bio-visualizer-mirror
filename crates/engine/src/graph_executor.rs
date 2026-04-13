@@ -8,13 +8,11 @@ use std::hash::{Hash, Hasher};
 use crate::graph_executor_effects::EffectStage;
 use crate::node::NodeDefinition;
 use crate::node::NodeLibrary;
-use crate::node::engine_node::{
-    AlgorithmStageBackend, BuiltInHandler, NodeExecutionPlan,
-};
+use crate::node::engine_node::{AlgorithmStageBackend, BuiltInHandler, NodeExecutionPlan};
 use crate::node::handler::{
     FrameStreamHandler, MidiStreamHandler, NodeFrameStreamRequest, NodeMidiStreamRequest,
-    NodeNoiseStreamRequest, NodeSignalEnvelopeRequest, NoiseStreamHandler,
-    SignalEnvelopeHandler, StreamKind,
+    NodeNoiseStreamRequest, NodeSignalEnvelopeRequest, NoiseStreamHandler, SignalEnvelopeHandler,
+    StreamKind,
 };
 use crate::node_graph::EngineNodeId;
 use crate::node_graph::{InputValue, NodeGraph, NodeInstance};
@@ -273,24 +271,30 @@ impl GraphExecutor {
             .execution_order()
             .map_err(ExecutionError::GraphError)?;
 
-        if let Some(target) = target_node_id
-            && !order.contains(&target)
-        {
-            return Err(ExecutionError::TargetNodeNotInExecutionOrder(target));
-        }
-
-        let required_nodes =
-            target_node_id.map(|target| Self::collect_required_nodes_for_target(graph, target));
-
-        let execution_node_ids: Vec<EngineNodeId> = order
-            .iter()
-            .copied()
-            .filter(|node_id| {
-                required_nodes
-                    .as_ref()
-                    .is_none_or(|required| required.contains(node_id))
-            })
-            .collect();
+        // Determine which nodes should be executed
+        let execution_node_ids: Vec<EngineNodeId> = if let Some(target) = target_node_id {
+            if !order.contains(&target) {
+                return Err(ExecutionError::TargetNodeNotInExecutionOrder(target));
+            }
+            let required = Self::collect_required_nodes_for_target(graph, target);
+            order
+                .iter()
+                .copied()
+                .filter(|node_id| required.contains(node_id))
+                .collect()
+        } else {
+            // No specific target: only execute nodes connected to any output node
+            let output_nodes = graph.find_output_nodes();
+            let mut required = std::collections::HashSet::new();
+            for output in &output_nodes {
+                required.extend(Self::collect_required_nodes_for_target(graph, *output));
+            }
+            order
+                .iter()
+                .copied()
+                .filter(|node_id| required.contains(node_id))
+                .collect()
+        };
 
         let active_nodes: HashSet<EngineNodeId> = execution_node_ids.iter().copied().collect();
         self.frame_stream_handler
@@ -350,8 +354,13 @@ impl GraphExecutor {
                 NodeExecutionPlan::Shader { .. } => {
                     self.execute_shader_node(node_id, device, queue, definition, &resolved_inputs)?
                 }
-                NodeExecutionPlan::Algorithm { .. } => self
-                    .execute_algorithm_node(node_id, device, queue, definition, &resolved_inputs)?,
+                NodeExecutionPlan::Algorithm { .. } => self.execute_algorithm_node(
+                    node_id,
+                    device,
+                    queue,
+                    definition,
+                    &resolved_inputs,
+                )?,
                 NodeExecutionPlan::BuiltIn(handler) => self.execute_builtin_node(
                     node_id,
                     handler,
@@ -512,9 +521,7 @@ impl GraphExecutor {
                 dispatch: None,
             });
 
-            return self.execute_effect_stages(
-                node_id, device, queue, definition, inputs, &stages,
-            );
+            return self.execute_effect_stages(node_id, device, queue, definition, inputs, &stages);
         }
 
         let stages = [EffectStage {
@@ -779,7 +786,6 @@ impl GraphExecutor {
             NodeValue::File(path) => path.hash(hasher),
         }
     }
-
 }
 
 fn format_to_cache_key(format: wgpu::TextureFormat) -> String {
