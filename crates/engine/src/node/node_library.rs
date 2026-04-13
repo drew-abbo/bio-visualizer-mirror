@@ -282,7 +282,7 @@ impl NodeLibrary {
             .map_err(|e| LibraryError::ParseError(node_json.clone(), e.to_string()))?;
 
         // Resolve shader file path if this is a shader node
-        let shader_path = if let NodeExecutionPlan::Shader { source } = &node.executor {
+        let shader_path = if let NodeExecutionPlan::Shader { source, .. } = &node.executor {
             let absolute_path = node_folder.join(source);
 
             // Verify shader file exists

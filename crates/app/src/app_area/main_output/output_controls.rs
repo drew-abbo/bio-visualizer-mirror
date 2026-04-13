@@ -1,7 +1,12 @@
+use media::fps::Fps;
+
 pub struct OutputControls {
     playback_enabled: bool,
     show_info: bool,
     preview_selected_node: bool,
+    manual_fps_enabled: bool,
+    manual_fps_value: f32,
+    fullscreen_enabled: bool,
 }
 
 impl OutputControls {
@@ -10,6 +15,9 @@ impl OutputControls {
             playback_enabled: true,
             show_info: true,
             preview_selected_node: false,
+            manual_fps_enabled: false,
+            manual_fps_value: 30.0,
+            fullscreen_enabled: false,
         }
     }
 
@@ -25,22 +33,46 @@ impl OutputControls {
         self.preview_selected_node
     }
 
+    pub fn fps_override(&self) -> Option<Fps> {
+        if !self.manual_fps_enabled {
+            return None;
+        }
+
+        Fps::from_float(self.manual_fps_value as f64).ok()
+    }
+
+    pub fn fullscreen_enabled(&self) -> bool {
+        self.fullscreen_enabled
+    }
+
+    pub fn fullscreen_enabled_mut(&mut self) -> &mut bool {
+        &mut self.fullscreen_enabled
+    }
+
     pub fn show(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            let play_pause_label = if self.playback_enabled {
-                "Pause"
-            } else {
-                "Play"
-            };
-
+            let play_pause_label = if self.playback_enabled { "Pause" } else { "Play" };
             if ui.button(play_pause_label).clicked() {
                 self.playback_enabled = !self.playback_enabled;
             }
-
             ui.separator();
             ui.checkbox(&mut self.show_info, "Info");
             ui.separator();
             ui.checkbox(&mut self.preview_selected_node, "Preview Selected Node");
+            ui.separator();
+            ui.checkbox(&mut self.manual_fps_enabled, "Manual FPS");
+
+            let fps_widget = egui::DragValue::new(&mut self.manual_fps_value)
+                .range(1.0..=360.0)
+                .speed(0.25)
+                .suffix(" fps");
+            ui.add_enabled(self.manual_fps_enabled, fps_widget);
+
+            ui.separator();
+            // Using a phosphor icon if you have it, otherwise plain text works fine
+            if ui.button("⛶ Fullscreen").clicked() {
+                self.fullscreen_enabled = true;
+            }
         });
     }
 }

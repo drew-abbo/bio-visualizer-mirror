@@ -1,0 +1,73 @@
+{
+  "name": "Membrane Warp",
+  "inputs": [
+    {
+      "name": "Input",
+      "kind": "Frame"
+    },
+    {
+      "name": "Phase",
+      "kind": {
+        "Float": {
+          "default": 0.0,
+          "min": 0.0,
+          "max": 100000.0,
+          "step": 0.01,
+          "input_ui": "Slider"
+        }
+      }
+    },
+    {
+      "name": "Amplitude",
+      "kind": {
+        "Float": {
+          "default": 0.02,
+          "min": 0.0,
+          "max": 0.1,
+          "step": 0.001,
+          "input_ui": "Slider"
+        }
+      }
+    },
+    {
+      "name": "Frequency",
+      "kind": {
+        "Float": {
+          "default": 12.0,
+          "min": 1.0,
+          "max": 40.0,
+          "step": 0.1,
+          "input_ui": "Slider"
+        }
+      }
+    },
+    {
+      "name": "Drift",
+      "kind": {
+        "Float": {
+          "default": 1.0,
+          "min": 0.0,
+          "max": 4.0,
+          "step": 0.01,
+          "input_ui": "Slider"
+        }
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "name": "Output",
+      "kind": "Frame"
+    }
+  ],
+  "executor": {
+    "Shader": {
+      "source": "shader.wgsl"
+    }
+  },
+  "short_description": "Warps the frame with membrane-like organic undulation",
+  "long_description": "Applies a layered sinusoidal displacement that behaves like a living membrane. Drive Phase with noise, MIDI envelope, or tendril outputs for bio-reactive motion.",
+  "category": "Distortion",
+  "subcategories": [],
+  "search_keywords": ["bio", "membrane", "organic", "warp", "distortion", "phase", "undulate", "living"]
+}

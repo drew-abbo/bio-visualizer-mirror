@@ -6,17 +6,29 @@ mod input_widgets;
 mod sync;
 mod validation;
 
+pub use input_widgets::InputWidgetState;
+pub use sync::normalize_node_inputs;
+
 use egui;
 use egui::emath::TSTransform;
 use egui_snarl::ui::{PinInfo, SnarlViewer};
 use egui_snarl::{InPin, NodeId as SnarlNodeId, OutPin, Snarl};
+use engine::node::engine_node::{BuiltInHandler, NodeExecutionPlan, NodeOutputKind};
 use engine::node::{NodeInputKind, NodeLibrary, input_kind_to_output_kind};
 use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
+use media::midi::streams::list_ports;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 const VIRTUAL_OUTPUT_SINK_NAME: &str = "__virtual_output_sink__";
+
+fn are_pin_kinds_compatible(output_kind: NodeOutputKind, input_kind: &NodeInputKind) -> bool {
+    let expected_output_kind = input_kind_to_output_kind(input_kind);
+    output_kind == expected_output_kind
+        // Numeric widening: allow Int outputs to feed Float inputs.
+        || matches!((output_kind, input_kind), (NodeOutputKind::Int, NodeInputKind::Float { .. }))
+}
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub struct GraphViewState {
@@ -121,6 +133,96 @@ impl NodeGraphState {
             .wires()
             .find_map(|(from, to)| (to.node == sink).then_some(from.node))
     }
+
+    /// Validate persisted runtime-sensitive inputs (for example MIDI ports) so a
+    /// project can start cleanly even if external devices changed while the app
+    /// was closed.
+    pub fn sanitize_runtime_inputs_on_load(&mut self, node_library: &NodeLibrary) -> Vec<String> {
+        let available_ports: Vec<String> = match list_ports() {
+            Ok(ports) => ports.map(|port| port.port_name().to_string()).collect(),
+            Err(error) => {
+                util::debug_log_warning!("Failed to list MIDI input ports on load: {}", error);
+                Vec::new()
+            }
+        };
+
+        let mut warnings = Vec::new();
+        let node_ids: Vec<SnarlNodeId> = self.snarl.node_ids().map(|(id, _)| id).collect();
+
+        for node_id in node_ids {
+            let definition_name = self.snarl[node_id].definition_name.clone();
+            let Some(definition) = node_library.get_definition(&definition_name) else {
+                continue;
+            };
+
+            if !matches!(
+                definition.node.executor,
+                NodeExecutionPlan::BuiltIn(BuiltInHandler::MidiSource)
+            ) {
+                continue;
+            }
+
+            let port_query = self.snarl[node_id]
+                .input_values
+                .get("Port")
+                .and_then(|value| match value {
+                    InputValue::Text(text) => {
+                        let trimmed = text.trim();
+                        if trimmed.is_empty() {
+                            None
+                        } else {
+                            Some(trimmed.to_string())
+                        }
+                    }
+                    InputValue::Enum(index) => Some(index.to_string()),
+                    _ => None,
+                });
+
+            if available_ports.is_empty() {
+                let outgoing_inputs: Vec<egui_snarl::InPinId> = self
+                    .snarl
+                    .wires()
+                    .filter_map(|(from, to)| (from.node == node_id).then_some(to))
+                    .collect();
+
+                if !outgoing_inputs.is_empty() {
+                    for input_pin in outgoing_inputs {
+                        self.snarl.drop_inputs(input_pin);
+                    }
+
+                    warnings.push(format!(
+                        "'{}' was disconnected because no MIDI input ports are currently available.",
+                        definition.node.name
+                    ));
+                }
+
+                continue;
+            }
+
+            let Some(query) = port_query else {
+                continue;
+            };
+
+            let query_matches = if let Ok(index) = query.parse::<usize>() {
+                index < available_ports.len()
+            } else {
+                available_ports.iter().any(|port| port == &query)
+            };
+
+            if !query_matches {
+                self.snarl[node_id]
+                    .input_values
+                    .insert("Port".to_string(), InputValue::Text(String::new()));
+
+                warnings.push(format!(
+                    "'{}' had a missing MIDI port ('{}'); port selection was reset to Auto.",
+                    definition.node.name, query
+                ));
+            }
+        }
+
+        warnings
+    }
 }
 
 impl Default for NodeGraphState {
@@ -129,9 +231,10 @@ impl Default for NodeGraphState {
     }
 }
 
-pub struct NodeGraphViewer {
+pub struct NodeGraphViewer<'a> {
     node_library: Arc<NodeLibrary>,
     pending_errors: Vec<String>,
+    input_widget_state: &'a mut input_widgets::InputWidgetState,
     initial_graph_view: Option<GraphViewState>,
     initial_graph_view_zoom: Option<f32>,
     apply_initial_graph_view: bool,
@@ -139,11 +242,15 @@ pub struct NodeGraphViewer {
     reset_view_requested: bool,
 }
 
-impl NodeGraphViewer {
-    pub fn new(node_library: Arc<NodeLibrary>) -> Self {
+impl<'a> NodeGraphViewer<'a> {
+    pub fn new(
+        node_library: Arc<NodeLibrary>,
+        input_widget_state: &'a mut input_widgets::InputWidgetState,
+    ) -> Self {
         Self {
             node_library,
             pending_errors: Vec::new(),
+            input_widget_state,
             initial_graph_view: None,
             initial_graph_view_zoom: None,
             apply_initial_graph_view: false,
@@ -203,7 +310,7 @@ impl NodeGraphViewer {
     }
 }
 
-impl SnarlViewer<NodeData> for NodeGraphViewer {
+impl SnarlViewer<NodeData> for NodeGraphViewer<'_> {
     fn current_transform(&mut self, to_global: &mut TSTransform, _snarl: &mut Snarl<NodeData>) {
         if self.apply_initial_graph_view {
             if let Some(saved_view) = self.initial_graph_view {
@@ -295,6 +402,8 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
                     input_def,
                     &node_name,
                     &self.node_library,
+                    pin.id.node,
+                    self.input_widget_state,
                 );
             } else if let Some(remote) = pin.remotes.first() {
                 // Show connected value
@@ -460,16 +569,29 @@ impl SnarlViewer<NodeData> for NodeGraphViewer {
         };
 
         // Check if types are compatible
-        let output_kind = &from_output.kind;
-        let expected_output_kind = input_kind_to_output_kind(&to_input_kind);
-
-        // Only allow connection if types match
-        if output_kind != &expected_output_kind {
+        if !are_pin_kinds_compatible(from_output.kind, &to_input_kind) {
             self.push_error(format!(
                 "Cannot connect '{}' to '{}': incompatible pin types.",
                 from_output.name, to_input_name
             ));
             return;
+        }
+
+        if matches!(
+            from_def.node.executor,
+            NodeExecutionPlan::BuiltIn(BuiltInHandler::MidiSource)
+        ) {
+            let has_midi_ports = match list_ports() {
+                Ok(ports) => ports.count() > 0,
+                Err(_) => false,
+            };
+
+            if !has_midi_ports {
+                self.push_error(
+                    "Cannot connect MIDI node: no MIDI input port is selected or available.",
+                );
+                return;
+            }
         }
 
         // Enforce one incoming connection per input pin.

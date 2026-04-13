@@ -1,12 +1,9 @@
 {
-  "name": "Video",
+  "name": "Live MIDI",
   "inputs": [
     {
-      "name": "Device",
-      "kind": {
-        "Device": {},
-        "input_ui": "Dropdown"
-      },
+      "name": "Port",
+      "kind": "PortSelection",
       "show_pin": false
     }
   ],

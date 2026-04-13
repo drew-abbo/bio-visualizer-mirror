@@ -14,7 +14,7 @@ pub fn output_kind_color(kind: &NodeOutputKind) -> egui::Color32 {
         NodeOutputKind::Int => egui::Color32::from_rgb(100, 200, 100),
         NodeOutputKind::Float => egui::Color32::from_rgb(100, 100, 200),
         NodeOutputKind::Frame => egui::Color32::from_rgb(200, 200, 100),
-        NodeOutputKind::Midi => egui::Color32::from_rgb(100, 200, 200),
+        NodeOutputKind::MidiPacket => egui::Color32::from_rgb(100, 200, 200),
         NodeOutputKind::Dimensions => egui::Color32::from_rgb(200, 100, 200),
         NodeOutputKind::Pixel => egui::Color32::from_rgb(150, 150, 150),
         NodeOutputKind::Text => egui::Color32::from_rgb(255, 165, 0),

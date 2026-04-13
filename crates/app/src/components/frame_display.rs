@@ -5,23 +5,8 @@ use egui::load::SizedTexture;
 
 const MAX_TEXTURE_CACHE_SIZE: usize = 3;
 
-/// Display configuration for output frames rendered via egui.
-#[derive(Clone, Debug)]
-pub struct FrameDisplayConfig {
-    pub max_size: egui::Vec2,
-}
-
-impl Default for FrameDisplayConfig {
-    fn default() -> Self {
-        Self {
-            max_size: egui::vec2(640.0, 480.0),
-        }
-    }
-}
-
 /// A reusable component for displaying wgpu TextureViews
 pub struct FrameDisplay {
-    config: FrameDisplayConfig,
     texture_id: Option<egui::TextureId>,
     texture_size: [usize; 2],
     last_frame_key: Option<usize>,
@@ -30,19 +15,14 @@ pub struct FrameDisplay {
 }
 
 impl FrameDisplay {
-    pub fn new(config: FrameDisplayConfig) -> Self {
+    pub fn new() -> Self {
         Self {
-            config,
             texture_id: None,
             texture_size: [0, 0],
             last_frame_key: None,
             last_renderer_ptr: None,
             texture_cache: VecDeque::new(),
         }
-    }
-
-    pub fn default_config() -> Self {
-        Self::new(FrameDisplayConfig::default())
     }
 
     /// Update the texture if the frame has changed
@@ -134,15 +114,19 @@ impl FrameDisplay {
             let original_size =
                 egui::vec2(self.texture_size[0] as f32, self.texture_size[1] as f32);
 
-            let scale = (self.config.max_size.x / original_size.x)
-                .min(self.config.max_size.y / original_size.y)
-                .min(1.0);
+            // Use the space egui has actually allocated, not a fixed config value
+            let available = ui.available_size();
+            let scale = (available.x / original_size.x).min(available.y / original_size.y);
 
             let display_size = original_size * scale;
 
-            ui.image(SizedTexture::new(texture_id, display_size));
+            ui.centered_and_justified(|ui| {
+                ui.image(SizedTexture::new(texture_id, display_size));
+            });
         } else {
-            ui.label("No frame data");
+            ui.centered_and_justified(|ui| {
+                ui.label(egui::RichText::new("No frame data").weak());
+            });
         }
     }
 }

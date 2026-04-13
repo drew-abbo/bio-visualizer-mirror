@@ -1,0 +1,100 @@
+{
+    "name": "Pixel Sort",
+    "inputs": [
+        {
+            "name": "Input",
+            "kind": "Frame"
+        },
+        {
+            "name": "Threshold",
+            "kind": {
+                "Float": {
+                    "default": 0.5,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "input_ui": "Slider"
+                }
+            }
+        },
+        {
+            "name": "Strength",
+            "kind": {
+                "Float": {
+                    "default": 0.75,
+                    "min": 0.0,
+                    "max": 2.0,
+                    "step": 0.01,
+                    "input_ui": "Slider"
+                }
+            }
+        },
+        {
+            "name": "Pixel Stride",
+            "kind": {
+                "Float": {
+                    "default": 2.0,
+                    "min": 1.0,
+                    "max": 32.0,
+                    "step": 1.0,
+                    "input_ui": "Slider"
+                }
+            }
+        },
+        {
+            "name": "Direction",
+            "kind": {
+                "Enum": {
+                    "choices": ["Horizontal", "Vertical"],
+                    "default_idx": 0
+                }
+            }
+        },
+        {
+            "name": "Metric",
+            "kind": {
+                "Enum": {
+                    "choices": ["Brightness", "Hue", "Saturation"],
+                    "default_idx": 0
+                }
+            }
+        }
+    ],
+    "outputs": [
+        {
+            "name": "Output",
+            "kind": "Frame"
+        }
+    ],
+    "executor": {
+        "Algorithm": {
+            "kind": "PixelSort",
+            "stages": [
+                {
+                    "backend": "compute",
+                    "source": "pixel_sort_compute.wgsl",
+                    "dispatch": {
+                        "mode": "axis_from_enum_input",
+                        "enum_input": "Direction",
+                        "columns_enum_value": 1
+                    }
+                },
+                {
+                    "backend": "compute",
+                    "source": "pixel_sort_resolve.wgsl",
+                    "extra_frame_inputs": 1,
+                    "dispatch": {
+                        "mode": "axis_from_enum_input",
+                        "enum_input": "Direction",
+                        "columns_enum_value": 1
+                    }
+                }
+            ]
+        }
+    },
+    "short_description": "Threshold-based pixel sorting algorithm",
+    "long_description": "Creates a two-pass pixel-sorting effect by first labeling thresholded segments along rows or columns, then sorting pixels within each labeled segment using the configured metric.",
+    "category": "Glitch",
+    "subcategories": [],
+    "search_keywords": ["pixel sort", "pixelsort", "glitch", "threshold", "scanline", "sort", "streak", "asdf", "algorithm"]
+}

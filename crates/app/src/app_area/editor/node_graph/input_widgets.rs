@@ -1,12 +1,45 @@
 use egui::{self, Ui};
+use egui_snarl::NodeId as SnarlNodeId;
 use engine::node::engine_node::NodeInput;
 use engine::node::{NodeInputKind, NodeLibrary};
 use engine::node_graph::InputValue;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
-/// I just hate strings
+use media::midi::streams::list_ports;
+use util::channels::message_channel;
+
+/// Node names used to drive file picker filters.
 const VIDEO_NODE_NAME: &str = "Video";
 const IMAGE_NODE_NAME: &str = "Image";
+
+pub struct InputWidgetState {
+    pending_file_dialogs: HashMap<String, message_channel::Inbox<Option<PathBuf>>>,
+}
+
+impl InputWidgetState {
+    pub fn new() -> Self {
+        Self {
+            pending_file_dialogs: HashMap::new(),
+        }
+    }
+}
+
+impl Default for InputWidgetState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+enum FileFilter {
+    Video,
+    Image,
+    Any,
+}
+
+fn file_dialog_key(node_id: SnarlNodeId, input_name: &str) -> String {
+    format!("{:?}:{}", node_id, input_name)
+}
 
 /// Renders the appropriate input widget based on the NodeInputKind
 /// Declutters the node_graph
@@ -16,10 +49,20 @@ pub fn show_input_widget(
     input_def: &NodeInput,
     node_name: &str,
     node_library: &NodeLibrary,
+    node_id: SnarlNodeId,
+    state: &mut InputWidgetState,
 ) {
     match &input_def.kind {
         NodeInputKind::File { .. } => {
-            show_file_input(ui, input_values, input_def, node_name, node_library);
+            show_file_input(
+                ui,
+                input_values,
+                input_def,
+                node_name,
+                node_library,
+                node_id,
+                state,
+            );
         }
         NodeInputKind::Bool { default } => {
             show_bool_input(ui, input_values, input_def, *default);
@@ -27,7 +70,7 @@ pub fn show_input_widget(
         NodeInputKind::Int {
             default, min, max, ..
         } => {
-            show_int_input(ui, input_values, input_def, *default, *min, *max);
+            show_int_input(ui, input_values, input_def, node_name, *default, *min, *max);
         }
         NodeInputKind::Float {
             default, min, max, ..
@@ -43,7 +86,7 @@ pub fn show_input_widget(
         NodeInputKind::Pixel { default, .. } => {
             show_pixel_input(ui, input_values, input_def, *default);
         }
-        NodeInputKind::Frame | NodeInputKind::Midi => {
+        NodeInputKind::Frame | NodeInputKind::MidiPacket => {
             ui.label("Must be connected");
         }
         NodeInputKind::Enum {
@@ -53,7 +96,44 @@ pub fn show_input_widget(
         } => {
             show_enum_input(ui, input_values, input_def, choices, *default_idx);
         }
+        NodeInputKind::PortSelection => {
+            show_port_selection_input(ui, input_values, input_def);
+        }
     }
+}
+
+fn show_port_selection_input(
+    ui: &mut Ui,
+    input_values: &mut HashMap<String, InputValue>,
+    input_def: &NodeInput,
+) {
+    let ports: Vec<String> = list_ports()
+        .ok()
+        .map(|iter| iter.map(|port| port.port_name().to_string()).collect())
+        .filter(|ports: &Vec<String>| !ports.is_empty())
+        .unwrap_or_else(|| vec!["No ports available".to_string()]);
+
+    let mut selected_port = match input_values.get(&input_def.name) {
+        Some(InputValue::Text(value)) if !value.is_empty() => value.clone(),
+        _ => {
+            let default = ports.first().cloned().unwrap_or_default();
+            input_values.insert(input_def.name.clone(), InputValue::Text(default.clone()));
+            default
+        }
+    };
+
+    egui::ComboBox::from_id_salt(&input_def.name)
+        .selected_text(&selected_port)
+        .show_ui(ui, |ui| {
+            for port in &ports {
+                if ui
+                    .selectable_value(&mut selected_port, port.clone(), port)
+                    .changed()
+                {
+                    input_values.insert(input_def.name.clone(), InputValue::Text(port.clone()));
+                }
+            }
+        });
 }
 
 fn show_file_input(
@@ -62,7 +142,27 @@ fn show_file_input(
     input_def: &NodeInput,
     node_name: &str,
     node_library: &NodeLibrary,
+    node_id: SnarlNodeId,
+    state: &mut InputWidgetState,
 ) {
+    let key = file_dialog_key(node_id, &input_def.name);
+
+    if let Some(inbox) = state.pending_file_dialogs.get(&key) {
+        match inbox.check_non_blocking() {
+            Ok(Some(Some(path))) => {
+                input_values.insert(input_def.name.clone(), InputValue::File(path));
+                state.pending_file_dialogs.remove(&key);
+            }
+            Ok(Some(None)) | Err(_) => {
+                state.pending_file_dialogs.remove(&key);
+            }
+            Ok(None) => {
+                // Keep repainting while dialog is pending so selection can apply immediately.
+                ui.ctx().request_repaint();
+            }
+        }
+    }
+
     let current_value = input_values.get(&input_def.name);
     let display_text = if let Some(InputValue::File(path)) = current_value {
         path.to_string_lossy()
@@ -70,14 +170,25 @@ fn show_file_input(
         "Select file...".into()
     };
 
-    if ui.button(display_text).clicked() {
-        // Create file dialog with appropriate filters based on node name
-        let mut dialog = rfd::FileDialog::new();
-
-        // I think it is reasonable to match on the node name since these should be built in
-        if let Some(def) = node_library.get_definition(node_name) {
+    if ui.button(display_text).clicked() && !state.pending_file_dialogs.contains_key(&key) {
+        let filter = if let Some(def) = node_library.get_definition(node_name) {
             match def.node.name.as_str() {
-                VIDEO_NODE_NAME => {
+                VIDEO_NODE_NAME => FileFilter::Video,
+                IMAGE_NODE_NAME => FileFilter::Image,
+                _ => FileFilter::Any,
+            }
+        } else {
+            FileFilter::Any
+        };
+
+        let (inbox, outbox) = message_channel::new();
+        state.pending_file_dialogs.insert(key, inbox);
+
+        std::thread::spawn(move || {
+            let mut dialog = rfd::FileDialog::new();
+
+            match filter {
+                FileFilter::Video => {
                     dialog = dialog.add_filter(
                         "Video Files",
                         &[
@@ -85,7 +196,7 @@ fn show_file_input(
                         ],
                     );
                 }
-                IMAGE_NODE_NAME => {
+                FileFilter::Image => {
                     dialog = dialog.add_filter(
                         "Image Files",
                         &[
@@ -93,15 +204,13 @@ fn show_file_input(
                         ],
                     );
                 }
-                _ => {
-                    // Default: all files... gg
-                }
+                FileFilter::Any => {}
             }
-        }
 
-        if let Some(path) = dialog.pick_file() {
-            input_values.insert(input_def.name.clone(), InputValue::File(path));
-        }
+            let _ = outbox.send(dialog.pick_file());
+        });
+
+        ui.ctx().request_repaint();
     }
 }
 
@@ -126,6 +235,7 @@ fn show_int_input(
     ui: &mut Ui,
     input_values: &mut HashMap<String, InputValue>,
     input_def: &NodeInput,
+    node_name: &str,
     default: i32,
     min: Option<i32>,
     max: Option<i32>,
@@ -145,6 +255,14 @@ fn show_int_input(
 
     if changed {
         input_values.insert(input_def.name.clone(), InputValue::Int(value));
+    }
+
+    // Show a readable MIDI note label beside the key slider for quick mapping.
+    if node_name == "Midi Properties" && input_def.name == "Key" {
+        let key_value = value.clamp(0, 127) as u8;
+        if let Ok(key) = media::midi::Key::from_u8(key_value) {
+            ui.small(format!("{} ({})", key.as_str(), key_value));
+        }
     }
 }
 

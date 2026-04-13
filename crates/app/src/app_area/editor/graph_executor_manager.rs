@@ -3,8 +3,10 @@
 //! It provides methods to check for changes, execute the graph, and determine which node's output to display based on selection or graph structure.
 use engine::graph_executor::{ExecutionError, GraphExecutor, NodeValue};
 use engine::node::NodeLibrary;
+use engine::node::engine_node::{BuiltInHandler, NodeExecutionPlan};
 use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
 use media::fps::Fps;
+use media::fps::consts::FPS_30;
 use std::collections::HashSet;
 
 /// Manager for the node graph and its execution, separate from the UI state in EditorArea
@@ -102,24 +104,62 @@ impl GraphExecutorManager {
         render_state: &egui_wgpu::RenderState,
         selected_engine_node: Option<EngineNodeId>,
     ) -> Result<Option<NodeValue>, ExecutionError> {
-        let target_node_id = selected_engine_node.or(self.output_source_engine_node);
-
-        let Some(target_node_id) = target_node_id else {
+        // Always execute up to the output node - that covers the full graph
+        let Some(output_node_id) = self.output_source_engine_node else {
             return Ok(None);
         };
 
-        let result = self.graph_executor.execute(
+        let target_node_id = selected_engine_node.unwrap_or(output_node_id);
+
+        // Single execute call - runs up to whichever node is further downstream.
+        // If selected node IS the output node or is upstream of it, one call covers both.
+        // If selected node is downstream/unrelated, fall back to output node.
+        let exec_target = if selected_engine_node.is_some()
+            && self.node_in_output_subgraph(target_node_id, output_node_id)
+        {
+            output_node_id // running to output covers selected node too (it's upstream)
+        } else {
+            target_node_id
+        };
+
+        self.graph_executor.execute(
             &self.engine_graph,
             node_library,
             &render_state.device,
             &render_state.queue,
-            Some(target_node_id),
+            Some(exec_target),
         )?;
 
-        Ok(result.outputs.values().find_map(|value| match value {
-            NodeValue::Frame(_) => Some(value.clone()),
-            _ => None,
-        }))
+        // Try selected node's output first, then fall back to output node - both
+        // are already in the output_cache from the single execute call above.
+        let frame_from_selected = selected_engine_node
+            .and_then(|id| self.graph_executor.get_node_outputs(id))
+            .and_then(|outputs| {
+                outputs.values().find_map(|v| {
+                    if matches!(v, NodeValue::Frame(_)) {
+                        Some(v.clone())
+                    } else {
+                        None
+                    }
+                })
+            });
+
+        if frame_from_selected.is_some() {
+            return Ok(frame_from_selected);
+        }
+
+        Ok(self
+            .graph_executor
+            .get_node_outputs(output_node_id)
+            .and_then(|outputs| {
+                outputs.values().find_map(|v| {
+                    if matches!(v, NodeValue::Frame(_)) {
+                        Some(v.clone())
+                    } else {
+                        None
+                    }
+                })
+            }))
     }
 
     /// Query target FPS for a specific node id directly from the executor.
@@ -132,30 +172,28 @@ impl GraphExecutorManager {
             .get_target_fps_for_node(&self.engine_graph, node_library, node_id)
     }
 
-    /// Resolve playback FPS for a display node by checking the node itself first,
-    /// then traversing upstream connections for video sources.
+    /// Resolve a recommended global playback FPS for the display node subgraph.
     pub fn get_target_fps_for_display_node(
         &mut self,
         node_library: &NodeLibrary,
         node_id: EngineNodeId,
     ) -> Option<Fps> {
-        if let Some(fps) = self.get_target_fps_for_node(node_library, node_id) {
-            return Some(fps);
-        }
-
         let mut visited = HashSet::new();
         let mut stack = vec![node_id];
-        let mut best_fps: Option<Fps> = None;
+        let mut best_video_fps: Option<Fps> = None;
 
         while let Some(current) = stack.pop() {
             if !visited.insert(current) {
                 continue;
             }
 
-            if current != node_id
+            if let Some(instance) = self.engine_graph.get_instance(current)
+                && let Some(definition) = node_library.get_definition(&instance.definition_name)
+                && let NodeExecutionPlan::BuiltIn(BuiltInHandler::VideoSource) =
+                    definition.node.executor
                 && let Some(fps) = self.get_target_fps_for_node(node_library, current)
             {
-                best_fps = Some(match best_fps {
+                best_video_fps = Some(match best_video_fps {
                     Some(existing) => existing.max(fps),
                     None => fps,
                 });
@@ -170,7 +208,12 @@ impl GraphExecutorManager {
             }
         }
 
-        best_fps
+        if let Some(fps) = best_video_fps {
+            Some(fps)
+        } else {
+            // default to 30
+            Some(FPS_30)
+        }
     }
 
     pub fn pause_streams(&mut self) {
@@ -181,16 +224,8 @@ impl GraphExecutorManager {
         self.graph_executor.play_streams();
     }
 
-    pub fn set_global_stream_target_fps_for_target(
-        &mut self,
-        target_fps: Fps,
-        target_node_id: EngineNodeId,
-    ) {
-        self.graph_executor.set_global_stream_target_fps_for_target(
-            &self.engine_graph,
-            target_node_id,
-            target_fps,
-        );
+    pub fn set_global_stream_target_fps(&mut self, target_fps: Fps) {
+        self.graph_executor.set_global_stream_target_fps(target_fps);
     }
 }
 
