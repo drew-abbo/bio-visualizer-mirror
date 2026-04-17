@@ -4,9 +4,23 @@ members = [
   "crates/util",
   "crates/media",
   "crates/engine",
-  "crates/launcher"
-, "crates/render_testing"]
+  "crates/launcher",
+]
 resolver = "2"
+
+[workspace.dependencies]
+engine = { path = "crates/engine" }
+media = { path = "crates/media" }
+util = { path = "crates/util" }
+
+clap = { version = "4.5.51", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+egui = { version = "0.33", features = ["serde"] }
+egui-wgpu = "0.33.3"
+egui_extras = "0.33.3"
+windows-sys = "0.59"
 
 # Debugging essentially becomes impossible with this profile, but it will
 # generate the best performing code (also at the cost of compile times).

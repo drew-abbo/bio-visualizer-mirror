@@ -2,13 +2,13 @@
   "name": "Invert",
   "inputs": [
     {
-      "name": "input",
+      "name": "Input",
       "kind": "Frame"
     }
   ],
   "outputs": [
     {
-      "name": "output",
+      "name": "Output",
       "kind": "Frame"
     }
   ],
@@ -18,5 +18,8 @@
     }
   },
   "short_description": "Inverts the colors of the input frame",
+  "long_description": "",
+  "category": "Color",
+  "subcategories": [],
   "search_keywords": ["invert", "negative", "color"]
 }

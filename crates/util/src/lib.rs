@@ -5,12 +5,13 @@ pub mod cast_slice;
 pub mod channels;
 pub mod debug_log;
 pub mod drop_join_thread;
+mod eprint_and_exit;
 pub mod fuzzy_search;
+pub mod gcd;
 pub mod local_data;
+pub mod rolling_avg;
 pub mod saved_file;
 pub mod stop_signals;
 pub mod ui;
 pub mod uid;
 pub mod version;
-
-mod eprint_and_exit;

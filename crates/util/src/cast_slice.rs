@@ -73,3 +73,43 @@ pub const unsafe fn cast_array<const N: usize, const M: usize, Src, Dest>(
     // initialized). We also ensured no destructor will run for the original.
     unsafe { ret.assume_init() }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cast_slice_basic() {
+        // No decisions — just ensure it works for a valid case
+        let data: [u8; 4] = [1, 2, 3, 4];
+
+        let result = unsafe { cast_slice::<u8, u16>(&data) };
+
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_cast_slice_mut_basic() {
+        // No decisions — just ensure mutation works through cast
+        let mut data: [u8; 4] = [1, 2, 3, 4];
+
+        let result = unsafe { cast_slice_mut::<u8, u16>(&mut data) };
+
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_cast_array_valid_sizes() {
+        // D1 = true (sizes match)
+        let data: [u8; 4] = [1, 2, 3, 4];
+
+        let result: [u16; 2] = unsafe { cast_array(data) };
+
+        assert_eq!(result.len(), 2);
+    }
+
+    // The false branch cannot be tested for this
+    // This is because the only decision in cast_array
+    // a compile time assertion and the false branch cannot
+    // be executed at runtime
+}

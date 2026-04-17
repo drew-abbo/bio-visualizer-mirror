@@ -1,7 +1,7 @@
 //! Brief
 //! -----
 //! The `engine` crate is the core execution engine for node graphs. It resolves node inputs, runs
-//! shader-based nodes and built-in handlers (image/video sources), uploads CPU frames to the GPU,
+//! shader-based nodes and built-in handlers (image/video sources and noise generators), uploads CPU frames to the GPU,
 //! and caches intermediate outputs and compiled render pipelines.
 //!
 //! Key modules
@@ -9,10 +9,9 @@
 //! - `graph_executor.rs` - [crate::graph_executor::GraphExecutor] executes a [crate::node_graph::NodeGraph]
 //!   using definitions from a node library and maintains caches such as `output_cache` and
 //!   `pipeline_cache`.
-//! - `node/handler` - built-in handlers implementing the `NodeHandler` trait (for example,
-//!   `ImageSourceHandler` and `VideoSourceHandler`) for loading media and producing `GpuFrame`s.
+//! - `node/handler` - built-in handlers for loading media and generating procedural noise values.
 //! - `upload_stager` - utilities to upload CPU image/frame data to GPU textures ([UploadStager]).
-//! - `node_render_pipeline` - dynamic creation of GPU render pipelines from WGSL shaders.
+//! - `node_pipelines` - dynamic creation of GPU render and compute pipelines from WGSL shaders.
 //!
 //! Usage
 //! -------------
@@ -22,10 +21,16 @@
 //! let mut executor = GraphExecutor::new(wgpu::TextureFormat::Rgba8Unorm);
 //! ```
 //!
-//! - Run the graph (returns first output node's results):
+//! - Run the graph with execution context:
 //!
 //! ```ignore
-//! let result = executor.execute(&graph, &library, &device, &queue)?;
+//! let context = ExecutionContext {
+//!     advance_frame: true,
+//!     playback_running: true,
+//! };
+//! let result = executor.execute(&graph, &library, &device, &queue, None, context)?;
+//! Or target a specific node:
+//! let result = executor.execute(&graph, &library, &device, &queue, Some(node_id), context)?;
 //! ```
 //!
 //! - Manage caches between runs:
@@ -53,7 +58,7 @@
 //!   - bindings 1..N: `texture_2d` views corresponding to each `Frame` input (primary input is binding 1)
 //!   - binding (N+1): a uniform buffer containing non-texture parameters (bool/int/float/pixel/dimensions/enum)
 //!
-//! Parameters are passed as a `HashMap<String, ResolvedInput>` by name and packed into a uniform buffer
+//! Parameters are passed as a `HashMap<String, NodeValue>` by name and packed into a uniform buffer
 //! using a simple std140-like alignment. Text/file inputs are not passed to the shader; `Frame` inputs
 //! are provided as texture views in the order declared by the node definition.
 //!
@@ -61,12 +66,13 @@
 //! --------
 //! See the `nodes/` folder at the repository root for example `shader.wgsl` files demonstrating
 //! bindings and entry points.
+pub mod engine_errors;
 pub mod graph_executor;
+mod graph_executor_effects;
 pub mod node;
 pub mod node_graph;
-pub mod node_render_pipeline;
+pub mod node_pipelines;
 
-mod engine_errors;
 mod gpu_frame;
 mod upload_stager;
 

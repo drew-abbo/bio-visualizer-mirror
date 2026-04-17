@@ -1,13 +1,13 @@
 use std::path::PathBuf;
 
-use crate::node::Node;
-use crate::node::errors::LibraryError;
+use super::errors::LibraryError;
+use crate::node::EngineNode;
 
 /// A loaded node definition with resolved paths
 #[derive(Debug, Clone)]
 pub struct NodeDefinition {
     /// The node metadata from node.json
-    pub node: Node,
+    pub node: EngineNode,
 
     /// Absolute path to the shader file (if this is a shader node)
     pub shader_path: Option<PathBuf>,

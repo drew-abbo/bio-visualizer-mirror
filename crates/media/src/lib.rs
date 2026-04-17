@@ -1,6 +1,8 @@
-//! This library contains all of the functionality for managing media.
+//! This library contains functionality for managing and playing back media.
 
+pub mod fps;
 pub mod frame;
-
-mod video_player;
-pub use video_player::VideoPlayer;
+pub mod midi;
+pub mod playback_stream;
+pub mod noise;
+mod ffmpeg_tools;

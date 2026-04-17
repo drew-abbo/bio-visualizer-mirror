@@ -1,3 +1,4 @@
+use super::engine_node::NumberInputUiMode;
 use std::path::PathBuf;
 use thiserror::Error;
 
@@ -17,4 +18,7 @@ pub enum LibraryError {
 
     #[error("Node '{0}' is not a shader node")]
     NotAShaderNode(String),
+
+    #[error("Node '{0}' has an invalid 'input_ui': {1:?}")]
+    InvalidNumberInputUiMode(String, NumberInputUiMode),
 }
