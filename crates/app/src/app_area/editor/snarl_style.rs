@@ -13,6 +13,8 @@ pub fn snarl_style() -> egui_snarl::ui::SnarlStyle {
                 .fill(egui::Color32::from_rgb(30, 30, 35))
                 .inner_margin(0.0),
         ),
+        pin_size: Some(12.0),
+        pin_placement: Some(egui_snarl::ui::PinPlacement::Edge),
         select_style: Some(egui_snarl::ui::SelectionStyle {
             margin: egui::Margin::same(4),
             rounding: egui::CornerRadius::same(6),
