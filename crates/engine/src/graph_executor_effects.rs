@@ -346,6 +346,7 @@ impl GraphExecutor {
         let output_frame = GpuFrame {
             view: actual_output_view.clone(),
             size: output_size,
+            frame_id: frame_inputs.first().map(|f| f.frame_id()).unwrap_or_else(media::frame::Uid::generate_new),
         };
 
         let mut scalar_data: Option<[f32; 4]> = None;

@@ -233,6 +233,7 @@ impl FrameStreamHandler {
                 height,
                 depth_or_array_layers: 1,
             },
+            frame.uid()
         );
 
         stream.recycle(frame);

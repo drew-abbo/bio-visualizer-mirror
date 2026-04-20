@@ -762,6 +762,8 @@ impl GraphExecutor {
                 frame.size.width.hash(hasher);
                 frame.size.height.hash(hasher);
                 frame.size.depth_or_array_layers.hash(hasher);
+                // Include frame_id to ensure hash changes for each unique frame
+                frame.frame_id.hash(hasher);
             }
             NodeValue::Midi(packet) => {
                 for (key, velocity) in packet.key_velocities() {
