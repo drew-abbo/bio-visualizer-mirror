@@ -1,15 +1,15 @@
 //! Exports [FFmpegVideo].
 
+mod seek_info;
+use seek_info::SeekInfo;
+
 mod inner;
 use inner::*;
 
-use std::collections::HashMap;
+use std::convert::Infallible;
 use std::fmt::{self, Debug};
 use std::num::NonZeroUsize;
-use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
-use std::sync::Mutex;
-use std::time::SystemTime;
+use std::path::Path;
 use std::{any, thread};
 
 use ffmpeg::format::Pixel as FFmpegPixelFormat;
@@ -65,24 +65,23 @@ pub struct FFmpegVideo {
     last_frame: Option<FFmpegVideoFrame>,
     paused: bool,
     playhead: usize,
-    duration: NonZeroUsize,
+    seek_info: SeekInfo,
+    last_keyframe_array_idx: usize, // index in `SeekInfo` array not frame index
 }
 
 impl FFmpegVideo {
     /// Open a video file with FFmpeg.
     ///
-    /// The first time opening a video that doesn't specify its duration (in
-    /// frames) in its metadata will result in the entire video being decoded to
-    /// determine the video's length. The returned [Request] will resolve when
-    /// the duration has been determined. This can be a long and computationally
-    /// expensive process.
+    /// To enable frame accurate seeking, this struct needs to know the exact
+    /// duration (in frames) of a video and the frame index of each keyframe. To
+    /// Figure this out, the enture video will need to be decoded, which can
+    /// take a while. That is why this function returns a [Request]. Once this
+    /// information is determined, it's cached on disk, meaning subsequent loads
+    /// of the same video file should be much faster (this is true across
+    /// processes, projects, ect., it only invalidates when the file changes).
     ///
     /// Before the request resolves, the `f` is called on the [FFmpegVideo] so
     /// that you can get a request that resolves to something else.
-    ///
-    /// If it needs to be computed, the file's video duration will be cached
-    /// along with its last-modified timestamp. The computation will stop if the
-    /// request is dropped before it resolves.
     pub fn new_mapped<F, R>(
         path: &Path,
         rescale: Option<(Dimensions, RescaleMethod)>,
@@ -98,37 +97,47 @@ impl FFmpegVideo {
             Err(e) => return f(Err(e)).into(),
         };
 
-        // Try to get duration from metadata.
-        if let Some(known_duration) = inner.known_frame_count() {
-            return f(Ok(Self::from_parts(inner, paused, known_duration))).into();
-        }
+        let cache_entry = match SeekInfo::from_cached(path) {
+            Ok(cache_entry) => Some(match cache_entry.cached() {
+                Ok(seek_info) => {
+                    util::debug_log_info!("Video seek info cache: HIT");
+                    let video = Self::from_parts(inner, paused, seek_info);
+                    return f(Ok(video)).into();
+                }
+                Err(cache_entry) => {
+                    util::debug_log_info!("Video seek info cache: MISS");
+                    cache_entry
+                }
+            }),
 
-        // See if we've cached the duration.
-        let Ok(path_info) = frame_count_cache::PathInfo::new(path) else {
-            return f(Err(ffmpeg::Error::Unknown)).into();
+            // If cache lookup fails we just won't use the cache.
+            Err(e) => {
+                util::debug_log_error!("Failed to fetch seek info from cache (ignoring): {e}");
+                None
+            }
         };
-        if let Some(cached_duration) = frame_count_cache::get(&path_info) {
-            return f(Ok(Self::from_parts(inner, paused, cached_duration))).into();
-        }
 
-        // Otherwise we'll need to decode the entire stream to figure out the
-        // duration. Instead of blocking, we'll do this on another thread and
-        // return a request that will resolve eventually.
+        // Since we can't immediately resolve the request, we'll spawn a thread
+        // that will figure the seek info and respond to the request.
         let (req, res) = Request::new();
         thread::spawn(move || {
-            let count_frames_and_construct = || {
-                // We'll only check the connection every so often.
-                let duration =
-                    inner.determine_frame_count(|n| n % 64 != 0 || res.connection_open())?;
-
-                inner.seek_playhead(0)?;
-
-                frame_count_cache::insert(path_info, duration);
-
-                Ok(Self::from_parts(inner, paused, duration))
+            let mut seek_info = match inner.determine_seek_info(|_| res.connection_open()) {
+                Ok(seek_info) => seek_info,
+                Err(e) => {
+                    _ = res.respond(f(Err(e)));
+                    return;
+                }
             };
 
-            let response = f(count_frames_and_construct());
+            if let Some(cache_entry) = cache_entry {
+                seek_info = cache_entry
+                    .or_insert_with::<_, Infallible>(|| Ok(seek_info))
+                    .inspect_err(|e| util::debug_log_error!("Failed to cache seek info: {e}"))
+                    .expect("reading from cache worked so writing shouldn't fail");
+            }
+
+            let video = Self::from_parts(inner, paused, seek_info);
+            let response = f(Ok(video));
             _ = res.respond(response);
         });
         req
@@ -151,6 +160,17 @@ impl FFmpegVideo {
 
         if !self.paused {
             self.playhead += 1;
+
+            // Keep the last keyframe updated.
+            if let Some((next_keyframe_frame_idx, _)) = self
+                .seek_info
+                .keyframe_timestamps
+                .get(self.last_keyframe_array_idx + 1)
+                .cloned()
+                && self.playhead == next_keyframe_frame_idx
+            {
+                self.last_keyframe_array_idx += 1;
+            }
 
             return if let Some(last_frame) = self.last_frame.take() {
                 Ok(last_frame)
@@ -206,7 +226,8 @@ impl FFmpegVideo {
         if self.should_walk_instead_of_seek(new_playhead) {
             self.inner.skip_frames(new_playhead - self.playhead)?;
         } else {
-            self.inner.seek_playhead(new_playhead)?;
+            self.last_keyframe_array_idx =
+                self.inner.seek_playhead(new_playhead, &self.seek_info)?;
         }
         self.last_frame = None;
         self.playhead = new_playhead;
@@ -217,6 +238,7 @@ impl FFmpegVideo {
     ///
     /// The returned value will never be more than [Self::duration], but it can
     /// equal it (in this case [Self::write_next] must not be called).
+    #[inline(always)]
     pub const fn playhead(&self) -> usize {
         self.playhead
     }
@@ -224,39 +246,43 @@ impl FFmpegVideo {
     /// The number of frames this video has.
     ///
     /// This value will never be 0. Also see [Self::duration_non_zero].
+    #[inline(always)]
     pub const fn duration(&self) -> usize {
-        self.duration.get()
+        self.duration_non_zero().get()
     }
 
     /// The number of frames this video has.
+    #[inline(always)]
     pub const fn duration_non_zero(&self) -> NonZeroUsize {
-        self.duration
+        self.seek_info.frame_count
     }
 
     /// The intended (native) [Fps] playback speed of this video.
+    #[inline(always)]
     pub const fn src_fps(&self) -> Fps {
         self.inner.src_fps()
     }
 
     /// The intended (native) dimensions of the frames in this video.
+    #[inline(always)]
     pub const fn src_dimensions(&self) -> Dimensions {
         self.inner.src_dimensions()
     }
 
     /// The dimensions of the frames that will be produced.
+    #[inline(always)]
     pub const fn dest_dimensions(&self) -> Dimensions {
-        match self.rescale() {
-            Some((dest_dimensions, _)) => dest_dimensions,
-            None => self.inner.src_dimensions(),
-        }
+        self.inner.dest_dimensions()
     }
 
     /// Sets whether or not the stream will be paused.
+    #[inline(always)]
     pub const fn set_paused(&mut self, paused: bool) {
         self.paused = paused;
     }
 
     /// Whether or not the stream is paused.
+    #[inline(always)]
     pub const fn paused(&self) -> bool {
         self.paused
     }
@@ -273,28 +299,20 @@ impl FFmpegVideo {
         self.inner.set_rescale(dest_dimensions, rescale_method)
     }
 
-    /// Whether or not frames are being rescaled and if so to what dimensions
-    /// and how.
-    pub const fn rescale(&self) -> Option<(Dimensions, RescaleMethod)> {
-        self.inner.rescale()
-    }
-
     /// Just the [RescaleMethod] from [Self::rescale].
+    #[inline(always)]
     pub const fn rescale_method(&self) -> Option<RescaleMethod> {
-        if let Some((_, rescale_method)) = self.rescale() {
-            Some(rescale_method)
-        } else {
-            None
-        }
+        self.inner.rescale_method()
     }
 
-    const fn from_parts(inner: FFmpegVideoInner, paused: bool, duration: NonZeroUsize) -> Self {
+    const fn from_parts(inner: FFmpegVideoInner, paused: bool, seek_info: SeekInfo) -> Self {
         Self {
             inner,
             last_frame: None,
             paused,
             playhead: 0,
-            duration,
+            seek_info,
+            last_keyframe_array_idx: 0,
         }
     }
 
@@ -319,31 +337,24 @@ impl FFmpegVideo {
     /// A best guess as to whether it's cheaper to decode frames forward to get
     /// to `new_playhead` instead of seeking.
     fn should_walk_instead_of_seek(&self, new_playhead: usize) -> bool {
-        // We can't seek by frame backwards.
-        let Some(frames_to_go) = new_playhead.checked_sub(self.playhead) else {
-            return false;
+        match new_playhead.checked_sub(self.playhead) {
+            Some(0) | None => return false, // We can't walk backwards.
+            Some(1) => return true,         // Always walk if it's just 1 frame.
+            _ => {}
         };
 
-        // If it's just 1 frame we'll always just walk there.
-        if frames_to_go <= 1 {
+        // If we've already passed the last keyframe we have to walk.
+        let Some((next_keyframe_frame_idx, _)) = self
+            .seek_info
+            .keyframe_timestamps
+            .get(self.last_keyframe_array_idx + 1)
+            .copied()
+        else {
             return true;
-        }
+        };
 
-        const DEFAULT_FRAMES_BETWEEN_KEYFRAMES_GUESS: usize = 32;
-        let frames_between_keyframes = self
-            .inner
-            .max_frames_between_keyframes()
-            .map_or_else(|| DEFAULT_FRAMES_BETWEEN_KEYFRAMES_GUESS, NonZeroUsize::get);
-
-        let frames_until_keyframe = frames_between_keyframes.saturating_sub(
-            self.inner
-                .frames_since_keyframe()
-                .map_or_else(|| 0, NonZeroUsize::get),
-        );
-
-        // We should walk if we're thinking the next keyframe will be after
-        // where we're seeking to.
-        frames_to_go <= frames_until_keyframe
+        // Walk if we're seeking to before the next keyframe.
+        new_playhead < next_keyframe_frame_idx
     }
 }
 
@@ -495,53 +506,4 @@ pub fn rescale_ffmpeg_frame(
     );
     scaler.rescale(&frame, &mut rescaled_frame)?;
     Ok(rescaled_frame)
-}
-
-mod frame_count_cache {
-    use std::io;
-
-    use super::*;
-
-    /// Info about a path.
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct PathInfo {
-        /// The [canonicalized](Path::canonicalize) path.
-        pub path: PathBuf,
-        /// The last last modification time of the object at the path.
-        pub modified: SystemTime,
-    }
-
-    impl PathInfo {
-        /// Get some info about a path or [None] if it can't be determined.
-        pub fn new(path: &Path) -> Result<Self, io::Error> {
-            let path = path.canonicalize()?;
-            let modified = path.metadata()?.modified()?;
-            Ok(Self { path, modified })
-        }
-    }
-
-    /// Get the duration of the a video file if it was cached with [put].
-    pub fn get(path_info: &PathInfo) -> Option<NonZeroUsize> {
-        let mut cache = CACHE.lock().expect(LOCK_UNPOISONED);
-
-        let (cached_duration, cached_modified) = *cache.get(&path_info.path)?;
-
-        if cached_modified != path_info.modified {
-            cache.remove(&path_info.path);
-            return None;
-        }
-
-        Some(cached_duration)
-    }
-
-    /// Cache the duration of a video file.
-    pub fn insert(path: PathInfo, frames: NonZeroUsize) {
-        let mut cache = CACHE.lock().expect(LOCK_UNPOISONED);
-        cache.insert(path.path, (frames, path.modified));
-    }
-
-    static CACHE: LazyLock<Mutex<HashMap<PathBuf, (NonZeroUsize, SystemTime)>>> =
-        LazyLock::new(Mutex::default);
-
-    const LOCK_UNPOISONED: &str = "The lock shouldn't be poisoned.";
 }

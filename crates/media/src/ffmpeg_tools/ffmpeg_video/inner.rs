@@ -8,12 +8,11 @@ use std::path::Path;
 use ffmpeg::codec::Context as FFmpegCodecContext;
 use ffmpeg::codec::decoder::Video as FFmpegVideoDecoder;
 use ffmpeg::format::context::Input as FFmpegInputFormatContext;
-use ffmpeg::format::stream::Stream as FFmpegStream;
 use ffmpeg::media::Type as FFmpegMediaType;
-use ffmpeg::{Rational, Rescale};
 use ffmpeg_next as ffmpeg;
 
 use super::{FFmpegResult, FFmpegVideoFrame, FrameScaler, TARGET_PIXEL_FORMAT};
+use crate::ffmpeg_tools::ffmpeg_video::seek_info::SeekInfo;
 use crate::fps::Fps;
 use crate::frame::{Dimensions, RescaleMethod};
 
@@ -28,25 +27,18 @@ pub struct FFmpegVideoInner {
     draining: bool,
 
     // Seeking:
-    next_frame_min_timestamp: Option<i64>,
-    last_frame_timestamp: Option<i64>,
-    frame_timestamp_delta: Range1,
-    fixed_frame_timestamp_delta: Option<i64>,
+    frames_until_target: usize,
 
     // Src Info (Final):
     target_stream_index: usize,
     src_fps: Fps,
     src_dimensions: Dimensions,
-
-    // Optimization:
-    frames_since_keyframe: Option<NonZeroUsize>,
-    max_frames_between_keyframes: Option<NonZeroUsize>,
 }
 
-impl<'a> FFmpegVideoInner {
+impl FFmpegVideoInner {
     /// Create an [FFmpegVideo](super::FFmpegVideo) with everything but the
     /// duration.
-    pub fn new(path: &'a Path, rescale: Option<(Dimensions, RescaleMethod)>) -> FFmpegResult<Self> {
+    pub fn new(path: &Path, rescale: Option<(Dimensions, RescaleMethod)>) -> FFmpegResult<Self> {
         // This object is a handle to the file we opened. Right now, this is
         // just the kind of container (e.g. MP4, MKV) and FFmpeg has none of the
         // actual video/audio data yet (only the file's metadata).
@@ -76,16 +68,16 @@ impl<'a> FFmpegVideoInner {
         // The stream should have constant frame spacing. If it doesn't we might
         // be able to detect that early here.
         if best_video_stream.avg_frame_rate() != best_video_stream.rate() {
-            return Err(Self::UNSUPPORTED_FORMAT);
+            return Err(UNSUPPORTED_FORMAT);
         }
 
         let src_fps: Fps = best_video_stream
             .avg_frame_rate()
             .try_into()
-            .or(Err(Self::UNSUPPORTED_FORMAT))?;
+            .or(Err(UNSUPPORTED_FORMAT))?;
 
         let src_dimensions =
-            Dimensions::new(decoder.width(), decoder.height()).ok_or(Self::UNSUPPORTED_FORMAT)?;
+            Dimensions::new(decoder.width(), decoder.height()).ok_or(UNSUPPORTED_FORMAT)?;
 
         let (dest_dimensions, rescale_method) =
             rescale.unwrap_or((src_dimensions, RescaleMethod::default()));
@@ -105,19 +97,12 @@ impl<'a> FFmpegVideoInner {
             draining: false,
 
             // Seeking:
-            next_frame_min_timestamp: None,
-            last_frame_timestamp: None,
-            frame_timestamp_delta: None.into(),
-            fixed_frame_timestamp_delta: None,
+            frames_until_target: 0,
 
             // Src Info (Final):
             target_stream_index,
             src_fps,
             src_dimensions,
-
-            // Optimization:
-            frames_since_keyframe: None,
-            max_frames_between_keyframes: None,
         })
     }
 
@@ -127,18 +112,56 @@ impl<'a> FFmpegVideoInner {
         recycled_frame: Option<FFmpegVideoFrame>,
     ) -> FFmpegResult<FFmpegVideoFrame> {
         self.write_next_frame_in_stream(recycled_frame, false)
-            .map(|frame| frame.expect("return not skipped"))
+            .map(|(frame, _is_keyframe)| frame.expect("return not skipped"))
     }
 
     /// Decodes the next frame without returning it.
     pub fn skip_frame(&mut self) -> FFmpegResult<()> {
-        self.write_next_frame_in_stream(None, true)
-            .map(|frame| assert!(frame.is_none(), "return skipped"))
+        self.skip_frame_with_stats().map(|_| ())
     }
 
-    /// See [FFmpegVideo::seek_playhead](super::FFmpegVideo::seek_playhead).
-    pub fn seek_playhead(&mut self, new_playhead: usize) -> FFmpegResult<()> {
-        self.seek_with_timestamp(self.frame_idx_to_timestamp(new_playhead))
+    /// See [FFmpegVideo::seek_playhead](super::FFmpegVideo::seek_playhead). The
+    /// *keyframe* index that was seeked to is returned (index of a
+    /// [SeekInfo::keyframe_timestamps] element).
+    pub fn seek_playhead(
+        &mut self,
+        new_playhead: usize,
+        seek_info: &SeekInfo,
+    ) -> FFmpegResult<usize> {
+        assert!(new_playhead < seek_info.frame_count.get());
+
+        self.draining = false;
+        self.frames_until_target = 0;
+
+        let keyframe_array_idx = match seek_info
+            .keyframe_timestamps
+            .binary_search_by_key(&new_playhead, |&(frame_idx, _)| frame_idx)
+        {
+            Ok(idx) => idx,            // frame_idx == new_playhead
+            Err(idx @ 1..) => idx - 1, // max frame_idx < new_playhead
+            Err(0) => unreachable!(),
+        };
+
+        let (target_frame_idx, target_ts) = seek_info.keyframe_timestamps[keyframe_array_idx];
+
+        // Find the halfway between the target and prev/next timestamps (bias
+        // towards target). This should handle any "off by a few" errors.
+        let min_ts = seek_info.keyframe_timestamps[..keyframe_array_idx]
+            .last()
+            .map(|(_, last_ts)| *last_ts + (target_ts - *last_ts + 1) / 2)
+            .unwrap_or(i64::MIN);
+        let max_ts = seek_info.keyframe_timestamps[(keyframe_array_idx + 1)..]
+            .first()
+            .map(|(_, next_ts)| target_ts + (*next_ts - target_ts) / 2)
+            .unwrap_or(i64::MAX);
+
+        self.avformat_seek_file(min_ts, target_ts, max_ts, 0)?;
+        self.decoder.flush();
+
+        debug_assert!(target_frame_idx >= new_playhead);
+        self.frames_until_target = target_frame_idx - new_playhead;
+
+        Ok(keyframe_array_idx)
     }
 
     /// See [FFmpegVideo::rescale](super::FFmpegVideo::rescale).
@@ -146,6 +169,15 @@ impl<'a> FFmpegVideoInner {
         match &self.scaler {
             Some(scaler) => Some((scaler.dest_dimensions(), scaler.rescale_method())),
             None => None,
+        }
+    }
+
+    /// Just the [RescaleMethod] from [Self::rescale].
+    pub const fn rescale_method(&self) -> Option<RescaleMethod> {
+        if let Some((_, rescale_method)) = self.rescale() {
+            Some(rescale_method)
+        } else {
+            None
         }
     }
 
@@ -177,16 +209,6 @@ impl<'a> FFmpegVideoInner {
         Ok(())
     }
 
-    /// The frame count if it is known (in the metadata).
-    pub fn known_frame_count(&self) -> Option<NonZeroUsize> {
-        // The frame count is an optional field that some containers provide.
-        // Not all video formats provide it though.
-        match self.target_stream().frames() {
-            ..=0 => None,
-            frames => Some(NonZeroUsize::new(frames as usize).unwrap()),
-        }
-    }
-
     /// Skips the next `n` frames.
     pub fn skip_frames(&mut self, n: usize) -> FFmpegResult<()> {
         for _ in 0..n {
@@ -204,41 +226,36 @@ impl<'a> FFmpegVideoInner {
     }
 
     /// The native dimensions of this video.
+    #[inline(always)]
     pub const fn src_dimensions(&self) -> Dimensions {
         self.src_dimensions
     }
 
     /// The native [Fps] of this video.
+    #[inline(always)]
     pub const fn src_fps(&self) -> Fps {
         self.src_fps
     }
 
-    /// The max number of frames we've decoded between 2 keyframes. [None] is
-    /// returned if we haven't decoded 2 keyframes in one sequence.
-    pub const fn max_frames_between_keyframes(&self) -> Option<NonZeroUsize> {
-        self.max_frames_between_keyframes
+    fn skip_frame_with_stats(&mut self) -> FFmpegResult<FrameStats> {
+        self.write_next_frame_in_stream(None, true)
+            .map(|(frame, is_keyframe)| {
+                assert!(frame.is_none(), "return skipped");
+                is_keyframe
+            })
     }
-
-    /// The number of frames we've decoded since the last keyframe. [None] is
-    /// returned if we haven't decoded a keyframes in this sequence.
-    pub const fn frames_since_keyframe(&self) -> Option<NonZeroUsize> {
-        self.frames_since_keyframe
-    }
-
-    /// This video's format is not supported.
-    const UNSUPPORTED_FORMAT: ffmpeg::Error = ffmpeg::Error::InvalidData;
 
     fn write_next_frame_in_stream(
         &mut self,
         recycled_frame: Option<FFmpegVideoFrame>,
         skip_return: bool,
-    ) -> FFmpegResult<Option<FFmpegVideoFrame>> {
+    ) -> FFmpegResult<(Option<FFmpegVideoFrame>, FrameStats)> {
         let mut src_frame = self
             .src_frame_buffer
             .take()
             .unwrap_or_else(|| self.new_src_frame_buffer(None));
 
-        let ret =
+        let (ret_frame, frame_is_keyframe) =
             self.write_next_frame_in_stream_impl(recycled_frame, &mut src_frame, skip_return)?;
 
         if src_frame.format() != self.decoder.format()
@@ -249,7 +266,7 @@ impl<'a> FFmpegVideoInner {
         }
         self.src_frame_buffer = Some(src_frame);
 
-        if let Some(ret_frame) = &ret {
+        if let Some(ret_frame) = &ret_frame {
             debug_assert!(!skip_return);
 
             assert_eq!(ret_frame.format(), TARGET_PIXEL_FORMAT);
@@ -259,7 +276,7 @@ impl<'a> FFmpegVideoInner {
             debug_assert!(skip_return);
         }
 
-        Ok(ret)
+        Ok((ret_frame, frame_is_keyframe))
     }
 
     fn write_next_frame_in_stream_impl(
@@ -267,7 +284,7 @@ impl<'a> FFmpegVideoInner {
         recycled_frame: Option<FFmpegVideoFrame>,
         src_frame: &mut FFmpegVideoFrame,
         skip_return: bool,
-    ) -> FFmpegResult<Option<FFmpegVideoFrame>> {
+    ) -> FFmpegResult<(Option<FFmpegVideoFrame>, FrameStats)> {
         debug_assert_eq!(src_frame.format(), self.decoder.format());
         debug_assert_eq!(src_frame.width(), self.decoder.width());
         debug_assert_eq!(src_frame.height(), self.decoder.height());
@@ -285,19 +302,14 @@ impl<'a> FFmpegVideoInner {
             // https://ffmpeg.org/doxygen/8.0/group__lavc__decoding.html#ga11e6542c4e66d3028668788a1a74217c
             let decode_err = match self.decoder.receive_frame(intermediate_frame) {
                 Ok(()) => {
-                    let frame_timestamp = intermediate_frame.timestamp();
-                    let frame_timestamp = self.validate_new_frame_timestamp(frame_timestamp)?;
-
-                    let frame_is_keyframe = intermediate_frame.is_key();
-                    self.track_new_frame_is_keyframe(frame_is_keyframe);
-
-                    // If we seeked and aren't at the right frame we need to
-                    // continue to advance.
-                    if let Some(min_timestamp) = self.next_frame_min_timestamp
-                        && frame_timestamp < min_timestamp
-                    {
+                    // If we seeked and aren't at the right frame yet we need to
+                    // skip frames.
+                    if self.frames_until_target > 0 {
+                        self.frames_until_target -= 1;
                         continue;
                     }
+
+                    let frame_stats = FrameStats::from_frame(intermediate_frame)?;
 
                     if !skip_return {
                         let ret_frame = ret_frame
@@ -305,13 +317,13 @@ impl<'a> FFmpegVideoInner {
                             .expect("should be created if we're returning a frame");
 
                         // We're going to return this frame. Reformat the
-                        // intermediate frame onto the return frame (if we didn't
-                        // already write directly to it).
+                        // intermediate frame onto the return frame (if we
+                        // didn't already write directly to it).
                         if let Some(scaler) = &mut self.scaler {
                             scaler.rescale(src_frame, ret_frame)?;
                         }
                     }
-                    return Ok(ret_frame);
+                    return Ok((ret_frame, frame_stats));
                 }
 
                 Err(e) => e,
@@ -416,412 +428,99 @@ impl<'a> FFmpegVideoInner {
         }
     }
 
-    fn validate_new_frame_timestamp(
-        &mut self,
-        new_frame_timestamp: Option<i64>,
-    ) -> FFmpegResult<i64> {
-        // We're not supporting video formats that don't provide presentation
-        // timestamps for frames (without it, frame-accurate seeking is
-        // impossible).
-        let Some(new_timestamp) = new_frame_timestamp else {
-            return Err(Self::UNSUPPORTED_FORMAT);
-        };
-
-        if new_timestamp < self.start_timestamp() {
-            return Err(Self::UNSUPPORTED_FORMAT);
-        }
-
-        if let Some(last_timestamp) = self.last_frame_timestamp {
-            // Compute the difference between this frame's timestamp and the
-            // last frame's timestamp (timestamp delta).
-            let Some(timestamp_delta) = new_timestamp
-                .checked_sub(last_timestamp)
-                .and_then(|delta| (delta > 0).then_some(delta))
-            else {
-                // The new timestamp must be after the last one.
-                return Err(Self::UNSUPPORTED_FORMAT);
-            };
-
-            // If the timestamp difference is not constant between frames (with
-            // an allowed ±1 tolerance) then this is a variable frame rate video
-            // (which we aren't going to support).
-            let timestamp_delta = self.frame_timestamp_delta.update(timestamp_delta);
-            self.frame_timestamp_delta = match timestamp_delta {
-                Some(delta) if !delta.has_split_range() => delta,
-                _ => return Err(Self::UNSUPPORTED_FORMAT),
-            };
-
-            // Once we get a fixed timestamp delta we can't let it change.
-            if let Some(new_fixed_delta) = self.frame_timestamp_delta.fixed_value() {
-                if let Some(old_fixed_delta) = self.fixed_frame_timestamp_delta {
-                    if new_fixed_delta != old_fixed_delta {
-                        return Err(Self::UNSUPPORTED_FORMAT);
-                    }
-                } else {
-                    self.fixed_frame_timestamp_delta = Some(new_fixed_delta);
-                }
-            }
-        };
-
-        self.last_frame_timestamp = Some(new_timestamp);
-        Ok(new_timestamp)
-    }
-
-    fn track_new_frame_is_keyframe(&mut self, new_frame_is_keyframe: bool) {
-        if new_frame_is_keyframe {
-            if let Some(frames_since_keyframe) = self.frames_since_keyframe {
-                self.max_frames_between_keyframes = match self.max_frames_between_keyframes {
-                    Some(max) => Some(max.max(frames_since_keyframe)),
-                    None => Some(frames_since_keyframe),
-                };
-            }
-
-            self.frames_since_keyframe = Some(NonZeroUsize::MIN);
-            return;
-        }
-
-        if let Some(frames_since_keyframe) = &mut self.frames_since_keyframe {
-            // SAFETY: n + 1 where n > 0 is never 0.
-            *frames_since_keyframe =
-                unsafe { NonZeroUsize::new_unchecked(frames_since_keyframe.get() + 1) };
-        }
-    }
-
-    /// Like [Self::seek_playhead] but it seeks to the first frame equal to or
-    /// after the timestamp (not a frame index).
-    fn seek_with_timestamp(&mut self, new_timestamp: i64) -> FFmpegResult<()> {
-        self.draining = false;
-        self.next_frame_min_timestamp = None;
-        self.last_frame_timestamp = None;
-        self.frames_since_keyframe = None;
-
-        // Seek to the nearest keyframe behind the target and next time we have
-        // to decode we'll walk up to the right frame.
-        self.avformat_seek_file(
-            self.start_timestamp(),
-            new_timestamp,
-            new_timestamp,
-            ffmpeg::sys::AVSEEK_FLAG_BACKWARD,
-        )?;
-        self.decoder.flush();
-        self.next_frame_min_timestamp = Some(new_timestamp);
-
-        Ok(())
-    }
-
-    #[inline]
-    fn target_stream(&self) -> FFmpegStream<'_> {
-        self.input_context
-            .stream(self.target_stream_index)
-            .expect("target stream should be present")
-    }
-
-    #[inline]
-    fn start_timestamp(&self) -> i64 {
-        match self.target_stream().start_time() {
-            // If we don't have a start time, we'll just assume it's 0.
-            // `ffmpeg-next` does not handle this edge case.
-            ffmpeg::sys::AV_NOPTS_VALUE => 0,
-            start_time => start_time,
-        }
-    }
-
-    fn frame_idx_to_timestamp(&self, frame_idx: usize) -> i64 {
-        let frame_idx = i64::try_from(frame_idx).expect("valid frame index");
-        let start_timestamp = self.start_timestamp();
-        let frame_duration =
-            Rational::try_from(self.src_fps.inverse()).expect("`Fps` created from `Rational`");
-        let time_base = self.target_stream().time_base();
-
-        start_timestamp.saturating_add(frame_idx.rescale(frame_duration, time_base))
-    }
-
-    /// Try to determine the frame count.
+    /// Try to determine the frame count and keyframe timestamps.
     ///
     /// This function assumes its playhead is at frame 0 when it is called. It
     /// will have seeked back to 0 if [Ok] is returned.
     ///
-    /// `continue_predicate` is called after every each frame is decoded. If the
+    /// `continue_predicate` is called before each frame is decoded. If the
     /// predicate returns `false`, the function will immediately exit. The
-    /// predicate is passed an integer for the number of times it has been
-    /// called.
-    pub fn determine_frame_count<F>(
-        &mut self,
-        mut continue_predicate: F,
-    ) -> FFmpegResult<NonZeroUsize>
+    /// predicate is passed the number of frames it has found so far.
+    pub fn determine_seek_info<F>(&mut self, mut continue_predicate: F) -> FFmpegResult<SeekInfo>
     where
         F: FnMut(usize) -> bool,
     {
-        const CANCELLED: ffmpeg::Error = ffmpeg::Error::Other {
-            errno: ffmpeg::error::ECANCELED,
-        };
-        let mut predicate_calls = 0;
+        let mut keyframe_timestamps = vec![];
+        let mut last_timestamp = i64::MIN;
 
-        let mut frames_skipped = 0;
+        for frame_idx in 0.. {
+            if !continue_predicate(frame_idx) {
+                return Err(ECANCELED);
+            }
 
-        // We need a fixed timestamp delta to find the end with a jump so we'll
-        // decode until we have one.
-        while self.fixed_frame_timestamp_delta.is_none() {
-            match self.skip_frame() {
-                // Found end early.
-                Err(ffmpeg::Error::Eof) if frames_skipped > 0 => {
-                    self.seek_playhead(0)?;
-                    return Ok(frames_skipped.try_into().expect("non-0"));
+            match self.skip_frame_with_stats() {
+                Ok(frame_stats) => {
+                    // Double check new timestamp is after last.
+                    if frame_stats.timestamp() <= last_timestamp {
+                        return Err(UNSUPPORTED_FORMAT);
+                    }
+                    last_timestamp = frame_stats.timestamp();
+
+                    if frame_stats.is_keyframe() {
+                        keyframe_timestamps.push((frame_idx, frame_stats.timestamp()));
+                    } else if frame_idx == 0 {
+                        // The 1st frame always must be a keyframe.
+                        return Err(UNSUPPORTED_FORMAT);
+                    }
+
+                    continue;
                 }
 
-                Ok(_) => frames_skipped += 1,
+                Err(e) if e == ffmpeg::Error::Eof && frame_idx != 0 => {
+                    let frame_count = NonZeroUsize::new(frame_idx).expect("non-0");
+                    debug_assert!(!keyframe_timestamps.is_empty());
+
+                    let seek_info = SeekInfo {
+                        frame_count,
+                        keyframe_timestamps,
+                    };
+                    self.seek_playhead(0, &seek_info)?;
+                    return Ok(seek_info);
+                }
+
                 Err(e) => return Err(e),
             }
-
-            if !continue_predicate(predicate_calls) {
-                return Err(CANCELLED);
-            }
-            predicate_calls += 1;
-        }
-        let fixed_timestamp_delta = self.fixed_frame_timestamp_delta.expect("just found");
-        let frames_between_keyframes = self
-            .max_frames_between_keyframes
-            .map_or_else(|| frames_skipped, NonZeroUsize::get);
-
-        let start_timestamp = self.start_timestamp();
-        let end_timestamp = self.end_timestamp()?;
-        let backstep_amount = fixed_timestamp_delta * frames_between_keyframes as i64;
-
-        // We'll try to seek a few times, walking backwards each time.
-        const MAX_ATTEMPTS: usize = 3;
-        for attempt in 1.. {
-            let near_end_timestamp = end_timestamp - backstep_amount * attempt as i64;
-            if near_end_timestamp <= start_timestamp {
-                if attempt > 1 {
-                    self.seek_playhead(0)?;
-                    frames_skipped = 0;
-                }
-                break;
-            }
-
-            let seek_result = self.seek_with_timestamp(near_end_timestamp);
-            self.decoder.flush();
-            match seek_result {
-                Ok(_) => {
-                    frames_skipped = ((near_end_timestamp - start_timestamp)
-                        / fixed_timestamp_delta)
-                        .max(0) as usize;
-                    break;
-                }
-                Err(e) if attempt == MAX_ATTEMPTS => return Err(e),
-                Err(_) => {}
-            }
         }
 
-        loop {
-            match self.skip_frame() {
-                Err(ffmpeg::Error::Eof) if frames_skipped > 0 => break,
-                Ok(_) => frames_skipped += 1,
-                Err(e) => return Err(e),
-            }
-
-            if !continue_predicate(predicate_calls) {
-                return Err(CANCELLED);
-            }
-            predicate_calls += 1;
-        }
-
-        self.seek_playhead(0)?;
-        Ok(frames_skipped.try_into().expect("non-0"))
-    }
-
-    fn end_timestamp(&self) -> FFmpegResult<i64> {
-        let duration_from_stream = self.target_stream().duration();
-        if duration_from_stream != ffmpeg::sys::AV_NOPTS_VALUE {
-            return Ok(duration_from_stream);
-        }
-
-        let duration_from_ctx = self.input_context.duration();
-        if duration_from_ctx != ffmpeg::sys::AV_NOPTS_VALUE {
-            return Ok(duration_from_ctx.rescale(
-                ffmpeg::sys::AV_TIME_BASE_Q,
-                self.target_stream().time_base(),
-            ));
-        }
-
-        Err(Self::UNSUPPORTED_FORMAT)
+        unreachable!("loop is 0.. (infinite)")
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct FrameStats {
+    is_keyframe: bool,
+    timestamp: i64,
+}
+
+impl FrameStats {
+    /// Create [FrameStats] from an [FFmpegVideoFrame].
+    #[inline]
+    pub fn from_frame(frame: &FFmpegVideoFrame) -> FFmpegResult<Self> {
+        let is_keyframe = frame.is_key();
+        let timestamp = frame.timestamp().ok_or(UNSUPPORTED_FORMAT)?;
+        Ok(FrameStats {
+            is_keyframe,
+            timestamp,
+        })
+    }
+
+    /// Whether an [FFmpegVideoFrame] is a keyframe.
+    #[inline(always)]
+    pub fn is_keyframe(&self) -> bool {
+        self.is_keyframe
+    }
+
+    /// An [FFmpegVideoFrame]'s timestamp.
+    #[inline(always)]
+    pub fn timestamp(&self) -> i64 {
+        self.timestamp
+    }
+}
+
+const UNSUPPORTED_FORMAT: ffmpeg::Error = ffmpeg::Error::InvalidData;
 const EAGAIN: ffmpeg::Error = ffmpeg::Error::Other {
     errno: ffmpeg::error::EAGAIN,
 };
-
-type Range1InnerT = i64;
-
-/// For tracking [values](Range1InnerT) that all must fall within a range some
-/// unknown value ±1.
-#[derive(Debug, Clone, Copy)]
-struct Range1 {
-    n: Range1InnerT,
-    min_count: usize,
-    mid_count: usize,
-    max_count: usize,
-}
-
-impl Range1 {
-    /// Create a [RangePlusMinus1] with a starting value.
-    pub const fn new(n: Range1InnerT) -> Self {
-        Self {
-            n,
-            min_count: 0,
-            mid_count: 1,
-            max_count: 0,
-        }
-    }
-
-    /// Create a [RangePlusMinus1] with *no starting value*. Equivalent to
-    /// [Self::default].
-    pub const fn without_starting_value() -> Self {
-        Self {
-            n: 0,
-            min_count: 0,
-            mid_count: 0,
-            max_count: 0,
-        }
-    }
-
-    /// Create a [RangePlusMinus1] with an optional starting value. Equivalent
-    /// to [Self::from].
-    pub const fn from_optional_starting_value(option_n: Option<Range1InnerT>) -> Self {
-        match option_n {
-            Some(n) => Self::new(n),
-            None => Self::without_starting_value(),
-        }
-    }
-
-    /// Whether or not any values have been recorded.
-    pub const fn has_values(self) -> bool {
-        self.min_count != 0 || self.mid_count != 0 || self.max_count != 0
-    }
-
-    /// Updates the range of `self` with `new_n` if `new_n` is within range of
-    /// the previous values. If all previous values and `new_n` aren't within a
-    /// range of 3 consecutive values values, [None] is returned.
-    #[must_use]
-    pub const fn update(mut self, new_n: Range1InnerT) -> Option<Self> {
-        if !self.has_values() {
-            return Some(Self::new(new_n));
-        }
-
-        // in range (middle)
-        if new_n == self.n {
-            self.mid_count += 1;
-            return Some(self);
-        }
-
-        // in range (±1)
-        if self.eq_with_self_offset(new_n, 1) {
-            self.max_count += 1;
-            return Some(self);
-        }
-        if self.eq_with_self_offset(new_n, -1) {
-            self.min_count += 1;
-            return Some(self);
-        }
-
-        // out of range but range can shift (±2)
-        if self.eq_with_self_offset(new_n, 2) && self.min_count == 0 {
-            self.n += 1;
-            self.min_count = self.mid_count;
-            self.mid_count = self.max_count;
-            self.max_count = 1;
-            return Some(self);
-        }
-        if self.eq_with_self_offset(new_n, -2) && self.max_count == 0 {
-            self.n -= 1;
-            self.max_count = self.mid_count;
-            self.mid_count = self.min_count;
-            self.min_count = 1;
-            return Some(self);
-        }
-
-        // Fully out of range
-        None
-    }
-
-    /// The best fixed value for representing this range if one exists.
-    pub const fn fixed_value(self) -> Option<Range1InnerT> {
-        if !self.has_values() {
-            return None;
-        }
-
-        let total = self.min_count + self.mid_count + self.max_count;
-
-        // We want at least a few samples before we decide conclusively.
-        const MIN_SAMPLES: usize = 12;
-        if total < MIN_SAMPLES {
-            return None;
-        }
-
-        // Order values by count.
-        let mut values = [self.n - 1, self.n, self.n + 1];
-        let mut counts = [self.min_count, self.mid_count, self.max_count];
-        if counts[0] < counts[1] {
-            counts.swap(0, 1);
-            values.swap(0, 1);
-        }
-        if counts[1] < counts[2] {
-            counts.swap(1, 2);
-            values.swap(1, 2);
-        }
-        if counts[0] < counts[1] {
-            counts.swap(0, 1);
-            values.swap(0, 1);
-        }
-
-        let best_val = values[0];
-        let [best_count, mid_count, worst_count] = counts;
-
-        // Strong dominance
-        if best_count >= mid_count * 2 && best_count >= worst_count * 2 {
-            return Some(best_val);
-        }
-
-        // Majority agreement (at least 80% of samples agree)
-        if best_count * 10 >= total * 8 {
-            return Some(best_val);
-        }
-
-        // Mid + neighbors cluster tightly (all present but centered)
-        if (best_count + mid_count) * 10 >= total * 9 {
-            // top two bins cover at least 90%
-            return Some(best_val);
-        }
-
-        // Need more data.
-        None
-    }
-
-    /// Whether or not both values `n-1` and `n+1` have been added more than
-    /// once but `n` has never been added.
-    pub const fn has_split_range(self) -> bool {
-        self.min_count >= 2 && self.max_count >= 2 && self.mid_count == 0
-    }
-
-    #[inline(always)]
-    const fn eq_with_self_offset(self, other_n: Range1InnerT, self_offset: i8) -> bool {
-        if let Some(offset_n) = self.n.checked_add(self_offset as Range1InnerT) {
-            offset_n == other_n
-        } else {
-            false
-        }
-    }
-}
-
-impl Default for Range1 {
-    fn default() -> Self {
-        Self::without_starting_value()
-    }
-}
-
-impl From<Option<Range1InnerT>> for Range1 {
-    fn from(option_n: Option<Range1InnerT>) -> Self {
-        Self::from_optional_starting_value(option_n)
-    }
-}
+const ECANCELED: ffmpeg::Error = ffmpeg::Error::Other {
+    errno: ffmpeg::error::ECANCELED,
+};
