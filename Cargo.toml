@@ -22,11 +22,18 @@ egui-wgpu = "0.33.3"
 egui_extras = "0.33.3"
 windows-sys = "0.59"
 
+# If one thread panics, make all the threads panic. This does disable the
+# ability for us to handle a thread panicking, but I don't think there's
+# anywhere we'd care about doing that anyway.
+[profile.dev]
+panic = "abort"
+[profile.release]
+panic = "abort"
+
 # Debugging essentially becomes impossible with this profile, but it will
 # generate the best performing code (also at the cost of compile times).
 [profile.release-plus]
 inherits = "release"
 lto = "fat"          # Max link-time optimizations
 codegen-units = 1    # One codegen unit per crate (easier optimization)
-panic = "abort"      # Remove most panic handling code
 strip = "symbols"    # Strip symbols

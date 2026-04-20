@@ -3,6 +3,7 @@
 
 use std::collections::VecDeque;
 use std::fmt::Debug;
+use std::process;
 use std::time::{self, Duration, SystemTime};
 
 use eframe::{App, Frame};
@@ -160,7 +161,11 @@ impl<'a> UiManager<'a> {
 
         for msg in msgs {
             match msg {
-                WorkerMsg::FatalError(e) => util::eprintln_and_exit!("Fatal error: {e}"),
+                WorkerMsg::FatalError(e) => {
+                    util::debug_log_error!("Fatal error (exiting): {e}");
+                    eprintln!("Fatal error: {e}");
+                    process::exit(1);
+                }
 
                 WorkerMsg::SetupComplete => self.worker_setup_complete = true,
 

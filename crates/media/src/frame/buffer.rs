@@ -7,7 +7,7 @@
 //! with mainly in performance critical (expensive) sections of code, this
 //! module uses a lot of `unsafe` code (that's also why there's so many huge
 //! comments explaining things). If you're going to modify this module (or its
-//! `preulude` sub-module), be *extremely* careful.
+//! sub-modules), be *extremely* careful.
 
 mod dimensions;
 mod pixel;

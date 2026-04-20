@@ -98,6 +98,7 @@ impl ResampledFFmpegVideo {
                 || target_src_playhead == slf.fps_resampler.resample(slf.resampled_playhead + 1);
             slf.ffmpeg_video.set_paused(pause_src);
 
+            debug_assert!(slf.ffmpeg_video.playhead() != slf.src_duration());
             slf.ffmpeg_video.write_next(recycled_frame)
         })?;
 
@@ -404,7 +405,7 @@ impl ResampledFFmpegVideo {
         }
 
         // The inner video should have a valid playhead.
-        debug_assert!(self.ffmpeg_video.playhead() < self.src_duration());
+        debug_assert!(self.ffmpeg_video.playhead() <= self.src_duration());
     }
 
     #[cfg_attr(not(debug_assertions), inline(always))]
