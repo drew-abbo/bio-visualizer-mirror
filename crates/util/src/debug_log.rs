@@ -127,6 +127,7 @@ pub fn enable() {
 ///
 /// This function gets called by the debug log macros (e.g. [debug_log_info])
 /// and generally shouldn't be called directly.
+#[doc(hidden)]
 #[track_caller]
 pub fn where_and_when(color: &str, reset_color: &str) -> String {
     let now = OffsetDateTime::now_utc();
