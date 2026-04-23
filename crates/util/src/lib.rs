@@ -3,6 +3,7 @@
 
 pub mod cast_slice;
 pub mod channels;
+pub mod crash_reporting;
 pub mod debug_log;
 pub mod drop_join_thread;
 pub mod fuzzy_search;

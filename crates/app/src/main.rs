@@ -1,3 +1,5 @@
+#![cfg_attr(all(windows, feature = "no-console"), windows_subsystem = "windows")]
+
 mod app_area;
 mod args;
 mod components;
@@ -9,6 +11,8 @@ use clap::Parser;
 const APP_NAME: &str = util::version::APP_NAME;
 
 fn main() -> Result<(), eframe::Error> {
+    util::crash_reporting::init();
+
     let args = args::Args::parse();
 
     #[cfg(debug_assertions)]
