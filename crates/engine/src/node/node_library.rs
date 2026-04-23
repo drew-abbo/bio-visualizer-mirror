@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::env;
 use std::path::{Path, PathBuf};
 
 use serde_json;
@@ -138,6 +139,33 @@ impl NodeLibrary {
         Ok(library)
     }
 
+    /// Get all node definitions
+    pub fn definitions(&self) -> &HashMap<String, NodeDefinition> {
+        &self.definitions
+    }
+
+    /// Get all node names
+    pub fn node_names(&self) -> Vec<String> {
+        self.definitions.keys().cloned().collect()
+    }
+
+    /// Search nodes by keyword
+    pub fn search(&self, query: &str) -> Vec<&NodeDefinition> {
+        let query_lower = query.to_lowercase();
+
+        self.definitions
+            .values()
+            .filter(|def| {
+                // Search in name
+                def.node.name.to_lowercase().contains(&query_lower)
+                // Search in keywords
+                || def.node.search_keywords.iter().any(|kw| kw.to_lowercase().contains(&query_lower))
+                // Search in description
+                || def.node.short_description.to_lowercase().contains(&query_lower)
+            })
+            .collect()
+    }
+
     fn get_all_categories(&self) -> Vec<String> {
         let mut categories: Vec<String> = self
             .definitions
@@ -174,14 +202,7 @@ impl NodeLibrary {
 
     /// Load all node definitions from the nodes/ folder
     fn load_from_disk() -> Result<Self, LibraryError> {
-        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let workspace_root = manifest_dir.parent().and_then(|p| p.parent()).unwrap();
-        let nodes_path = workspace_root.join("nodes");
-        let nodes_folder = nodes_path.to_path_buf();
-
-        if !nodes_folder.exists() {
-            return Err(LibraryError::NodesFolderNotFound(nodes_folder));
-        }
+        let nodes_folder = Self::resolve_nodes_path()?;
 
         let mut definitions = HashMap::new();
 
@@ -302,30 +323,27 @@ impl NodeLibrary {
         })
     }
 
-    /// Get all node definitions
-    pub fn definitions(&self) -> &HashMap<String, NodeDefinition> {
-        &self.definitions
-    }
+    fn resolve_nodes_path() -> Result<PathBuf, LibraryError> {
+        // Look next to the running executable for Release builds
+        if let Ok(mut exe_path) = env::current_exe() {
+            exe_path.pop(); // Remove the executable file name, leaving just the directory
+            let nodes_path = exe_path.join("nodes");
+            if nodes_path.exists() && nodes_path.is_dir() {
+                return Ok(nodes_path);
+            }
+        }
 
-    /// Get all node names
-    pub fn node_names(&self) -> Vec<String> {
-        self.definitions.keys().cloned().collect()
-    }
+        // Development
+        #[cfg(debug_assertions)]
+        {
+            if let Ok(cwd) = env::current_dir() {
+                let nodes_path = cwd.join("nodes");
+                if nodes_path.exists() && nodes_path.is_dir() {
+                    return Ok(nodes_path);
+                }
+            }
+        }
 
-    /// Search nodes by keyword
-    pub fn search(&self, query: &str) -> Vec<&NodeDefinition> {
-        let query_lower = query.to_lowercase();
-
-        self.definitions
-            .values()
-            .filter(|def| {
-                // Search in name
-                def.node.name.to_lowercase().contains(&query_lower)
-                // Search in keywords
-                || def.node.search_keywords.iter().any(|kw| kw.to_lowercase().contains(&query_lower))
-                // Search in description
-                || def.node.short_description.to_lowercase().contains(&query_lower)
-            })
-            .collect()
+        Err(LibraryError::NodesFolderNotFound(PathBuf::from("nodes")))
     }
 }
