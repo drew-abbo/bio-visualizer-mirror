@@ -76,6 +76,21 @@ pub fn nodes_path() -> &'static Path {
     &PATH
 }
 
+/// The path to the directory where the app stores crash reports.
+///
+/// This value will only be computed the first time this function is called.
+/// Once computed, subsequent calls are significantly cheaper.
+///
+/// The directory will be created if it doesn't exist.
+pub fn crash_reports_path() -> &'static Path {
+    static PATH: LazyLock<PathBuf> = LazyLock::new(|| {
+        let path = join_paths(root_path(), CRASH_REPORTS_DIR_NAME);
+        ensure_dirs_exist(&path);
+        path
+    });
+    &PATH
+}
+
 /// The path to the directory where cached video information is stored, unique
 /// for each user.
 ///
@@ -221,6 +236,7 @@ impl Drop for VideoCacheWriteLockGuard {
 const ROOT_DIR_NAME: &str = version::APP_NAME;
 const PROJECTS_DIR_NAME: &str = "Projects";
 const NODES_DIR_NAME: &str = "Nodes";
+const CRASH_REPORTS_DIR_NAME: &str = "CrashReports";
 const VIDEO_CACHE_NAME: &str = "VideoCache";
 const VIDEO_CACHE_LOCK_NAME: &str = "VideoCacheLock";
 
