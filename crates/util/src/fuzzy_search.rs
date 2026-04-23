@@ -184,6 +184,84 @@ mod tests {
         }
     }
 
+    // --- Metamorphic tests ---
+    // We have a function `F(X)` where `F` returns a number of items that
+    // resulted from a fuzzy search on an input `X`, where any `X` consists of
+    // `(I, T, S)` where `I` is a set of strings that can be searched, `T` is a
+    // "target" string in `I` (item we're looking for), and `S` is a substring
+    // of `T`.
+    //
+    // For a transformation function `T(X)` where `T` increases the
+    // length of `S` (while keeping `S` as a substring of `T`, meaning `S`
+    // approaches `T` in similarity), `F(T(X)) <= F(X)`.
+    // Put simply: when searching for an item with a more specific search
+    // string, less items or the same number of items are returned.
+    //
+    // For a transformation function `T(X)` where `T` increases the number of
+    // items in the set `I`, `F(T(X)) >= F(X)`.
+    // Put simply: Increasing the number of items in the search pool will not
+    // decrease the number of results from a search.
+    //
+    // Note that all relationships described above only hold for inputs `X`
+    // where `F(X) >= 1`.
+
+    #[test]
+    fn search_narrows() {
+        // Metamorphic test explanation:
+        // The implementation is complicated enough that we can't really know
+        // exactly what this search will result in. HOWEVER, we do know that the
+        // closer the search string is to what we want to find, the less results
+        // will appear (assuming the searched items are all different). So we
+        // can check that searching for "H" versus "Hello" will return less
+        // results for "hello" (since it's a more specific search).
+
+        // I=items
+        let items = [
+            Item("Hello"), // T="Hello"
+            Item("Howdy"),
+            Item("Hi there!"),
+            Item("How are you?"),
+            Item("What's up?"),
+        ];
+        let mut searcher = FuzzySearcher::default();
+
+        searcher.set_search_str("H"); // S="H"
+        let h_search_count = searcher.search(items.iter()).count();
+
+        searcher.set_search_str("Hello"); // S="Hello"
+        let hello_search_count = searcher.search(items.iter()).count();
+
+        assert!(hello_search_count <= h_search_count);
+    }
+
+    #[test]
+    fn more_results_when_search_pool_expands() {
+        // Metamorphic test explanation:
+        // The implementation is complicated enough that we can't really know
+        // exactly what this search will result in. HOWEVER, we do know that
+        // adding items to the search pool should mean that more items get
+        // returned for the search (assuming the search isn't too specific).
+
+        // I=items
+        let mut items = vec![
+            Item("Hello"), // T="Hello"
+            Item("Howdy"),
+            Item("Hi there!"),
+            Item("How are you?"),
+            Item("What's up?"),
+        ];
+        let mut searcher = FuzzySearcher::new("He");
+
+        let search_1_count = searcher.search(items.iter()).count();
+
+        // Add more items to I
+        items.extend_from_slice(&[Item("Hola"), Item("Hasta la vista"), Item("Hey")]);
+
+        let search_2_count = searcher.search(items.iter()).count();
+
+        assert!(search_2_count >= search_1_count);
+    }
+
     // --- FuzzySearchable impls for &T and &mut T ---
     // Decision: delegation through deref (always one path, but both ref kinds exercised)
 
