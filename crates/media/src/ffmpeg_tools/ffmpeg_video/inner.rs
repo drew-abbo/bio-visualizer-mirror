@@ -158,8 +158,8 @@ impl FFmpegVideoInner {
         self.avformat_seek_file(min_ts, target_ts, max_ts, 0)?;
         self.decoder.flush();
 
-        debug_assert!(target_frame_idx >= new_playhead);
-        self.frames_until_target = target_frame_idx - new_playhead;
+        debug_assert!(target_frame_idx <= new_playhead);
+        self.frames_until_target = new_playhead - target_frame_idx;
 
         Ok(keyframe_array_idx)
     }
