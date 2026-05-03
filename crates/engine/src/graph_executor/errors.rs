@@ -4,7 +4,7 @@ use thiserror::Error;
 
 use crate::node::engine_node::{AlgorithmStageBackend, NodeOutputKind};
 use crate::node_graph::EngineNodeId;
-
+use crate::node::handler::FrameStreamHandlerError;
 /// Errors that can occur during graph execution
 #[derive(Error, Debug)]
 pub enum ExecutionError {
@@ -94,4 +94,7 @@ pub enum ExecutionError {
 
     #[error("Texture upload error: {0}")]
     TextureUploadError(String),
+
+    #[error("Frame stream error: {0}")]
+    FrameStreamError(FrameStreamHandlerError),
 }

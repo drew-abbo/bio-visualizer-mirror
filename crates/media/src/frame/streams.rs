@@ -18,7 +18,7 @@ mod video_frame_stream;
 pub use video_frame_stream::*;
 
 /// A [PlaybackStream] of [Frame]s.
-pub trait FrameStream: PlaybackStream<Frame, FrameStreamError> {
+pub trait FrameStream: PlaybackStream<Frame, FrameStreamError> + Send + Sync {
     /// Whether or not the last frame that was fetched is the same as the frame
     /// that was fetched before it.
     ///

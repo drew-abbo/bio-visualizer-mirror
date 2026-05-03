@@ -159,7 +159,7 @@ impl eframe::App for AppArea {
         }
 
         self.show_top_bar(ctx);
-        self.main_output.show(ctx);
+        self.main_output.show(ctx, Some(self.editor_area.stream_status_inbox()));
         self.editor_area
             .show_with_main_output(ctx, frame, &mut self.main_output);
 

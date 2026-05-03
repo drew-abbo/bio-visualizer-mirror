@@ -5,18 +5,25 @@ use media::frame::streams::{FrameStream, FrameStreamError, StillFrameStream, Vid
 use media::frame::{Frame, FromImgFileError};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use util::channels::ChannelError;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use util::channels::message_channel::Outbox;
 
 use super::timed_stream_handler::TimedStreamHandler;
 
+/// Status messages sent from the engine to the app about stream loading progress.
+#[derive(Clone, Debug)]
+pub enum StreamLoadingStatus {
+    /// A video stream is starting to load
+    LoadingStarted { path: PathBuf },
+    /// A video stream has finished loading successfully
+    LoadingCompleted { path: PathBuf },
+    /// A video stream failed to load
+    LoadingFailed { path: PathBuf, error: String },
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum FrameStreamHandlerError {
-    #[error("Failed waiting for video stream request for '{path}': {source}")]
-    VideoRequest {
-        path: PathBuf,
-        #[source]
-        source: ChannelError,
-    },
     #[error("Failed to open video stream for '{path}': {source}")]
     VideoStream {
         path: PathBuf,
@@ -37,6 +44,8 @@ pub enum FrameStreamHandlerError {
     },
     #[error("Failed to upload frame texture for '{path}': {error}")]
     TextureUpload { path: PathBuf, error: String },
+    #[error("Stream for '{path}' is still loading, will be available next frame")]
+    StreamStillLoading { path: PathBuf },
 }
 
 #[derive(Clone, Copy, Hash, Eq, PartialEq)]
@@ -61,6 +70,11 @@ struct NodeFrameStreamKey {
 pub struct FrameStreamHandler {
     /// Cache of video and image streams keyed by node id + file path + stream kind.
     stream_cache: HashMap<NodeFrameStreamKey, Box<dyn FrameStream>>,
+    /// Streams currently loading in background threads, keyed by (node_id, file_path, kind).
+    /// The Arc<Mutex> contains Some(stream) when loading completes, None while loading.
+    loading_streams: HashMap<NodeFrameStreamKey, Arc<Mutex<Option<Box<dyn FrameStream>>>>>,
+    /// Optional outbox for sending status messages to the app.
+    status_outbox: Arc<Mutex<Option<Outbox<StreamLoadingStatus>>>>,
     paused: bool,
 }
 
@@ -74,8 +88,15 @@ impl FrameStreamHandler {
     pub fn new() -> Self {
         Self {
             stream_cache: HashMap::new(),
+            loading_streams: HashMap::new(),
+            status_outbox: Arc::new(Mutex::new(None)),
             paused: false,
         }
+    }
+
+    /// Set the outbox for receiving stream loading status messages.
+    pub fn set_status_outbox(&mut self, outbox: Outbox<StreamLoadingStatus>) {
+        *self.status_outbox.lock().expect("mutex lock failed") = Some(outbox);
     }
 
     pub fn pause_all_streams(&mut self) {
@@ -178,22 +199,121 @@ impl FrameStreamHandler {
             .collect();
         for stale_key in stale_keys {
             self.stream_cache.remove(&stale_key);
+            self.loading_streams.remove(&stale_key);
         }
 
-        if !self.stream_cache.contains_key(&key) {
-            let mut stream = Self::build_stream(request)?;
-            if self.paused {
-                stream.pause();
+        // Check if already cached
+        if self.stream_cache.contains_key(&key) {
+            return Ok(self
+                .stream_cache
+                .get_mut(&key)
+                .expect("stream inserted above"));
+        }
+
+        // Check if currently loading
+        if self.loading_streams.contains_key(&key) {
+            let is_loaded = {
+                if let Some(stream_holder) = self.loading_streams.get(&key) {
+                    if let Ok(mutex) = stream_holder.lock() {
+                        mutex.as_ref().is_some()
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            };
+
+            if is_loaded {
+                // Loading completed, move stream from loading_streams to cache
+                if let Some(stream_holder) = self.loading_streams.remove(&key) {
+                    if let Ok(mut mutex) = stream_holder.lock() {
+                        if let Some(mut stream) = mutex.take() {
+                            if self.paused {
+                                stream.pause();
+                            } else {
+                                stream.play();
+                            }
+                            self.stream_cache.insert(key.clone(), stream);
+                            return Ok(self
+                                .stream_cache
+                                .get_mut(&key)
+                                .expect("stream was just inserted"));
+                        }
+                    }
+                }
             } else {
-                stream.play();
+                // Still loading
+                return Err(FrameStreamHandlerError::StreamStillLoading {
+                    path: request.file_path.clone(),
+                });
             }
-            self.stream_cache.insert(key.clone(), stream);
         }
 
-        Ok(self
-            .stream_cache
-            .get_mut(&key)
-            .expect("stream inserted above"))
+        // Not loading yet - spawn background thread to load it
+        self.spawn_background_load(request, &key)?;
+
+        Err(FrameStreamHandlerError::StreamStillLoading {
+            path: request.file_path.clone(),
+        })
+    }
+
+    /// Spawn a background thread to load a stream without blocking the main thread.
+    fn spawn_background_load(
+        &mut self,
+        request: &NodeFrameStreamRequest,
+        key: &NodeFrameStreamKey,
+    ) -> Result<(), FrameStreamHandlerError> {
+        let stream_holder = Arc::new(Mutex::new(None));
+        let stream_holder_clone = Arc::clone(&stream_holder);
+        let outbox_clone = Arc::clone(&self.status_outbox);
+        let file_path = request.file_path.clone();
+        let stream_kind = request.stream_kind;
+        let node_id = request.node_id;
+
+        // Send loading started message
+        if let Ok(mutex) = outbox_clone.lock() {
+            if let Some(ref outbox) = *mutex {
+                let _ = outbox.send(StreamLoadingStatus::LoadingStarted {
+                    path: file_path.clone(),
+                });
+            }
+        }
+
+        // Spawn background thread to load stream
+        thread::spawn(move || {
+            let request_clone = NodeFrameStreamRequest {
+                node_id,
+                file_path: file_path.clone(),
+                stream_kind,
+            };
+
+            match Self::build_stream_in_background(&request_clone) {
+                Ok(stream) => {
+                    *stream_holder_clone.lock().expect("mutex lock failed") = Some(stream);
+                    if let Ok(mutex) = outbox_clone.lock() {
+                        if let Some(ref outbox) = *mutex {
+                            let _ = outbox.send(StreamLoadingStatus::LoadingCompleted {
+                                path: file_path,
+                            });
+                        }
+                    }
+                }
+                Err(e) => {
+                    if let Ok(mutex) = outbox_clone.lock() {
+                        if let Some(ref outbox) = *mutex {
+                            let _ = outbox.send(StreamLoadingStatus::LoadingFailed {
+                                path: file_path,
+                                error: format!("{:?}", e),
+                            });
+                        }
+                    }
+                }
+            }
+        });
+
+        self.loading_streams.insert(key.clone(), stream_holder);
+        Ok(())
     }
 
     /// Execute stream retrieval for a built-in source node.
@@ -241,7 +361,7 @@ impl FrameStreamHandler {
         Ok(vec![NodeValue::Frame(gpu_frame)])
     }
 
-    fn build_stream(
+    fn build_stream_in_background(
         request: &NodeFrameStreamRequest,
     ) -> Result<Box<dyn FrameStream>, FrameStreamHandlerError> {
         match request.stream_kind {
@@ -250,11 +370,12 @@ impl FrameStreamHandler {
                     .set_loop(true)
                     .build(&request.file_path);
 
+                // This .wait() is called in a background thread, not blocking the main thread
                 let stream = video_request
                     .wait()
-                    .map_err(|source| FrameStreamHandlerError::VideoRequest {
+                    .map_err(|e| FrameStreamHandlerError::VideoStream {
                         path: request.file_path.clone(),
-                        source,
+                        source: FrameStreamError::from(e),
                     })?
                     .map_err(|source| FrameStreamHandlerError::VideoStream {
                         path: request.file_path.clone(),

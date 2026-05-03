@@ -8,6 +8,7 @@ use egui;
 use engine::graph_executor::NodeValue;
 use engine::node::NodeLibrary;
 use media::fps::{Fps, SwitchTimer};
+use media::frame::Uid;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -27,6 +28,7 @@ pub struct EditorArea {
     editor_state_context: EditorStateContext,
     input_widget_state: InputWidgetState,
     displayed_frame: Option<NodeValue>,
+    last_displayed_frame_uid: Option<Uid>,
     last_fps_output: Option<Fps>,
     playback_timer: Option<SwitchTimer>,
     last_playback_poll: Option<Instant>,
@@ -58,6 +60,7 @@ impl EditorArea {
             editor_state_context: EditorStateContext::new(),
             input_widget_state: InputWidgetState::new(),
             displayed_frame: None,
+            last_displayed_frame_uid: None,
             last_fps_output: None,
             playback_timer: None,
             last_playback_poll: None,
@@ -107,6 +110,12 @@ impl EditorArea {
     pub fn current_target_fps(&self) -> Option<Fps> {
         self.fps_override.or(self.last_fps_output)
     }
+
+    pub fn stream_status_inbox(
+            &self,
+        ) -> &util::channels::message_channel::Inbox<engine::node::handler::StreamLoadingStatus> {
+            self.executor_manager.stream_status_inbox()
+        }
 
     fn set_playback_enabled(&mut self, enabled: bool) {
         if self.playback_enabled != enabled {
@@ -408,6 +417,7 @@ impl EditorArea {
         let has_nodes = !self.executor_manager.engine_graph().is_empty();
         if !has_nodes {
             self.displayed_frame = None;
+            self.last_displayed_frame_uid = None;
             self.last_fps_output = None;
             self.playback_timer = None;
             self.last_playback_poll = None;
@@ -419,6 +429,7 @@ impl EditorArea {
 
         let Some(node_to_execute) = node_to_execute else {
             self.displayed_frame = None;
+            self.last_displayed_frame_uid = None;
             self.last_fps_output = None;
             self.playback_timer = None;
             self.last_playback_poll = None;
@@ -462,6 +473,17 @@ impl EditorArea {
                 Some(node_to_execute),
             ) {
                 Ok(Some(frame_output)) => {
+                    // Detect if frame source changed (e.g., swapped video files on a node)
+                    if let NodeValue::Frame(frame) = &frame_output {
+                        let frame_uid = frame.frame_id;
+                        if self.last_displayed_frame_uid != Some(frame_uid) {
+                            // New frame from different source - recalculate FPS
+                            self.last_fps_output = self
+                                .executor_manager
+                                .get_target_fps_for_display_node(&self.node_library, node_to_execute);
+                            self.last_displayed_frame_uid = Some(frame_uid);
+                        }
+                    }
                     self.displayed_frame = Some(frame_output);
                 }
                 Ok(None) => {
@@ -477,6 +499,12 @@ impl EditorArea {
                 | Err(engine::graph_executor::ExecutionError::UnconnectedFrameInput(_, _)) => {
                     // Graph is currently missing required frame wiring (common while editing
                     // or after node schema changes). Avoid log spam until wiring stabilizes.
+                }
+                Err(engine::graph_executor::ExecutionError::FrameStreamError(_)) => {
+                    // Stream is still loading; expected during playback or right after graph changes.
+                }
+                Err(engine::graph_executor::ExecutionError::VideoStreamError(_, _)) => {
+                    // Video stream produced a non-fatal stream error (e.g. still loading); ignore while warming up.
                 }
                 Err(err) => {
                     util::debug_log_error!("Graph execution error: {}", err);

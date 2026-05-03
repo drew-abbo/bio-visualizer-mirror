@@ -227,6 +227,12 @@ impl GraphExecutorManager {
     pub fn set_global_stream_target_fps(&mut self, target_fps: Fps) {
         self.graph_executor.set_global_stream_target_fps(target_fps);
     }
+
+    pub fn stream_status_inbox(
+        &self,
+    ) -> &util::channels::message_channel::Inbox<engine::node::handler::StreamLoadingStatus> {
+        self.graph_executor.stream_status_inbox()
+    }
 }
 
 impl Default for GraphExecutorManager {

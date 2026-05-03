@@ -235,7 +235,7 @@ impl VideoFrameStream {
 
     // This function should remain private. Construction should be done with
     // `VideoFrameStreamBuilder::build`.
-    fn from_builder(
+    fn  from_builder(
         builder: VideoFrameStreamBuilder,
         video_file_path: &Path,
     ) -> Request<Result<Self, FrameStreamError>> {

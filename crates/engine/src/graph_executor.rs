@@ -12,13 +12,14 @@ use crate::node::engine_node::{AlgorithmStageBackend, BuiltInHandler, NodeExecut
 use crate::node::handler::{
     FrameStreamHandler, MidiStreamHandler, NodeFrameStreamRequest, NodeMidiStreamRequest,
     NodeNoiseStreamRequest, NodeSignalEnvelopeRequest, NoiseStreamHandler, SignalEnvelopeHandler,
-    StreamKind,
+    StreamKind, StreamLoadingStatus,
 };
 use crate::node_graph::EngineNodeId;
 use crate::node_graph::{InputValue, NodeGraph, NodeInstance};
 use crate::node_pipelines::{ComputePipeline, RenderPipeline};
 use crate::upload_stager::UploadStager;
 use media::fps::Fps;
+use util::channels::message_channel;
 
 pub use enums::*;
 pub use errors::*;
@@ -57,6 +58,9 @@ pub struct GraphExecutor {
 
     /// Handles any nodes that need frames including images and videos
     frame_stream_handler: FrameStreamHandler,
+
+    /// Message channel for receiving stream loading status updates from the engine
+    stream_status_inbox: message_channel::Inbox<StreamLoadingStatus>,
 
     /// Handles built-in noise nodes
     noise_stream_handler: NoiseStreamHandler,
@@ -156,6 +160,10 @@ impl GraphExecutor {
     }
 
     pub fn new(format: wgpu::TextureFormat) -> Self {
+        let (stream_status_inbox, stream_status_outbox) = message_channel::new();
+        let mut frame_stream_handler = FrameStreamHandler::new();
+        frame_stream_handler.set_status_outbox(stream_status_outbox);
+
         Self {
             upload_stager: UploadStager::new(),
             output_cache: HashMap::new(),
@@ -163,7 +171,8 @@ impl GraphExecutor {
             compute_pipeline_cache: HashMap::new(),
             render_target_cache: HashMap::new(),
             compute_stage_target_cache: HashMap::new(),
-            frame_stream_handler: FrameStreamHandler::new(),
+            frame_stream_handler,
+            stream_status_inbox,
             noise_stream_handler: NoiseStreamHandler::new(),
             midi_stream_handler: MidiStreamHandler::new(),
             signal_envelope_handler: SignalEnvelopeHandler::new(),
@@ -191,6 +200,12 @@ impl GraphExecutor {
     /// Clear image cache to release textures.
     pub fn clear_image_cache(&mut self) {
         self.frame_stream_handler.clear_cache();
+    }
+
+    /// Get the inbox for receiving stream loading status messages.
+    /// The app can poll this to check if any video streams are loading.
+    pub fn stream_status_inbox(&self) -> &message_channel::Inbox<StreamLoadingStatus> {
+        &self.stream_status_inbox
     }
 
     /// Invalidate cached execution order (call when graph structure changes)
