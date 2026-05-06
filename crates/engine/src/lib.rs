@@ -67,16 +67,18 @@
 //! See the `nodes/` folder at the repository root for example `shader.wgsl` files demonstrating
 //! bindings and entry points.
 pub mod engine_errors;
+pub mod engine_outpost;
 pub mod graph_executor;
-mod graph_executor_effects;
 pub mod node;
 pub mod node_graph;
 pub mod node_pipelines;
 
 mod gpu_frame;
+mod graph_executor_effects;
 mod upload_stager;
 
 pub use engine_errors::EngineError;
+pub use engine_outpost::{EngineOutpostHandle, spawn};
 pub use gpu_frame::GpuFrame;
 pub use upload_stager::UploadStager;
 

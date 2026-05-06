@@ -79,6 +79,15 @@ impl NodeGraph {
     pub fn add_instance(&mut self, definition_name: String) -> EngineNodeId {
         let id = EngineNodeId::default();
 
+        self.add_instance_with_id(id, definition_name)
+    }
+
+    /// Add a new node instance with a specific [EngineNodeId].
+    pub fn add_instance_with_id(
+        &mut self,
+        id: EngineNodeId,
+        definition_name: String,
+    ) -> EngineNodeId {
         self.instances.insert(
             id,
             NodeInstance {

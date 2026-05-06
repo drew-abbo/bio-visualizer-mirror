@@ -2,12 +2,15 @@
 //! This module defines the state and UI for the node graph editor, as well as the logic to sync
 //! the snarl graph to the engine graph. It also includes validation logic for node connections and input values.
 mod colors;
+mod graph_sync;
 mod input_widgets;
-mod sync;
 mod validation;
 
+pub use graph_sync::{GraphSyncResult, sync_graph};
 pub use input_widgets::InputWidgetState;
-pub use sync::normalize_node_inputs;
+pub use validation::normalize_node_inputs;
+pub use validation::validate_midi_ports;
+pub use validation::validate_output_source;
 
 use egui;
 use egui::emath::TSTransform;
@@ -15,7 +18,7 @@ use egui_snarl::ui::{PinInfo, SnarlViewer};
 use egui_snarl::{InPin, NodeId as SnarlNodeId, OutPin, Snarl};
 use engine::node::engine_node::{BuiltInHandler, NodeExecutionPlan, NodeOutputKind};
 use engine::node::{NodeInputKind, NodeLibrary, input_kind_to_output_kind};
-use engine::node_graph::{EngineNodeId, InputValue, NodeGraph};
+use engine::node_graph::{EngineNodeId, InputValue};
 use media::midi::streams::list_ports;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -100,6 +103,45 @@ impl NodeGraphState {
         state
     }
 
+    /// Compute a hash of the snarl's STRUCTURE (wiring and node configs) ignoring positions.
+    /// This is used to detect if the graph topology changed without being affected by node drag operations.
+    pub fn compute_topology_hash(&self) -> Option<u64> {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+
+        // Hash all nodes' definition names and input values (but not positions)
+        let mut node_ids: Vec<_> = self.snarl.node_ids().map(|(id, _)| id).collect();
+        node_ids.sort();
+
+        for id in node_ids {
+            let node = &self.snarl[id];
+            // Include definition name and input values, but skip positions
+            node.definition_name.hash(&mut hasher);
+
+            // Hash input values (sorted for consistency)
+            let mut input_entries: Vec<(&String, &InputValue)> = node.input_values.iter().collect();
+            input_entries.sort_by_key(|(k, _)| k.as_str());
+            for (key, value) in input_entries {
+                key.hash(&mut hasher);
+                format!("{:?}", value).hash(&mut hasher); // Hash the Debug representation
+            }
+        }
+
+        // Hash all wires (connections)
+        let mut wires: Vec<_> = self.snarl.wires().collect();
+        wires.sort_by_key(|(from, to)| (from.node, from.output, to.node, to.input));
+        for (from, to) in wires {
+            from.node.hash(&mut hasher);
+            from.output.hash(&mut hasher);
+            to.node.hash(&mut hasher);
+            to.input.hash(&mut hasher);
+        }
+
+        Some(hasher.finish())
+    }
+
     pub fn ensure_output_sink(&mut self) {
         let has_sink = self
             .snarl
@@ -132,96 +174,6 @@ impl NodeGraphState {
         self.snarl
             .wires()
             .find_map(|(from, to)| (to.node == sink).then_some(from.node))
-    }
-
-    /// Validate persisted runtime-sensitive inputs (for example MIDI ports) so a
-    /// project can start cleanly even if external devices changed while the app
-    /// was closed.
-    pub fn sanitize_runtime_inputs_on_load(&mut self, node_library: &NodeLibrary) -> Vec<String> {
-        let available_ports: Vec<String> = match list_ports() {
-            Ok(ports) => ports.map(|port| port.port_name().to_string()).collect(),
-            Err(error) => {
-                util::debug_log_warning!("Failed to list MIDI input ports on load: {}", error);
-                Vec::new()
-            }
-        };
-
-        let mut warnings = Vec::new();
-        let node_ids: Vec<SnarlNodeId> = self.snarl.node_ids().map(|(id, _)| id).collect();
-
-        for node_id in node_ids {
-            let definition_name = self.snarl[node_id].definition_name.clone();
-            let Some(definition) = node_library.get_definition(&definition_name) else {
-                continue;
-            };
-
-            if !matches!(
-                definition.node.executor,
-                NodeExecutionPlan::BuiltIn(BuiltInHandler::MidiSource)
-            ) {
-                continue;
-            }
-
-            let port_query = self.snarl[node_id]
-                .input_values
-                .get("Port")
-                .and_then(|value| match value {
-                    InputValue::Text(text) => {
-                        let trimmed = text.trim();
-                        if trimmed.is_empty() {
-                            None
-                        } else {
-                            Some(trimmed.to_string())
-                        }
-                    }
-                    InputValue::Enum(index) => Some(index.to_string()),
-                    _ => None,
-                });
-
-            if available_ports.is_empty() {
-                let outgoing_inputs: Vec<egui_snarl::InPinId> = self
-                    .snarl
-                    .wires()
-                    .filter_map(|(from, to)| (from.node == node_id).then_some(to))
-                    .collect();
-
-                if !outgoing_inputs.is_empty() {
-                    for input_pin in outgoing_inputs {
-                        self.snarl.drop_inputs(input_pin);
-                    }
-
-                    warnings.push(format!(
-                        "'{}' was disconnected because no MIDI input ports are currently available.",
-                        definition.node.name
-                    ));
-                }
-
-                continue;
-            }
-
-            let Some(query) = port_query else {
-                continue;
-            };
-
-            let query_matches = if let Ok(index) = query.parse::<usize>() {
-                index < available_ports.len()
-            } else {
-                available_ports.iter().any(|port| port == &query)
-            };
-
-            if !query_matches {
-                self.snarl[node_id]
-                    .input_values
-                    .insert("Port".to_string(), InputValue::Text(String::new()));
-
-                warnings.push(format!(
-                    "'{}' had a missing MIDI port ('{}'); port selection was reset to Auto.",
-                    definition.node.name, query
-                ));
-            }
-        }
-
-        warnings
     }
 }
 
@@ -473,11 +425,20 @@ impl SnarlViewer<NodeData> for NodeGraphViewer<'_> {
 
                 for (definition_name, definition) in definitions {
                     if ui.button(&definition.node.name).clicked() {
+                        let input_values = definition
+                            .node
+                            .inputs
+                            .iter()
+                            .filter_map(|input_def| {
+                                let value = validation::default_input_value(input_def)?;
+                                Some((input_def.name.clone(), value))
+                            })
+                            .collect();
                         snarl.insert_node(
                             pos,
                             NodeData {
                                 definition_name: definition_name.clone(),
-                                input_values: HashMap::new(),
+                                input_values,
                                 engine_node_id: None,
                             },
                         );
@@ -538,6 +499,13 @@ impl SnarlViewer<NodeData> for NodeGraphViewer<'_> {
         };
 
         if !sink_target && to_def.is_none() {
+            return;
+        }
+
+        if sink_target
+            && let Err(message) = validate_output_source(snarl, from.id.node, &self.node_library)
+        {
+            self.push_error(message);
             return;
         }
 
@@ -609,17 +577,5 @@ impl SnarlViewer<NodeData> for NodeGraphViewer<'_> {
 
     fn drop_outputs(&mut self, pin: &OutPin, snarl: &mut Snarl<NodeData>) {
         snarl.drop_outputs(pin.id);
-    }
-}
-
-impl NodeGraphState {
-    /// Sync the entire node graph to the engine
-    /// Returns true if any changes were made to the engine graph
-    pub fn sync_to_engine(
-        &mut self,
-        engine_graph: &mut NodeGraph,
-        node_library: &NodeLibrary,
-    ) -> bool {
-        sync::sync_to_engine(self, engine_graph, node_library)
     }
 }

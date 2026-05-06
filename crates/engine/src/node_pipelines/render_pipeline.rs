@@ -21,11 +21,11 @@
 use std::any::Any;
 use std::collections::HashMap;
 
+use super::helpers::create_linear_sampler;
 use crate::engine_errors::EngineError;
 use crate::graph_executor::NodeValue;
 use crate::node::NodeDefinition;
 use crate::node::engine_node::NodeInputKind;
-use super::helpers::create_linear_sampler;
 
 /// Pipeline created dynamically from node definition and WGSL shader.
 /// Responsibilities:

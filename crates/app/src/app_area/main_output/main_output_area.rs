@@ -1,6 +1,6 @@
 use super::output_controls::OutputControls;
 use super::output_window::OutputWindow;
-use engine::graph_executor::NodeValue;
+use engine::engine_outpost::{EngineCommandSender, EngineEventReceiver};
 use media::fps::Fps;
 
 pub struct MainOutputArea {
@@ -16,6 +16,12 @@ impl MainOutputArea {
         }
     }
 
+    pub fn init_engine(&mut self, tx: EngineCommandSender, rx: EngineEventReceiver) {
+        self.output_window.init_engine(tx, rx);
+    }
+
+    // `set_engine_handle` removed — AppArea now calls `init_engine` directly.
+
     pub fn playback_enabled(&self) -> bool {
         self.controls.playback_enabled()
     }
@@ -24,32 +30,20 @@ impl MainOutputArea {
         self.controls.preview_selected_node()
     }
 
-    pub fn fps_override(&self) -> Option<Fps> {
-        self.controls.fps_override()
+    pub fn has_frame(&self) -> bool {
+        self.output_window.has_frame()
     }
 
-    /// Update the output window with frame and FPS data
-    pub fn update_from_editor(
-        &mut self,
-        frame_output: Option<&NodeValue>,
-        fps_output: Option<Fps>,
-        render_state: &egui_wgpu::RenderState,
-    ) {
-        if let Some(frame_output) = frame_output {
-            // Set both the value AND the GPU frame
-            self.output_window.set_output_value(frame_output.clone());
-            self.output_window
-                .set_output_frame(render_state, frame_output);
-        } else {
-            self.output_window.reset();
-        }
-
-        if let Some(fps) = fps_output {
-            self.output_window.set_playback_fps(fps);
-        }
+    pub fn current_playback_fps(&self) -> Option<Fps> {
+        self.output_window.current_playback_fps()
     }
 
-    pub fn show(&mut self, ctx: &egui::Context) {
+    // OutputWindow owns its event receiver; poll it during show.
+
+    pub fn show(&mut self, ctx: &egui::Context, render_state: &egui_wgpu::RenderState) {
+        // Poll engine events first — OutputWindow owns its receiver
+        self.output_window.drain_engine_events(render_state);
+
         if self.controls.fullscreen_enabled() && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             *self.controls.fullscreen_enabled_mut() = false;
         }

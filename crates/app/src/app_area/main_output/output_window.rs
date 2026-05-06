@@ -1,10 +1,15 @@
 use super::output_controls::OutputControls;
 use crate::components::FrameDisplay;
+use engine::engine_outpost::EngineOutpostEvent;
+use engine::engine_outpost::message::EngineCommand;
+use engine::engine_outpost::{EngineCommandSender, EngineEventReceiver};
 use engine::graph_executor::NodeValue;
 use media::fps::Fps;
 
 /// Main output window for displaying frames with native FPS tracking
 pub struct OutputWindow {
+    engine_tx: Option<EngineCommandSender>,
+    engine_rx: Option<EngineEventReceiver>,
     current_output: Option<NodeValue>,
     playback_fps: Option<Fps>,
     last_texture_view_ptr: Option<usize>,
@@ -12,11 +17,17 @@ pub struct OutputWindow {
     frame_width: u32,
     frame_height: u32,
     frame_display: FrameDisplay,
+    /// Tracks whether a stream is explicitly loading (not just "no frame available")
+    is_stream_loading: bool,
+    /// The last manual FPS value sent to the engine, or None if auto mode is active.
+    last_sent_manual_fps: Option<Fps>,
 }
 
 impl OutputWindow {
     pub fn new() -> Self {
         Self {
+            engine_tx: None,
+            engine_rx: None,
             current_output: None,
             playback_fps: None,
             last_texture_view_ptr: None,
@@ -24,26 +35,69 @@ impl OutputWindow {
             frame_width: 0,
             frame_height: 0,
             frame_display: FrameDisplay::new(),
+            is_stream_loading: false,
+            last_sent_manual_fps: None,
         }
     }
 
-    pub fn reset(&mut self) {
-        self.current_output = None;
-        self.playback_fps = None;
-        self.last_texture_view_ptr = None;
-        self.last_renderer_ptr = None;
-        self.frame_width = 0;
-        self.frame_height = 0;
+    pub fn init_engine(&mut self, tx: EngineCommandSender, rx: EngineEventReceiver) {
+        self.engine_tx = Some(tx);
+        self.engine_rx = Some(rx);
     }
 
-    /// Set the current output value to display
-    pub fn set_output_value(&mut self, output: NodeValue) {
-        self.current_output = Some(output);
+    pub fn current_playback_fps(&self) -> Option<Fps> {
+        self.playback_fps
     }
 
-    /// Set playback FPS for display info
-    pub fn set_playback_fps(&mut self, fps: Fps) {
-        self.playback_fps = Some(fps);
+    pub fn has_frame(&self) -> bool {
+        matches!(&self.current_output, Some(NodeValue::Frame(_)))
+    }
+
+    pub fn drain_engine_events(&mut self, render_state: &egui_wgpu::RenderState) {
+        let Some(ref rx) = self.engine_rx else {
+            return;
+        };
+        let events = rx.drain();
+
+        for event in events {
+            match event {
+                EngineOutpostEvent::StreamsPaused => {}
+                EngineOutpostEvent::StreamsPlaying => {}
+                EngineOutpostEvent::GlobalStreamTargetFpsChanged(fps) => {
+                    self.playback_fps = Some(fps);
+                }
+                EngineOutpostEvent::StreamLoading(_) => {
+                    self.is_stream_loading = true;
+                    self.current_output = None;
+                    self.frame_display.clear(None);
+                    self.last_texture_view_ptr = None;
+                    self.last_renderer_ptr = None;
+                    self.frame_width = 0;
+                    self.frame_height = 0;
+                }
+                EngineOutpostEvent::InfoResponse(resp) => match resp {
+                    engine::engine_outpost::message::InfoResponse::RecommendedFpsForNode(
+                        _,
+                        fps,
+                    ) => {
+                        util::debug_log_info!("Got recommended FPS: {}", fps.as_float());
+                        self.playback_fps = Some(fps);
+                    }
+                    engine::engine_outpost::message::InfoResponse::Error(msg) => {
+                        util::debug_log_warning!("Engine InfoResponse error: {msg}");
+                    }
+                },
+                EngineOutpostEvent::FrameReady(frame) => {
+                    self.is_stream_loading = false;
+                    let output = NodeValue::Frame(frame);
+                    self.current_output = Some(output.clone());
+                    self.set_output_frame(render_state, &output);
+                }
+                EngineOutpostEvent::ExecutionError(_) => {
+                    self.is_stream_loading = false;
+                }
+            }
+        }
     }
 
     /// Update the displayed frame from output value
@@ -86,8 +140,40 @@ impl OutputWindow {
         egui::Frame::new()
             .fill(egui::Color32::BLACK)
             .show(ui, |ui| {
-                self.frame_display.render_content(ui);
+                if self.is_stream_loading {
+                    ui.centered_and_justified(|ui| {
+                        ui.vertical_centered(|ui| {
+                            ui.add(egui::Spinner::new());
+                            ui.label("Loading stream...");
+                        });
+                    });
+                } else if self.current_output.is_some() {
+                    self.frame_display.render_content(ui);
+                } else {
+                    ui.centered_and_justified(|ui| {
+                        ui.label(egui::RichText::new("No output available").weak());
+                    });
+                }
             });
+    }
+
+    fn sync_fps_to_engine(&mut self, controls: &OutputControls) {
+        let Some(ref tx) = self.engine_tx else {
+            return;
+        };
+
+        if controls.manual_fps_enabled() {
+            let desired = Fps::from_float(controls.manual_fps_value() as f64).ok();
+            if desired != self.last_sent_manual_fps {
+                if let Some(fps) = desired {
+                    let _ = tx.send(EngineCommand::SetGlobalStreamTargetFps(fps));
+                    self.last_sent_manual_fps = Some(fps);
+                }
+            }
+        } else if self.last_sent_manual_fps.is_some() {
+            let _ = tx.send(EngineCommand::ClearManualFps);
+            self.last_sent_manual_fps = None;
+        }
     }
 
     /// Render the output window to a UI
@@ -101,9 +187,17 @@ impl OutputWindow {
                     ui.horizontal(|ui| {
                         controls.show(ui);
                     });
+                    self.sync_fps_to_engine(controls);
                     ui.separator();
 
-                    if matches!(&self.current_output, Some(NodeValue::Frame(_))) {
+                    if self.is_stream_loading {
+                        ui.centered_and_justified(|ui| {
+                            ui.vertical_centered(|ui| {
+                                ui.add(egui::Spinner::new());
+                                ui.label("Loading stream...");
+                            });
+                        });
+                    } else if matches!(&self.current_output, Some(NodeValue::Frame(_))) {
                         if controls.show_info() {
                             ui.horizontal(|ui| {
                                 ui.label(format!("{}x{}", self.frame_width, self.frame_height));

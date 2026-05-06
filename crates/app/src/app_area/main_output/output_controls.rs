@@ -1,5 +1,3 @@
-use media::fps::Fps;
-
 pub struct OutputControls {
     playback_enabled: bool,
     show_info: bool,
@@ -33,14 +31,6 @@ impl OutputControls {
         self.preview_selected_node
     }
 
-    pub fn fps_override(&self) -> Option<Fps> {
-        if !self.manual_fps_enabled {
-            return None;
-        }
-
-        Fps::from_float(self.manual_fps_value as f64).ok()
-    }
-
     pub fn fullscreen_enabled(&self) -> bool {
         self.fullscreen_enabled
     }
@@ -49,9 +39,21 @@ impl OutputControls {
         &mut self.fullscreen_enabled
     }
 
+    pub fn manual_fps_enabled(&self) -> bool {
+        self.manual_fps_enabled
+    }
+
+    pub fn manual_fps_value(&self) -> f32 {
+        self.manual_fps_value
+    }
+
     pub fn show(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            let play_pause_label = if self.playback_enabled { "Pause" } else { "Play" };
+            let play_pause_label = if self.playback_enabled {
+                "Pause"
+            } else {
+                "Play"
+            };
             if ui.button(play_pause_label).clicked() {
                 self.playback_enabled = !self.playback_enabled;
             }
