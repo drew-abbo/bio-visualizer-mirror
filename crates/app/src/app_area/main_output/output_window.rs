@@ -164,11 +164,11 @@ impl OutputWindow {
 
         if controls.manual_fps_enabled() {
             let desired = Fps::from_float(controls.manual_fps_value() as f64).ok();
-            if desired != self.last_sent_manual_fps {
-                if let Some(fps) = desired {
-                    let _ = tx.send(EngineCommand::SetGlobalStreamTargetFps(fps));
-                    self.last_sent_manual_fps = Some(fps);
-                }
+            if desired != self.last_sent_manual_fps
+                && let Some(fps) = desired
+            {
+                let _ = tx.send(EngineCommand::SetGlobalStreamTargetFps(fps));
+                self.last_sent_manual_fps = Some(fps);
             }
         } else if self.last_sent_manual_fps.is_some() {
             let _ = tx.send(EngineCommand::ClearManualFps);

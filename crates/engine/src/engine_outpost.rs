@@ -155,24 +155,21 @@ impl EngineOutpostInner {
             EngineCommand::PauseStreams => {
                 self.graph_executor.pause_streams();
                 self.paused = true;
-                let _ = self
-                    .broadcaster
+                self.broadcaster
                     .broadcast(EngineOutpostEvent::StreamsPaused);
             }
             EngineCommand::PlayStreams => {
                 self.graph_executor.play_streams();
                 self.paused = false;
                 self.timer.reset();
-                let _ = self
-                    .broadcaster
+                self.broadcaster
                     .broadcast(EngineOutpostEvent::StreamsPlaying);
             }
             EngineCommand::SetGlobalStreamTargetFps(fps) => {
                 self.manual_fps_locked = true;
                 self.graph_executor.set_global_stream_target_fps(fps);
                 self.timer.set_target_fps(fps);
-                let _ = self
-                    .broadcaster
+                self.broadcaster
                     .broadcast(EngineOutpostEvent::GlobalStreamTargetFpsChanged(fps));
             }
             EngineCommand::ClearManualFps => {
@@ -186,15 +183,16 @@ impl EngineOutpostInner {
                 // Always tell the app what FPS the engine is running at when an
                 // output is set, even if the rate hasn't changed from the default.
                 if node_id.is_some() {
-                    let _ = self.broadcaster.broadcast(
-                        EngineOutpostEvent::GlobalStreamTargetFpsChanged(self.timer.target_fps()),
-                    );
+                    self.broadcaster
+                        .broadcast(EngineOutpostEvent::GlobalStreamTargetFpsChanged(
+                            self.timer.target_fps(),
+                        ));
                 }
             }
             EngineCommand::RequestInfo(req) => match req {
                 message::InfoRequest::RecommendedFpsForNode(node_id) => {
                     if let Some(fps) = self.try_apply_output_node_fps(node_id) {
-                        let _ = self.broadcaster.broadcast(EngineOutpostEvent::InfoResponse(
+                        self.broadcaster.broadcast(EngineOutpostEvent::InfoResponse(
                             message::InfoResponse::RecommendedFpsForNode(node_id, fps),
                         ));
                     }
@@ -217,8 +215,7 @@ impl EngineOutpostInner {
 
         if self.timer.target_fps() != fps {
             self.timer.set_target_fps(fps);
-            let _ = self
-                .broadcaster
+            self.broadcaster
                 .broadcast(EngineOutpostEvent::GlobalStreamTargetFpsChanged(fps));
         }
 
@@ -253,10 +250,10 @@ impl EngineOutpostInner {
             }
         };
 
-        if !self.manual_fps_locked {
-            if let Some(node_id) = self.output_node_id {
-                let _ = self.try_apply_output_node_fps(node_id);
-            }
+        if !self.manual_fps_locked
+            && let Some(node_id) = self.output_node_id
+        {
+            self.try_apply_output_node_fps(node_id);
         }
 
         if let Some(frame) = frame {

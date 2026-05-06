@@ -56,11 +56,8 @@ pub struct EngineEventReceiver {
 impl EngineEventReceiver {
     pub fn drain(&self) -> Vec<EngineOutpostEvent> {
         let mut events = Vec::new();
-        loop {
-            match self.rx.check_non_blocking() {
-                Ok(Some(event)) => events.push(event),
-                Ok(None) | Err(_) => break,
-            }
+        while let Ok(Some(event)) = self.rx.check_non_blocking() {
+            events.push(event);
         }
         events
     }
@@ -80,6 +77,12 @@ struct Subscriber {
 /// for every event. Each subscriber gets its own independent queue.
 pub struct EventBroadcaster {
     subscribers: Mutex<Vec<Subscriber>>,
+}
+
+impl Default for EventBroadcaster {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl EventBroadcaster {

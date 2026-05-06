@@ -36,7 +36,7 @@ use crate::node::engine_node::NodeInputKind;
 ///
 /// Runtime GPU render pipeline constructed from WGSL and a [NodeDefinition].
 /// Responsible for creating the [wgpu::RenderPipeline], bind group layout,
-/// uniform buffer for parameters and providing an [RenderPipeline::apply] implementation.
+/// uniform buffer for parameters and providing an `apply` implementation.
 pub struct RenderPipeline {
     // GPU resources
     pipeline: wgpu::RenderPipeline,

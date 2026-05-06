@@ -90,12 +90,10 @@ pub fn sync_graph(state: &NodeGraphState, library: &NodeLibrary) -> GraphSyncRes
             }
 
             // Enqueue upstream nodes for wired frame/midi inputs.
-            if is_wired {
-                if let Some(ups) = upstream.get(&snarl_id) {
-                    for &(from_id, _, to_idx) in ups {
-                        if to_idx == idx {
-                            queue.push_back(from_id);
-                        }
+            if is_wired && let Some(ups) = upstream.get(&snarl_id) {
+                for &(from_id, _, to_idx) in ups {
+                    if to_idx == idx {
+                        queue.push_back(from_id);
                     }
                 }
             }

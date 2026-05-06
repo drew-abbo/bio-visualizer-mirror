@@ -132,31 +132,31 @@ impl eframe::App for AppArea {
         self.process_pending_commands();
 
         // Spawn engine and wire up per-area senders/receivers once render_state is available
-        if self.engine_handle.is_none() {
-            if let Some(render_state) = frame.wgpu_render_state() {
-                // Only spawn once; EditorArea will set its local command sender via spawn_engine
-                if self.editor_area.engine_command_sender().is_none() {
-                    util::debug_log_info!("Spawning engine");
-                    let handle = self.editor_area.spawn_engine(
-                        Arc::new(render_state.device.clone()),
-                        Arc::new(render_state.queue.clone()),
-                        render_state.target_format,
-                    );
-                    util::debug_log_info!("Engine spawned, setting up subscriptions");
+        if self.engine_handle.is_none()
+            && let Some(render_state) = frame.wgpu_render_state()
+        {
+            // Only spawn once; EditorArea will set its local command sender via spawn_engine
+            if self.editor_area.engine_command_sender().is_none() {
+                util::debug_log_info!("Spawning engine");
+                let handle = self.editor_area.spawn_engine(
+                    Arc::new(render_state.device.clone()),
+                    Arc::new(render_state.queue.clone()),
+                    render_state.target_format,
+                );
+                util::debug_log_info!("Engine spawned, setting up subscriptions");
 
-                    // Subscribe main output to a filtered event stream and provide it with a command sender
-                    let output_rx = handle.subscribe(EventFilter::Only(vec![
-                        EventKind::FrameReady,
-                        EventKind::StreamState,
-                        EventKind::FpsChanged,
-                        EventKind::InfoResponse,
-                    ]));
-                    let output_tx = handle.command_sender();
-                    self.main_output.init_engine(output_tx, output_rx);
+                // Subscribe main output to a filtered event stream and provide it with a command sender
+                let output_rx = handle.subscribe(EventFilter::Only(vec![
+                    EventKind::FrameReady,
+                    EventKind::StreamState,
+                    EventKind::FpsChanged,
+                    EventKind::InfoResponse,
+                ]));
+                let output_tx = handle.command_sender();
+                self.main_output.init_engine(output_tx, output_rx);
 
-                    util::debug_log_info!("Engine handle stored");
-                    self.engine_handle = Some(handle);
-                }
+                util::debug_log_info!("Engine handle stored");
+                self.engine_handle = Some(handle);
             }
         }
 

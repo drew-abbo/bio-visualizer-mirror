@@ -113,17 +113,17 @@ impl EditorArea {
     }
 
     fn set_playback_enabled(&mut self, enabled: bool) {
-        if self.playback_enabled != enabled {
-            if let Some(tx) = self.engine_tx.clone() {
-                let command = if enabled {
-                    EngineCommand::PlayStreams
-                } else {
-                    EngineCommand::PauseStreams
-                };
+        if self.playback_enabled != enabled
+            && let Some(tx) = self.engine_tx.clone()
+        {
+            let command = if enabled {
+                EngineCommand::PlayStreams
+            } else {
+                EngineCommand::PauseStreams
+            };
 
-                if let Err(err) = tx.send(command) {
-                    util::debug_log_warning!("Failed to queue playback command: {err}");
-                }
+            if let Err(err) = tx.send(command) {
+                util::debug_log_warning!("Failed to queue playback command: {err}");
             }
         }
         self.playback_enabled = enabled;

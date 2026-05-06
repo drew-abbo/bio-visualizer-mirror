@@ -4,7 +4,7 @@ use util::channels::{ChannelResult, message_channel::Outbox};
 
 /// A cheaply cloneable handle for sending commands to the engine thread.
 /// Hand this to any component that needs to drive the engine.
-/// Components do not need to hold the full [`EngineOutpostHandle`] just to send commands.
+/// Components do not need to hold the full [`super::EngineOutpostHandle`] just to send commands.
 #[derive(Clone)]
 pub struct EngineCommandSender {
     command_tx: Arc<Outbox<EngineCommand>>,

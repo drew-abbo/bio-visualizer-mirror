@@ -12,6 +12,11 @@ use util::channels::message_channel::{self, Inbox, Outbox};
 
 use super::timed_stream_handler::TimedStreamHandler;
 
+type LoadResultInbox = Inbox<(
+    NodeFrameStreamKey,
+    Result<Box<dyn FrameStream>, FrameStreamHandlerError>,
+)>;
+
 #[derive(Debug, thiserror::Error)]
 pub enum FrameStreamHandlerError {
     #[error("Failed waiting for video stream request for '{path}': {source}")]
@@ -69,10 +74,7 @@ pub struct FrameStreamHandler {
     pending_streams: HashSet<NodeFrameStreamKey>,
     loading_announced: HashSet<NodeFrameStreamKey>,
     load_request_tx: Outbox<(NodeFrameStreamKey, NodeFrameStreamRequest)>,
-    load_result_rx: Inbox<(
-        NodeFrameStreamKey,
-        Result<Box<dyn FrameStream>, FrameStreamHandlerError>,
-    )>,
+    load_result_rx: LoadResultInbox,
     paused: bool,
 }
 
