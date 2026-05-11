@@ -3,7 +3,6 @@ use super::node_graph::{
     GraphSyncResult, InputWidgetState, NodeGraphState, NodeGraphViewer, sync_graph,
 };
 use super::snarl_style;
-// EditorArea should not depend on MainOutputArea; AppArea will pass primitives.
 
 use eframe;
 use egui;
@@ -15,9 +14,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use util::ui::ErrorPopup;
 
-/// Manages all editor-related state: node graph, output display, and playback
 pub struct EditorArea {
-    /// Local node graph used when no project is open
     local_node_graph: NodeGraphState,
     error_popup_queue: VecDeque<String>,
     engine_tx: Option<EngineCommandSender>,
@@ -128,13 +125,9 @@ impl EditorArea {
         }
         self.playback_enabled = enabled;
     }
-
-    // `playback_due` removed — engine outpost drives timing; local timers are deprecated.
 }
 
 impl EditorArea {
-    // `show_with_main_output` removed; AppArea calls `show` directly with primitive values.
-
     /// Render the entire editor area
     pub fn show(
         &mut self,
@@ -146,7 +139,6 @@ impl EditorArea {
     ) {
         // Apply playback controls handed down from AppArea
         self.set_playback_enabled(playback_enabled);
-        // Engine spawning is performed centrally by AppArea; EditorArea only uses `engine_tx`.
 
         // Render graph UI, then update preview/output from current selection.
         let selected_nodes = self.show_node_graph(ctx);
@@ -160,8 +152,6 @@ impl EditorArea {
 
         self.show_any_error_popups(ctx);
     }
-
-    // Output window owns its event loop; no syncing required from EditorArea.
 
     pub fn save_state(&mut self) {
         match self.editor_state_context.save() {

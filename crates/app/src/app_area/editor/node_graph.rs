@@ -74,7 +74,7 @@ pub struct NodeGraphState {
     pub legacy_graph_view_zoom: Option<f32>,
 }
 
-/// Needed to impl this since [Snarl<T>] doesn't implement PartialEq.
+/// Needed to impl this since [`Snarl<T>`] doesn't implement PartialEq.
 /// Project needs to be able to compare.
 impl PartialEq for NodeGraphState {
     /// Compare two NodeGraphStates by serializing them to binary.

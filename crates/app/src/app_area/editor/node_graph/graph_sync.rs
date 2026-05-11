@@ -15,9 +15,9 @@ pub enum GraphSyncResult {
         output_node: EngineNodeId,
         snarl_to_engine: HashMap<SnarlNodeId, EngineNodeId>,
     },
-    /// No output sink is wired — engine should pause.
+    /// No output sink is wired engine should pause.
     NoOutput,
-    /// Graph has validation errors — engine should pause.
+    /// Graph has validation errors engine should pause.
     /// The errors are human-readable strings suitable for display.
     Invalid(Vec<String>),
 }

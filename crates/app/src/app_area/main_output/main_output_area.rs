@@ -20,8 +20,6 @@ impl MainOutputArea {
         self.output_window.init_engine(tx, rx);
     }
 
-    // `set_engine_handle` removed — AppArea now calls `init_engine` directly.
-
     pub fn playback_enabled(&self) -> bool {
         self.controls.playback_enabled()
     }
@@ -37,8 +35,6 @@ impl MainOutputArea {
     pub fn current_playback_fps(&self) -> Option<Fps> {
         self.output_window.current_playback_fps()
     }
-
-    // OutputWindow owns its event receiver; poll it during show.
 
     pub fn show(&mut self, ctx: &egui::Context, render_state: &egui_wgpu::RenderState) {
         // Poll engine events first — OutputWindow owns its receiver

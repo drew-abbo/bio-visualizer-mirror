@@ -141,10 +141,22 @@ impl OutputWindow {
             .fill(egui::Color32::BLACK)
             .show(ui, |ui| {
                 if self.is_stream_loading {
-                    ui.centered_and_justified(|ui| {
-                        ui.vertical_centered(|ui| {
-                            ui.add(egui::Spinner::new());
-                            ui.label("Loading stream...");
+                    let available = ui.available_size();
+                    ui.allocate_ui(available, |ui| {
+                        ui.centered_and_justified(|ui| {
+                            ui.vertical_centered(|ui| {
+                                ui.add(
+                                    egui::Spinner::new()
+                                        .size(64.0)
+                                        .color(egui::Color32::from_rgb(80, 160, 220)),
+                                );
+                                ui.add_space(16.0);
+                                ui.label(
+                                    egui::RichText::new("Loading stream...")
+                                        .size(16.0)
+                                        .color(egui::Color32::from_rgb(130, 155, 170)),
+                                );
+                            });
                         });
                     });
                 } else if self.current_output.is_some() {
@@ -191,10 +203,22 @@ impl OutputWindow {
                     ui.separator();
 
                     if self.is_stream_loading {
-                        ui.centered_and_justified(|ui| {
-                            ui.vertical_centered(|ui| {
-                                ui.add(egui::Spinner::new());
-                                ui.label("Loading stream...");
+                        let available = ui.available_size();
+                        ui.allocate_ui(available, |ui| {
+                            ui.centered_and_justified(|ui| {
+                                ui.vertical_centered(|ui| {
+                                    ui.add(
+                                        egui::Spinner::new()
+                                            .size(48.0)
+                                            .color(egui::Color32::from_rgb(80, 160, 220)),
+                                    );
+                                    ui.add_space(12.0);
+                                    ui.label(
+                                        egui::RichText::new("Loading stream...")
+                                            .size(14.0)
+                                            .color(egui::Color32::from_rgb(130, 155, 170)),
+                                    );
+                                });
                             });
                         });
                     } else if matches!(&self.current_output, Some(NodeValue::Frame(_))) {

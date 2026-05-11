@@ -71,7 +71,7 @@ impl OutputControls {
             ui.add_enabled(self.manual_fps_enabled, fps_widget);
 
             ui.separator();
-            // Using a phosphor icon if you have it, otherwise plain text works fine
+            // TODO Using a phosphor icon
             if ui.button("⛶ Fullscreen").clicked() {
                 self.fullscreen_enabled = true;
             }
