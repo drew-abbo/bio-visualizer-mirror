@@ -80,7 +80,6 @@ impl OutputWindow {
                         _,
                         fps,
                     ) => {
-                        util::debug_log_info!("Got recommended FPS: {}", fps.as_float());
                         self.playback_fps = Some(fps);
                     }
                     engine::engine_outpost::message::InfoResponse::Error(msg) => {
