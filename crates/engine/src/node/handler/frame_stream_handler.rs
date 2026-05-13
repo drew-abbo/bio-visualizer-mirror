@@ -14,7 +14,7 @@ use super::timed_stream_handler::TimedStreamHandler;
 
 type LoadResultInbox = Inbox<(
     NodeFrameStreamKey,
-    Result<Box<dyn FrameStream>, FrameStreamHandlerError>,
+    Result<Box<dyn FrameStream + Send>, FrameStreamHandlerError>,
 )>;
 
 #[derive(Debug, thiserror::Error)]
@@ -70,7 +70,7 @@ struct NodeFrameStreamKey {
 
 pub struct FrameStreamHandler {
     /// Cache of video and image streams keyed by node id + file path + stream kind.
-    stream_cache: HashMap<NodeFrameStreamKey, Box<dyn FrameStream>>,
+    stream_cache: HashMap<NodeFrameStreamKey, Box<dyn FrameStream + Send>>,
     pending_streams: HashSet<NodeFrameStreamKey>,
     loading_announced: HashSet<NodeFrameStreamKey>,
     load_request_tx: Outbox<(NodeFrameStreamKey, NodeFrameStreamRequest)>,
@@ -192,7 +192,7 @@ impl FrameStreamHandler {
         &mut self,
         request: &NodeFrameStreamRequest,
         mut emit_event: Option<&mut dyn FnMut(EngineOutpostEvent)>,
-    ) -> Result<&mut Box<dyn FrameStream>, FrameStreamHandlerError> {
+    ) -> Result<&mut Box<dyn FrameStream + Send>, FrameStreamHandlerError> {
         self.poll_completed_streams();
 
         let key = NodeFrameStreamKey {
@@ -328,7 +328,7 @@ impl FrameStreamHandler {
 
     fn build_stream(
         request: &NodeFrameStreamRequest,
-    ) -> Result<Box<dyn FrameStream>, FrameStreamHandlerError> {
+    ) -> Result<Box<dyn FrameStream + Send>, FrameStreamHandlerError> {
         match request.stream_kind {
             StreamKind::Video => {
                 let mut video_request = VideoFrameStream::builder()
@@ -387,7 +387,7 @@ impl FrameStreamHandler {
 }
 
 impl TimedStreamHandler for FrameStreamHandler {
-    type Stream = Box<dyn FrameStream>;
+    type Stream = Box<dyn FrameStream + Send>;
 
     fn for_each_stream_mut<F>(&mut self, mut f: F)
     where

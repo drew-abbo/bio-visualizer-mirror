@@ -1,7 +1,6 @@
 use super::output_controls::OutputControls;
 use super::output_window::OutputWindow;
 use engine::engine_outpost::{EngineCommandSender, EngineEventReceiver};
-use media::fps::Fps;
 
 pub struct MainOutputArea {
     controls: OutputControls,
@@ -30,10 +29,6 @@ impl MainOutputArea {
 
     pub fn has_frame(&self) -> bool {
         self.output_window.has_frame()
-    }
-
-    pub fn current_playback_fps(&self) -> Option<Fps> {
-        self.output_window.current_playback_fps()
     }
 
     pub fn show(&mut self, ctx: &egui::Context, render_state: &egui_wgpu::RenderState) {

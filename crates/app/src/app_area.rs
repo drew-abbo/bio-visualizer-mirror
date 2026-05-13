@@ -1,7 +1,6 @@
 pub mod editor;
 mod main_output;
 mod title_bar;
-
 use super::args::Args;
 use super::launcher_comm;
 use editor::{EditorArea, NodeGraphState};
@@ -203,13 +202,15 @@ impl eframe::App for AppArea {
             self.main_output.show(ctx, render_state);
         }
 
+        // Doing this instead of the recommended frame rate of the video
+        // We want to repaint as fast as possible during playback
+        // If we are paused we can slow down the repaint rate to save resources
         if self.engine_handle.is_some() {
-            let interval = self
-                .main_output
-                .current_playback_fps()
-                .map(|f| f.interval())
-                .unwrap_or_else(|| std::time::Duration::from_millis(16));
-            ctx.request_repaint_after(interval);
+            if self.main_output.playback_enabled() {
+                ctx.request_repaint();
+            } else {
+                ctx.request_repaint_after(std::time::Duration::from_millis(50));
+            }
         }
     }
 

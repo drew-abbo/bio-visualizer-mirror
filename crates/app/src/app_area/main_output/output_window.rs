@@ -45,10 +45,6 @@ impl OutputWindow {
         self.engine_rx = Some(rx);
     }
 
-    pub fn current_playback_fps(&self) -> Option<Fps> {
-        self.playback_fps
-    }
-
     pub fn has_frame(&self) -> bool {
         matches!(&self.current_output, Some(NodeValue::Frame(_)))
     }
@@ -57,6 +53,7 @@ impl OutputWindow {
         let Some(ref rx) = self.engine_rx else {
             return;
         };
+
         let events = rx.drain();
 
         for event in events {
