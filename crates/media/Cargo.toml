@@ -7,9 +7,7 @@ edition = "2024"
 ctor = "0.6.0"
 ffmpeg-next = "8.0"
 thiserror = { workspace = true }
-image = { version = "0.25", default-features = false, features = [
-    "default-formats",
-] }
+image = { workspace = true }
 util = { workspace = true }
 midir = "0.10.3"
 midly = "0.5.3"

@@ -21,6 +21,7 @@ egui = { version = "0.33", features = ["serde"] }
 egui-wgpu = "0.33.3"
 egui_extras = "0.33.3"
 windows-sys = "0.59"
+image = { version = "0.25" }
 
 # If one thread panics, make all the threads panic. This does disable the
 # ability for us to handle a thread panicking, but I don't think there's

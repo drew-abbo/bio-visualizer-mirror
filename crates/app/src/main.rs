@@ -27,6 +27,7 @@ fn main() -> Result<(), eframe::Error> {
 
     // Configure the native window with custom title bar
     let viewport = egui::ViewportBuilder::default()
+        .with_icon(util::ui::load_app_icon())
         .with_title(APP_NAME)
         .with_decorations(false)
         .with_resizable(true)
