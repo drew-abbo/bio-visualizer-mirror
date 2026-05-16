@@ -1,6 +1,4 @@
-# Substrate
-
----
+![Substrate](./logo/full-bg-3072x1024.png)
 
 - [Build Instructions](#build-instructions)
   - [Build Setup](#build-setup)
