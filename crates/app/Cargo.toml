@@ -36,6 +36,9 @@ windows-sys = { workspace = true, features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 
+[build-dependencies]
+util = { workspace = true, features = ["windows_exe", "version"] }
+
 [features]
 # Indicates that the app is being built to be distributed.
 build-package = []

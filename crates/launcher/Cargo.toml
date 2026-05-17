@@ -23,6 +23,9 @@ eframe = { version = "0.33" }
 egui = { workspace = true }
 egui_extras = { workspace = true, features = ["image"] }
 
+[build-dependencies]
+util = { workspace = true, features = ["windows_exe", "version"] }
+
 [features]
 # Indicates that the app is being built to be distributed.
 build-package = []

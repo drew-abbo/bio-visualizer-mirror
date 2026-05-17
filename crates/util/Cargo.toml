@@ -31,11 +31,13 @@ windows-sys = { optional = true, workspace = true, features = [
     "Win32_System_Threading",
     "Win32_System_Console",
 ] }
+winresource = { optional = true, version = "0.1" }
 
 [build-dependencies]
 toml = { version = "1.1", optional = true }
 
 [features]
+default = ["windows_exe"]
 cast_slice = []
 channels = ["dep:thiserror"]
 crash_reporting = ["dep:time", "local_data"]
@@ -66,3 +68,4 @@ strn = ["dep:thiserror"]
 ui = ["dep:eframe", "dep:egui", "dep:image", "debug_log"]
 uid = ["dep:serde", "dep:thiserror"]
 version = ["dep:toml"]
+windows_exe = ["dep:winresource", "version"]
