@@ -1,4 +1,4 @@
-#![cfg_attr(all(windows, feature = "no-console"), windows_subsystem = "windows")]
+#![cfg_attr(all(windows, feature = "build-package"), windows_subsystem = "windows")]
 
 mod app_area;
 mod args;

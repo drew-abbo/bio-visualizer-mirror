@@ -67,10 +67,10 @@ cargo build -p app && cargo run -p launcher
 
 To package the app into a self-contained directory/archive, run
 [build_package.py](./build_package.py). This script will build all binaries with
-the `no-console` feature and by default the `release-plus` profile, moving them
-to an output directory/archive (`./package/` by default). It then ensures that
-all non-standard dynamic library dependencies the executables need are available
-inside the directory/archive.
+the `build-package` feature and by default the `release-plus` profile, moving
+them to an output directory/archive (`./package/` by default). It then ensures
+that all non-standard dynamic library dependencies the executables need are
+available inside the directory/archive.
 
 ```sh
 python3 ./build_package.py --help
@@ -85,14 +85,6 @@ Run a binary like this:
 
 ```sh
 cargo run --bin <BINARY_NAME> -- [ARGUMENTS_FOR_BINARY*]
-```
-
-Since both binaries have a UI, both binaries have a `no-console` feature which
-ensures a separate console window doesn't start on Windows (this feature just
-acts as a no-op on other platforms).
-
-```sh
-cargo build --bin <BINARY_NAME> --features no-console
 ```
 
 There is also an additional build profile `release-plus` that maximizes

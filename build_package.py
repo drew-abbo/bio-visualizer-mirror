@@ -345,7 +345,7 @@ def build_and_stage_bin(crate_name: str, out_dir: str, profile: str):
             crate_name,
             *profile_args,
             "--features",
-            "no-console",
+            "build-package",
             non_fatal=True,
         )
     except sh.CmdException as e:
@@ -368,28 +368,6 @@ def build_and_stage_bin(crate_name: str, out_dir: str, profile: str):
         shutil.copy(bin_path, out_dir)
     except:
         log.fatal("Failed to copy binary to output directory.")
-
-
-def get_app_version() -> str:
-    version_file_path = "./version"
-    try:
-        with open(version_file_path, "r") as f:
-            return f.read().strip()
-    except:
-        log.fatal(f"Failed to get app version from `{version_file_path}`.")
-
-
-def create_version_file(app_version: str, out_dir: str) -> None:
-    """
-    Creates a file `app_version` in `out_dir`.
-    """
-
-    version_file_path = f"{out_dir}/app_version"
-    try:
-        with open(version_file_path, "w") as f:
-            f.write(app_version)
-    except:
-        log.fatal(f"Failed to create version file `{version_file_path}`.")
 
 
 def fmt_time(secs: float) -> str:
@@ -554,14 +532,9 @@ def main() -> None:
             log.success("Nothing changed.")
         return
 
-    app_version = get_app_version()
-    log.info(f"App version: {log.Color.INFO}{app_version}{log.Color.RESET}")
-
     archive_fmt = get_archive_fmt(args.out)
     user_wants_archive = archive_fmt is not None
     staging_dir = create_staging_dir(None if user_wants_archive else args.out)
-
-    create_version_file(app_version, staging_dir)
 
     sh.ensure_cmd_exists("cargo")
     bin_crates = get_bin_crates()
