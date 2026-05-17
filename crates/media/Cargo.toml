@@ -8,6 +8,14 @@ ctor = "0.6.0"
 ffmpeg-next = "8.0"
 thiserror = { workspace = true }
 image = { workspace = true }
-util = { workspace = true }
+util = { workspace = true, features = [
+    "strn",
+    "debug_log",
+    "gcd",
+    "channels",
+    "drop_join_thread",
+    "cast_slice",
+    "local_data",
+] }
 midir = "0.10.3"
 midly = "0.5.3"

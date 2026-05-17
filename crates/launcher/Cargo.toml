@@ -7,7 +7,18 @@ version = { workspace = true }
 clap = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
-util = { workspace = true }
+util = { workspace = true, features = [
+    "stop_signals",
+    "version",
+    "debug_log",
+    "local_data",
+    "saved_file",
+    "channels",
+    "drop_join_thread",
+    "ui",
+    "fuzzy_search",
+    "crash_reporting",
+] }
 eframe = { version = "0.33" }
 egui = { workspace = true }
 egui_extras = { workspace = true, features = ["image"] }

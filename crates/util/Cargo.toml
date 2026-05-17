@@ -4,33 +4,65 @@ edition = "2024"
 version = "0.1.0"
 
 [dependencies]
-nucleo-matcher = "0.3.1"
-serde = { workspace = true }
-serde_json = { workspace = true }
-signal-hook = { version = "0.3.18", default-features = false }
-thiserror = { workspace = true }
-time = { version = "0.3.44", features = [
+nucleo-matcher = { optional = true, version = "0.3" }
+serde = { optional = true, workspace = true }
+serde_json = { optional = true, workspace = true }
+signal-hook = { optional = true, version = "0.3", default-features = false }
+thiserror = { optional = true, workspace = true }
+time = { optional = true, version = "0.3", features = [
     "local-offset",
     "serde-human-readable",
     "macros",
 ] }
-eframe = { version = "0.33", default-features = false, features = [
+eframe = { optional = true, version = "0.33", default-features = false, features = [
     "default_fonts",
     "wgpu",
     "persistence",
 ] }
-egui = { workspace = true }
-image = { workspace = true }
+egui = { optional = true, workspace = true }
+image = { optional = true, workspace = true }
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2"
+libc = { optional = true, version = "0.2" }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true, features = [
+windows-sys = { optional = true, workspace = true, features = [
     "Win32_Security",
     "Win32_System_Threading",
     "Win32_System_Console",
 ] }
 
 [build-dependencies]
-toml = "1.1"
+toml = { version = "1.1", optional = true }
+
+[features]
+cast_slice = []
+channels = ["dep:thiserror"]
+crash_reporting = ["dep:time", "local_data"]
+debug_log = ["dep:time"]
+drop_join_thread = []
+fuzzy_search = ["dep:nucleo-matcher", "debug_log"]
+gcd = []
+local_data = [
+    "dep:thiserror",
+    "dep:time",
+    "debug_log",
+    "read_write_at",
+    "saved_file",
+    "uid",
+    "version",
+]
+read_write_at = []
+rolling_avg = []
+saved_file = ["dep:serde", "dep:serde_json", "dep:thiserror", "debug_log"]
+stop_signals = [
+    "dep:signal-hook",
+    "dep:libc",
+    "dep:windows-sys",
+    "cast_slice",
+    "debug_log",
+]
+strn = ["dep:thiserror"]
+ui = ["dep:eframe", "dep:egui", "dep:image", "debug_log"]
+uid = ["dep:serde", "dep:thiserror"]
+version = ["dep:toml"]

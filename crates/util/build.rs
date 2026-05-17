@@ -1,9 +1,5 @@
-use std::env;
-use std::error::Error;
-use std::fs;
-use std::path::PathBuf;
-
 fn main() {
+    #[cfg(feature = "version")]
     // `crate::version::APP_VERSION` uses this environment variable.
     println!(
         "cargo:rustc-env=APP_VERSION={}",
@@ -11,9 +7,14 @@ fn main() {
     );
 }
 
+#[cfg(feature = "version")]
 /// Finds and parses the root workspace's `Cargo.toml` file to find the value of
 /// `workspace.package.version`.
-fn cargo_workspace_version() -> Result<String, Box<dyn Error>> {
+fn cargo_workspace_version() -> Result<String, Box<dyn std::error::Error>> {
+    use std::env;
+    use std::fs;
+    use std::path::PathBuf;
+
     let mut workspace_cargo_toml_path = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     workspace_cargo_toml_path.pop();
     workspace_cargo_toml_path.pop();
