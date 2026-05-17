@@ -6,14 +6,20 @@ mod components;
 mod launcher_comm;
 mod windows_resize;
 
+use util::version;
+
 use app_area::AppArea;
 use clap::Parser;
-const APP_NAME: &str = util::version::APP_NAME;
 
 fn main() -> Result<(), eframe::Error> {
     util::crash_reporting::init();
 
     let args = args::Args::parse();
+
+    if args.version {
+        println!("{} {} (Editor)", version::APP_NAME, version::APP_VERSION);
+        return Ok(());
+    }
 
     #[cfg(debug_assertions)]
     {
@@ -28,7 +34,7 @@ fn main() -> Result<(), eframe::Error> {
     // Configure the native window with custom title bar
     let viewport = egui::ViewportBuilder::default()
         .with_icon(util::ui::load_app_icon())
-        .with_title(APP_NAME)
+        .with_title(version::APP_NAME)
         .with_decorations(false)
         .with_resizable(true)
         .with_inner_size([1280.0, 720.0])
@@ -45,7 +51,7 @@ fn main() -> Result<(), eframe::Error> {
     };
 
     eframe::run_native(
-        APP_NAME,
+        version::APP_NAME,
         native_options,
         Box::new(|cc| {
             // Setup Windows-specific borderless resize after window creation

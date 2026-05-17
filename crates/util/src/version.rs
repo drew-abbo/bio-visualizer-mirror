@@ -4,4 +4,4 @@
 pub const APP_NAME: &str = "Substrate";
 
 /// The version of the app.
-pub const APP_VERSION: &str = "0.1.0";
+pub const APP_VERSION: &str = include_str!("../../../version").trim_ascii();

@@ -6,6 +6,10 @@ use clap::Parser;
 #[derive(Parser, Debug, Clone, PartialEq, Eq, Hash)]
 #[command(about = "Used to open and communicate with the main application UI.")]
 pub struct Args {
+    /// Print the version and exit.
+    #[arg(long)]
+    pub version: bool,
+
     /// The ProjectId of the project to open on startup (passed by the launcher).
     ///
     /// Empty means no project is opened automatically.

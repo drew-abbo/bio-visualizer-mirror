@@ -8,6 +8,7 @@ mod sender;
 use std::process::ExitCode;
 
 use util::stop_signals;
+use util::version;
 
 use args::Args;
 use other_instances::{InstanceLock, InstanceLockError};
@@ -17,6 +18,11 @@ const GENERIC_ERROR_MSG: &str = "Something went wrong.";
 
 fn main() -> ExitCode {
     let args = Args::default();
+
+    if args.version {
+        println!("{} {} (Launcher)", version::APP_NAME, version::APP_VERSION);
+        return ExitCode::SUCCESS;
+    }
 
     #[cfg(debug_assertions)]
     {

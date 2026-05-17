@@ -6,6 +6,10 @@ use clap::{Parser, ValueEnum};
 #[derive(Parser, Debug, Clone, PartialEq, Eq, Hash)]
 #[command(about = "Used to open and communicate with the launcher UI.")]
 pub struct Args {
+    /// Print the version and exit.
+    #[arg(long)]
+    pub version: bool,
+
     /// Provide a custom command to launch the editor (the rest of the arguments
     /// are consumed). An additional project ID argument is appended when this
     /// is invoked.

@@ -52,12 +52,16 @@ Arm64 (Apple silicon) platforms are natively supported.
 </td></tr>
 <tr><td>Linux</td><td>
 
-Linux is not supported just yet.
+Linux is not officially supported just yet.
 
 </td></tr>
 </table>
 
-Once the above is satisfied, you're set to build with `cargo`.
+Once the above is satisfied, you're set to build with `cargo`:
+
+```sh
+cargo build -p app && cargo run -p launcher
+```
 
 ### Packaging a Build for Release
 
