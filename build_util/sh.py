@@ -158,6 +158,7 @@ def run_cmd(
     shell: bool = False,
     non_fatal: bool = False,
     show_output: bool = True,
+    env_overrides: Optional[dict[str, str]] = None,
 ) -> str:
     """
     Runs a shell command and returns its output (minus a trailing newline if it
@@ -170,19 +171,27 @@ def run_cmd(
         print(f"{Color.COMMAND}{' OUTPUT ':~^80}{Color.RESET}", flush=True)
 
     try:
+        if env_overrides is None:
+            env_overrides = {}
+        env = os.environ.copy()
+        for k, v in env_overrides.items():
+            env[k] = v
+
         process = subprocess.Popen(
             cmd if not shell else " ".join(cmd),
             shell=shell,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,  # Combine stderr and stdout to stdout.
-            text=True,
+            text=False,
             bufsize=1,  # Line buffering.
+            env=env,
         )
 
         # Capture lines as they come in.
         output = ""
         if process.stdout is not None:
             for line in process.stdout:
+                line = line.decode("utf-8", errors="replace")
                 output += line
                 if show_output:
                     print(line, end="", flush=True)
@@ -190,6 +199,8 @@ def run_cmd(
 
     except KeyboardInterrupt:
         raise
+    except Exception as e:
+        raise CmdException(f"Couldn't run `{__format_cmd(cmd)}`: {e}.")
     finally:
         if show_output:
             print(f"\n{Color.RESET + Color.COMMAND}{'~' * 80}{Color.RESET}")

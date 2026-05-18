@@ -8,16 +8,16 @@ from typing import NoReturn, Any, Optional
 
 
 class Color:
-    __output_is_terminal = sys.stdout.isatty()
+    ENABLED = bool(sys.stdout.isatty())
 
-    ERROR = "\033[31m" if __output_is_terminal else ""
-    WARNING = "\033[33m" if __output_is_terminal else ""
-    INFO = "\033[36m" if __output_is_terminal else ""
-    SUCCESS = "\033[32m" if __output_is_terminal else ""
-    CONFIRM = "\033[35m" if __output_is_terminal else ""
-    ACTION_NEEDED = "\033[35m\033[1m" if __output_is_terminal else ""
-    COMMAND = "\033[34m" if __output_is_terminal else ""
-    RESET = "\033[0m" if __output_is_terminal else ""
+    ERROR = "\033[31m" if ENABLED else ""
+    WARNING = "\033[33m" if ENABLED else ""
+    INFO = "\033[36m" if ENABLED else ""
+    SUCCESS = "\033[32m" if ENABLED else ""
+    CONFIRM = "\033[35m" if ENABLED else ""
+    ACTION_NEEDED = "\033[35m\033[1m" if ENABLED else ""
+    COMMAND = "\033[34m" if ENABLED else ""
+    RESET = "\033[0m" if ENABLED else ""
 
 
 # Print an error and exit.

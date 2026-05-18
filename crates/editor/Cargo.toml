@@ -4,11 +4,14 @@ edition = "2024"
 version = { workspace = true }
 
 [dependencies]
-editor-core = { workspace = true }
+editor-core = { workspace = true, optional = true }
+app-core = { workspace = true, optional = true }
 
 [build-dependencies]
 util = { workspace = true, features = ["windows_exe", "version"] }
 
 [features]
-# Indicates that the app is being built to be distributed.
-build-package = []
+default = ["link-static"]
+link-static = ["dep:editor-core"]
+link-dylib = ["dep:app-core"]
+no-windows-console = []

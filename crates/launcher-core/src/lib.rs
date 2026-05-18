@@ -28,6 +28,8 @@ pub fn launcher() -> ExitCode {
         }
     }
 
+    const GENERIC_ERROR_MSG: &str = "Something went wrong.";
+
     if let Err(e) = stop_signals::polling::enable() {
         util::debug_log_error!("Failed enable stop signal polling: {e}");
         eprintln!("{GENERIC_ERROR_MSG}");
@@ -56,5 +58,3 @@ pub fn launcher() -> ExitCode {
         }
     }
 }
-
-const GENERIC_ERROR_MSG: &str = "Something went wrong.";

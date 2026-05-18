@@ -7,8 +7,9 @@ machines (with the same OS and architecture).
 The `-y` or `-n` flags can be provided to auto-accept or auto-deny any prompts
 for user confirmation.
 
-The `--profile` flag can be used to build with a different profile than
-`release-plus`.
+The `--no-opt` flag can be used to disable optimization and symbol stripping
+(for packaging debug builds). This is really only useful for reducing compile
+times.
 
 When the `-o` flag is provided, a file extension can also be provided so that an
 archive is created instead of a directory. For example `-o out` will create a
@@ -37,10 +38,12 @@ import build_util.log as log
 import build_util.sh as sh
 import build_util.user as user
 
+SYSTEM = platform.system().lower()
+
 
 @dataclass
 class Args:
-    profile: str
+    no_opt: str
     out: str
     clean: bool
 
@@ -55,20 +58,20 @@ def parse_args() -> Args:
 Usage:
     {ARG_0}
         [-y|-n]
-        [--profile <BUILD_PROFILE>]
+        [--no-opt]
         [-o <OUTPUT_PATH>[.zip|.tar|.tar.gz|.tar.bz|.tar.xz]]
         [--clean]
     {ARG_0} --help
 """.rstrip()
 
-    profile = None
+    no_opt = False
     out = None
     clean = False
 
     args = iter(sys.argv[1:])
     seen_args: set[str] = set()
 
-    def next_arg_or_none() -> str | None:
+    def next_arg_or_none() -> Optional[str]:
         try:
             arg = next(args)
         except StopIteration:
@@ -108,13 +111,8 @@ Usage:
                 )
             out = arg
 
-        elif arg == "--profile":
-            if not (arg := next_arg_or_none()):
-                log.fatal(
-                    f"Missing argument parameter `<BUILD_PROFILE>` for `{arg}`."
-                    + USAGE
-                )
-            profile = arg
+        elif arg == "--no-opt":
+            no_opt = True
 
         else:
             log.fatal(f"Unknown argument `{arg}`." + USAGE)
@@ -124,14 +122,12 @@ Usage:
     except:
         log.fatal(f"`{out}` is not a valid path.")
 
-    if profile is None:
-        profile = "release-plus"
-    elif clean:
+    if no_opt and clean:
         log.fatal(
-            f"Arguments `--profile` and `--clean` are incompatible." + USAGE
+            f"Arguments `--no-opt` and `--clean` are incompatible." + USAGE
         )
 
-    return Args(profile, out, clean)
+    return Args(no_opt, out, clean)
 
 
 def clear_up_path(path: str) -> None:
@@ -312,62 +308,103 @@ def cargo_metadata() -> CargoMetadata:
     )
 
 
-def get_bin_crates() -> list[str]:
+@cache
+def get_crate_kind(crate_name: str) -> str:
     """
-    The names of all binary (executable) crates from Cargo.
-    """
-
-    return [
-        package["name"]
-        for package in cargo_metadata()["packages"]
-        if any("bin" in target["kind"] for target in package["targets"])
-    ]
-
-
-def build_and_stage_bin(crate_name: str, out_dir: str, profile: str):
-    """
-    Builds a package-ready binary and copies it into to the provided output
-    directory.
+    Returns the kind of a crate by looking at the metadata from Cargo (e.g.
+    `bin`, `lib`, `cdylib`).
     """
 
-    if profile == "debug":
+    for package in cargo_metadata()["packages"]:
+        if package["name"] == crate_name:
+            return package["targets"][0]["kind"][0]
+    log.fatal(f"Unknown crate `{crate_name}`.")
+
+
+def build_and_stage_artifact(
+    crate_name: str,
+    out_dir: str,
+    *,
+    no_default_features: bool = False,
+    features: Optional[list[str]] = None,
+    no_opt: bool = False,
+    rustflags: Optional[str] = None,
+) -> str:
+    """
+    Builds a package-ready artifact and copies it into to the provided output
+    directory. The path of the unstaged artifact (that was copied from) is
+    returned.
+
+    Binaries use the `package-small` profile and dylibs use the `package-fast`
+    profile (unless `no_opt` is `True`, in which case the `debug` is used).
+    """
+
+    log.info(f"Building artifact for crate `{crate_name}`.")
+
+    crate_kind = get_crate_kind(crate_name)
+
+    if crate_kind == "bin":
+        ext = ".exe" if SYSTEM == "windows" else ""
+        profile = "package-small"
+    elif crate_kind in ("dylib", "cdylib"):
+        if SYSTEM == "windows":
+            ext = ".dll"
+        elif SYSTEM == "darwin":  # MacOS
+            ext = ".dylib"
+        elif SYSTEM == "linux":
+            ext = ".so"
+        profile = "package-fast"
+    else:
+        log.fatal(f"Unexpected crate kind  `{crate_kind}` for `{crate_name}`.")
+
+    if no_opt:
+        profile = "debug"
         profile_args = []
-    elif profile == "release":
-        profile_args = ["--release"]
     else:
         profile_args = ["--profile", profile]
 
+    features_args = []
+    if no_default_features:
+        features_args.append("--no-default-features")
+    if features is not None and len(features) > 0:
+        features_args.extend(("--features", " ".join(features)))
+
     try:
         sh.run_cmd(
-            "cargo",
-            "build",
-            "--bin",
-            crate_name,
-            *profile_args,
-            "--features",
-            "build-package",
+            *(
+                *("cargo", "build"),
+                *("-p", crate_name),
+                *profile_args,
+                *features_args,
+                *("--color", "always" if log.Color.ENABLED else "never"),
+            ),
             non_fatal=True,
+            env_overrides={"RUSTFLAGS": rustflags} if rustflags else None,
         )
     except sh.CmdException as e:
         log.warning(f"{e}")
         log.fatal(
-            f"Failed to build binary `{crate_name}`. "
+            f"Failed to build `{crate_name}`. "
             + "Ensure `build_setup.py` has been run."
         )
 
     target_dir = cargo_metadata()["target_directory"]
-    ext = ".exe" if platform.system().lower() == "windows" else ""
-    bin_path = f"{target_dir}/{profile}/{crate_name}{ext}"
+    artifact_name = f"{crate_name.replace("-", "_")}{ext}"
+    artifact_path = f"{target_dir}/{profile}/{artifact_name}"
     sh.ensure_path_exists(
-        bin_path,
+        artifact_path,
         kind="file",
-        help_msg="Cargo built a binary somewhere unexpected.",
+        help_msg="Cargo built an artifact somewhere unexpected.",
     )
 
     try:
-        shutil.copy(bin_path, out_dir)
+        shutil.copy(artifact_path, out_dir)
     except:
-        log.fatal("Failed to copy binary to output directory.")
+        log.fatal("Failed to copy artifact to output directory.")
+
+    log.info(f"Staged artifact `{artifact_name}`.")
+
+    return artifact_path
 
 
 def fmt_time(secs: float) -> str:
@@ -396,58 +433,71 @@ def fmt_time(secs: float) -> str:
     return secs_str
 
 
-def windows(staging_dir: str, bin_crates: list[str]) -> None:
+def windows(staging_dir: str, no_opt: bool) -> None:
     """
     Handles Windows-specific packaging steps.
     """
 
-    from build_util.platforms import win
-
     if sh.get_supported_arch() != "x86_64":
         log.fatal("Windows builds currently only support x86_64.")
 
-    FFMPEG_DLL_DIR = ".\\ffmpeg\\bin"
-    ffmpeg_dlls = set(
-        map(
-            file_name,
-            sh.copy_files_dir_to_dir(
-                FFMPEG_DLL_DIR, staging_dir, file_ext_filter=".dll"
-            ),
-        )
+    app_core_dll = build_and_stage_artifact(
+        "app-core-dylib",
+        staging_dir,
+        no_opt=no_opt,
     )
-    log.info("Copied FFmpeg DLLs into staging directory.")
 
-    dumpbin = f"{win.vs_msvc_tools_dir()}\\dumpbin.exe"
-    sh.ensure_cmd_exists(dumpbin)
-
-    def get_required_ffmpeg_dlls(bin_crate: str) -> list[str]:
-        dumpbin_lines = [
-            line.strip()
-            for line in sh.run_cmd(
-                dumpbin, "/DEPENDENTS", f"{staging_dir}/{bin_crate}.exe"
-            ).splitlines()
-        ]
-        return [line for line in dumpbin_lines if line in ffmpeg_dlls]
-
-    required_ffmpeg_dlls: set[str] = set()
-    for bin_crate in bin_crates:
-        required_ffmpeg_dlls.update(get_required_ffmpeg_dlls(bin_crate))
-    ffmpeg_dlls_to_remove = ffmpeg_dlls - required_ffmpeg_dlls
+    # Create a temp dir with the `.lib` file to add to the linker path
+    app_core_lib = f"{app_core_dll}.lib"  # "app_core_dylib.dll.lib"
+    sh.ensure_path_exists(app_core_lib, kind="file")
     try:
-        for dll in ffmpeg_dlls_to_remove:
-            os.remove(f"{staging_dir}\\{dll}")
+        temp_app_lib_dir = tempfile.mkdtemp()
+        shutil.copy(app_core_lib, f"{temp_app_lib_dir}\\app_core_dylib.lib")
     except:
-        log.fatal("Failed to remove unneeded FFmpeg DLLs.")
-    log.info(
-        f"Removed {len(ffmpeg_dlls_to_remove)} unneeded FFmpeg DLLs "
-        + f"from staging directory ({len(required_ffmpeg_dlls)} remain)."
+        log.fatal("Failed to create temporary app-core library directory")
+
+    def build_and_stage_bin(bin_name: str, *, with_console: bool) -> str:
+        return build_and_stage_artifact(
+            bin_name,
+            staging_dir,
+            no_default_features=True,
+            features=(
+                ["link-dylib"]
+                + ([] if with_console else ["no-windows-console"])
+            ),
+            no_opt=no_opt,
+            rustflags=f"-L {temp_app_lib_dir}",
+        )
+
+    for bin_name in ("editor", "launcher"):
+        # Create both console and non-console binaries on windows
+        build_and_stage_bin(bin_name, with_console=True)
+        try:
+            shutil.move(
+                f"{staging_dir}\\{bin_name}.exe",
+                f"{staging_dir}\\{bin_name}-with-console.exe",
+            )
+        except:
+            log.fatal("Failed to rename executable.")
+        build_and_stage_bin(bin_name, with_console=False)
+
+    sh.rm_path(temp_app_lib_dir)
+
+    # Stage FFmpeg DLLs.
+    dlls_copied = sh.copy_files_dir_to_dir(
+        ".\\ffmpeg\\bin",
+        staging_dir,
+        file_ext_filter=".dll",
     )
+    log.info(f"Copied {len(dlls_copied)} FFmpeg DLLs into staging directory.")
 
 
-def mac_os(staging_dir: str, bin_crates: list[str]) -> None:
+def mac_os(staging_dir: str) -> None:
     """
     Handles MacOS-specific packaging steps.
     """
+
+    log.fatal("MacOS support is currently broken.")
 
     def ensure_cli_tools_installed() -> None:
         try:
@@ -474,12 +524,10 @@ def mac_os(staging_dir: str, bin_crates: list[str]) -> None:
         log.info(f"Found FFmpeg dylib files in `{ffmpeg_dylib_dir}`.")
         return ffmpeg_dylib_dir
 
-    def get_dylibs_names(dylib_dir: str, bin_crate: str) -> list[str]:
+    def get_dylibs_names(dylib_dir: str, file: str) -> list[str]:
         otool_lines = [
             line.lstrip()
-            for line in sh.run_cmd(
-                "otool", "-L", f"{staging_dir}/{bin_crate}"
-            ).splitlines()
+            for line in sh.run_cmd("otool", "-L", file).splitlines()
         ]
         return [
             line[len(dylib_dir) + 1 :].split(" ")[0]
@@ -498,26 +546,24 @@ def mac_os(staging_dir: str, bin_crates: list[str]) -> None:
     ensure_cli_tools_installed()
     ffmpeg_dylib_dir = find_ffmpeg_dylib_dir()
 
-    for bin_crate in bin_crates:
-        bin_path = f"{staging_dir}/{bin_crate}"
+    app_core = f"app_core_dylib.dylib"
 
-        dylibs = get_dylibs_names(ffmpeg_dylib_dir, bin_crate)
-        if len(dylibs) == 0:
-            log.info(f"No FFmpeg dylibs required for `{bin_crate}`")
-            continue
+    dylibs = get_dylibs_names(ffmpeg_dylib_dir, f"{staging_dir}/{app_core}")
+    if len(dylibs) == 0:
+        log.warning(f"No FFmpeg dylibs required for `{app_core}`")
 
-        log.info(f"Remapping {len(dylibs)} FFmpeg dylibs for `{bin_crate}`.")
-        for dylib in dylibs:
-            dylib_src_path = f"{ffmpeg_dylib_dir}/{dylib}"
-            stage_dylib(dylib_src_path)
-            sh.run_cmd(
-                "install_name_tool",
-                "-change",
-                dylib_src_path,
-                f"@executable_path/{dylib}",
-                bin_path,
-                show_output=False,
-            )
+    log.info(f"Remapping {len(dylibs)} FFmpeg dylibs for `{app_core}`.")
+    for dylib in dylibs:
+        dylib_src_path = f"{ffmpeg_dylib_dir}/{dylib}"
+        stage_dylib(dylib_src_path)
+        sh.run_cmd(
+            "install_name_tool",
+            "-change",
+            dylib_src_path,
+            f"@executable_path/{dylib}",
+            f"{staging_dir}/{app_core}",
+            show_output=False,
+        )
 
 
 def main() -> None:
@@ -537,21 +583,15 @@ def main() -> None:
     staging_dir = create_staging_dir(None if user_wants_archive else args.out)
 
     sh.ensure_cmd_exists("cargo")
-    bin_crates = get_bin_crates()
-    for bin_crate in bin_crates:
-        log.info(f"Building binary crate `{bin_crate}`.")
-        build_and_stage_bin(bin_crate, staging_dir, args.profile)
-        log.info(f"Staged binary `{bin_crate}`.")
 
-    system = platform.system().lower()
-    if system == "windows":
-        windows(staging_dir, bin_crates)
-    elif system == "darwin":  # MacOS
-        mac_os(staging_dir, bin_crates)
-    elif system == "linux":
-        log.fatal("unimplemented")
+    if SYSTEM == "windows":
+        windows(staging_dir, args.no_opt)
+    elif SYSTEM == "darwin":  # MacOS
+        mac_os(staging_dir)
+    elif SYSTEM == "linux":
+        log.fatal("Linux support is currently unimplemented.")
     else:
-        log.fatal(f"Unsupported system: `{system}`")
+        log.fatal(f"Unsupported system: `{SYSTEM}`")
 
     if not user_wants_archive:
         out_path = args.out

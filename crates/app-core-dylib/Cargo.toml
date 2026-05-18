@@ -1,0 +1,11 @@
+[package]
+name = "app-core-dylib"
+edition = "2024"
+version = { workspace = true }
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+editor-core = { workspace = true }
+launcher-core = { workspace = true }

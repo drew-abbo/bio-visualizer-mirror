@@ -11,13 +11,13 @@ use std::process::ExitCode;
 use util::version;
 
 use app_area::AppArea;
-use clap::Parser;
+use args::Args;
 
 /// Runs the editor portion of the app.
 pub fn editor() -> ExitCode {
     util::crash_reporting::init();
 
-    let args = args::Args::parse();
+    let args = Args::default();
 
     #[cfg(debug_assertions)]
     {
@@ -60,7 +60,7 @@ pub fn editor() -> ExitCode {
         ..Default::default()
     };
 
-    let ui_result = eframe::run_native(
+    eframe::run_native(
         version::APP_NAME,
         native_options,
         Box::new(|cc| {
@@ -68,13 +68,12 @@ pub fn editor() -> ExitCode {
             windows_resize::setup_borderless_resize(cc);
             Ok(Box::new(AppArea::new(cc, args.clone())))
         }),
-    );
-
-    match ui_result {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            util::debug_log_error!("ui failed: {e}");
+    )
+    .map_or_else(
+        |e| {
+            util::debug_log_error!("UI (run native) failed: {e}");
             ExitCode::FAILURE
-        }
-    }
+        },
+        |_| ExitCode::SUCCESS,
+    )
 }
