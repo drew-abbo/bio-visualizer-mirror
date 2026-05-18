@@ -50,18 +50,19 @@ pub fn receiver(args: Args, mut instance_lock: InstanceLock<PersistedData>) -> E
     let editor_cmd = if !args.editor_cmd.is_empty() {
         args.editor_cmd
     } else {
-        // Automatically find the app executable in the same directory as the launcher.
-        // This provides a simple, cross-platform default that works for both
-        // development and release builds without requiring manual configuration.
-        match get_app_path() {
-            Ok(app_path) => {
-                let path_str = app_path.to_string_lossy().to_string();
-                util::debug_log_info!("Using app executable at: {}", path_str);
+        // Automatically find the editor executable in the same directory as the
+        // launcher. This provides a simple, cross-platform default that works
+        // for both development and release builds without requiring manual
+        // configuration.
+        match get_editor_path() {
+            Ok(editor_path) => {
+                let path_str = editor_path.to_string_lossy().to_string();
+                util::debug_log_info!("Using editor executable at: {}", path_str);
                 vec![path_str, "--open-project".into()]
             }
             Err(e) => {
-                util::debug_log_error!("Failed to find app executable: {}", e);
-                eprintln!("Failed to find app executable. Use --editor-cmd to specify manually.");
+                util::debug_log_error!("Couldn't find editor executable: {e}");
+                eprintln!("Couldn't find editor executable. Use `--editor-cmd` to specify.");
                 return ExitCode::FAILURE;
             }
         }
@@ -89,13 +90,13 @@ pub fn opened_editors() -> MutexGuard<'static, Vec<Arc<Mutex<Child>>>> {
         .expect("No thread should panic with the opened editors mutex.")
 }
 
-/// Get the path to the app executable.
+/// Get the path to the editor executable.
 ///
-/// This assumes the app is in the same directory as the current executable
-/// and is named "app" (or "app.exe" on Windows).
-fn get_app_path() -> Result<std::path::PathBuf, std::io::Error> {
-    static APP_PATH: OnceLock<std::path::PathBuf> = OnceLock::new();
-    if let Some(path) = APP_PATH.get() {
+/// This assumes the editor is in the same directory as the current executable
+/// and is named "editor" (or "editor.exe" on Windows).
+fn get_editor_path() -> Result<std::path::PathBuf, std::io::Error> {
+    static EDITOR_PATH: OnceLock<std::path::PathBuf> = OnceLock::new();
+    if let Some(path) = EDITOR_PATH.get() {
         return Ok(path.clone());
     }
 
@@ -109,24 +110,24 @@ fn get_app_path() -> Result<std::path::PathBuf, std::io::Error> {
     })?;
 
     #[cfg(windows)]
-    let app_name = "app.exe";
+    let editor_name = "editor.exe";
     #[cfg(not(windows))]
-    let app_name = "app";
+    let editor_name = "editor";
 
-    let app_path = exe_dir.join(app_name);
+    let editor_path = exe_dir.join(editor_name);
 
-    // Verify the app executable is actually a file.
-    if !app_path.is_file() {
+    // Verify the editor executable is actually a file.
+    if !editor_path.is_file() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
-            format!("App executable not found at: {}", app_path.display()),
+            format!("Editor executable not found at: {}", editor_path.display()),
         ));
     }
 
-    let app_path = std::fs::canonicalize(app_path)?;
-    let _ = APP_PATH.set(app_path.clone());
+    let editor_path = std::fs::canonicalize(editor_path)?;
+    let _ = EDITOR_PATH.set(editor_path.clone());
 
-    Ok(app_path)
+    Ok(editor_path)
 }
 
 fn wait_on_child_processes(child_processes: &[Arc<Mutex<Child>>], close_editors: bool) {

@@ -60,7 +60,7 @@ Linux is not officially supported just yet.
 Once the above is satisfied, you're set to build with `cargo`:
 
 ```sh
-cargo build -p app && cargo run -p launcher
+cargo build -p editor && cargo run -p launcher
 ```
 
 ### Packaging a Build for Release
@@ -79,7 +79,7 @@ python3 ./build_package.py --help
 ## Development
 
 There are 2 binary crates. `launcher` acts mainly as a project selector for
-starting up editor instances. `app` is an actual project editor.
+starting up editor instances. `editor` is an actual project editor.
 
 Run a binary like this:
 

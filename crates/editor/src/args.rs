@@ -6,7 +6,7 @@ use clap::Parser;
 
 /// Parsed command line arguments.
 #[derive(Parser, Debug, Clone, PartialEq, Eq, Hash)]
-#[command(about = "Used to open and communicate with the main application UI.")]
+#[command(about = "Used to open the editor UI.")]
 pub struct Args {
     /// The ProjectId of the project to open on startup (passed by the launcher).
     ///
