@@ -4,24 +4,7 @@ edition = "2024"
 version = { workspace = true }
 
 [dependencies]
-clap = { workspace = true }
-thiserror = { workspace = true }
-serde = { workspace = true }
-util = { workspace = true, features = [
-    "stop_signals",
-    "version",
-    "debug_log",
-    "local_data",
-    "saved_file",
-    "channels",
-    "drop_join_thread",
-    "ui",
-    "fuzzy_search",
-    "crash_reporting",
-] }
-eframe = { version = "0.33" }
-egui = { workspace = true }
-egui_extras = { workspace = true, features = ["image"] }
+launcher-core = { workspace = true }
 
 [build-dependencies]
 util = { workspace = true, features = ["windows_exe", "version"] }

@@ -1,10 +1,12 @@
 [workspace]
 members = [
-  "crates/editor",
-  "crates/util",
-  "crates/media",
-  "crates/engine",
-  "crates/launcher",
+  "crates/editor",        # binary
+  "crates/launcher",      # binary
+  "crates/editor-core",   # library
+  "crates/launcher-core", # library
+  "crates/util",          # library
+  "crates/media",         # library
+  "crates/engine",        # library
 ]
 resolver = "3"
 
@@ -13,6 +15,8 @@ version = "0.2.0"
 edition = "2024"
 
 [workspace.dependencies]
+editor-core = { path = "crates/editor-core" }
+launcher-core = { path = "crates/launcher-core" }
 engine = { path = "crates/engine" }
 media = { path = "crates/media" }
 util = { path = "crates/util" }
