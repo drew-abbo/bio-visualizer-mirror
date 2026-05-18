@@ -8,6 +8,7 @@ import sys
 import shutil
 import subprocess
 import typing
+from pathlib import Path
 from typing import Literal, Iterable, Sequence, Optional, Callable
 
 from . import log
@@ -162,7 +163,8 @@ def run_cmd(
 ) -> str:
     """
     Runs a shell command and returns its output (minus a trailing newline if it
-    has one).
+    has one). All CRLF newlines are replaced with LF newlines in the returned
+    output.
     """
 
     __print_running_cmd(cmd)
@@ -211,7 +213,10 @@ def run_cmd(
             raise CmdException(err_msg)
         log.fatal(err_msg)
 
-    return output[:-1] if output.endswith("\n") else output
+    output = output.replace("\r\n", "\n")
+    if output.endswith("\n"):
+        output = output[:-1]
+    return output
 
 
 def start_cmd(*cmd: str, shell: bool = False) -> None:
@@ -221,6 +226,25 @@ def start_cmd(*cmd: str, shell: bool = False) -> None:
 
     __print_running_cmd(cmd)
     subprocess.Popen(cmd if not shell else " ".join(cmd), shell=shell)
+
+
+def require_script_in_working_dir() -> None:
+    """
+    Exits if the caller isn't running the script from the same directory as the
+    script.
+    """
+
+    try:
+        script_dir = str(Path(os.path.realpath(sys.argv[0])).parent)
+        working_dir = os.path.realpath(os.getcwd())
+    except:
+        log.fatal("Failed to compare script directory with working directory.")
+
+    if script_dir != working_dir:
+        log.fatal(
+            "This script cannot be run from another directory. "
+            + f"Run from `{script_dir}`."
+        )
 
 
 class CmdException(Exception):

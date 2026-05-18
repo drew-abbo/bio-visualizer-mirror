@@ -571,6 +571,8 @@ def main() -> None:
 
     args = parse_args()
 
+    sh.require_script_in_working_dir()
+
     if args.clean:
         if sh.rm_path(args.out, allow_missing=True):
             log.success(f"Removed `{args.out}`.")
@@ -592,6 +594,11 @@ def main() -> None:
         log.fatal("Linux support is currently unimplemented.")
     else:
         log.fatal(f"Unsupported system: `{SYSTEM}`")
+
+    try:
+        shutil.copytree("./nodes", f"{staging_dir}/nodes")
+    except:
+        log.fatal("Failed to stage nodes.")
 
     if not user_wants_archive:
         out_path = args.out

@@ -511,6 +511,8 @@ def mac_os() -> None:
 def main() -> None:
     parse_args()
 
+    sh.require_script_in_working_dir()
+
     sh.ensure_cmd_exists("cargo")
 
     system = platform.system().lower()
