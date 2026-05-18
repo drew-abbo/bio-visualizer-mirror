@@ -4,6 +4,10 @@
   - [Build Setup](#build-setup)
   - [Packaging a Build for Release](#packaging-a-build-for-release)
 - [Development](#development)
+  - [Binary Crates](#binary-crates)
+  - [Core Wrapper Crates](#core-wrapper-crates)
+  - [Non-Core Library Crates](#non-core-library-crates)
+  - [Versioning](#versioning)
 
 ## Build Instructions
 
@@ -66,17 +70,17 @@ cargo build -p editor && cargo run -p launcher
 ### Packaging a Build for Release
 
 To package the app into a self-contained directory/archive, run
-[build_package.py](./build_package.py). This script will build all binaries with
-the `build-package` feature and by default the `release-plus` profile, moving
-them to an output directory/archive (`./package/` by default). It then ensures
-that all non-standard dynamic library dependencies the executables need are
-available inside the directory/archive.
+[build_package.py](./build_package.py). This script will build everything for
+your platform and move it to a self-contained directory/archive (`./package/` by
+default).
 
 ```sh
 python3 ./build_package.py --help
 ```
 
 ## Development
+
+### Binary Crates
 
 There are 2 binary crates. `launcher` acts mainly as a project selector for
 starting up editor instances. `editor` is an actual project editor.
@@ -87,10 +91,37 @@ Run a binary like this:
 cargo run --bin <BINARY_NAME> -- [ARGUMENTS_FOR_BINARY*]
 ```
 
-There is also an additional build profile `release-plus` that maximizes
-optimizations beyond the normal `release` profile (at the cost of debuggability
-and compile times).
+### Core Wrapper Crates
 
-```sh
-cargo build -p <CRATE_NAME> --profile release-plus
-```
+The `editor` and `launcher` binary crates are really just wrappers around the
+`editor-core` and `launcher-core` library crates (or the `app-core` crate when
+the `link-dylib` feature is enabled).
+
+This is done to enable the `link-dylib` feature for the `editor` and `launcher`
+binary crates. When this feature is enabled (and the `link-static` feature is
+disabled), the binaries will expect to be able to link to a dynamic library
+called `app_core_dylib` (e.g. `app_core_dylib.dll` on Windows,
+`app_core_dylib.dylib` on Unix). This dynamic library re-exports the same
+things `editor-core` and `launcher-core` export, just through a C-ABI. Building
+the `app-core-dylib` crate will create this shared library.
+
+Doing dynamic linking like this move's all of the app's code into the shared
+library, leaving the binaries as just thin wrappers. This makes it more
+reasonable to ship many different binaries since each one doesn't need to come
+with everything statically linked (making file sizes huge). For example, on
+Windows we ship 4 different executables (a console and no-console variation of
+both binaries).
+
+To reduce compilation times, dynamic linking is not enabled by default.
+
+### Non-Core Library Crates
+
+- The `engine` crate is a library for handling node graphs and rendering.
+- The `media` crate is a library for handling media data (images, video, MIDI).
+- The `util` crate is a library of common useful utilities that can be used
+  across any of the other crates. Each utility is gated behind a feature.
+
+### Versioning
+
+The app's version is set by the `version` field in the root
+[Cargo.toml](./Cargo.toml) file.
