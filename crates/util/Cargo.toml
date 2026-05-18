@@ -37,7 +37,6 @@ winresource = { optional = true, version = "0.1" }
 toml = { version = "1.1", optional = true }
 
 [features]
-default = ["windows_exe"]
 cast_slice = []
 channels = ["dep:thiserror"]
 crash_reporting = ["dep:time", "local_data"]

@@ -1,15 +1,13 @@
 //! Contains [Args], which are parsed command-line flags.
 
+use std::path::PathBuf;
+
 use clap::{Parser, ValueEnum};
 
 /// Parsed command line arguments.
 #[derive(Parser, Debug, Clone, PartialEq, Eq, Hash)]
 #[command(about = "Used to open and communicate with the launcher UI.")]
 pub struct Args {
-    /// Print the version and exit.
-    #[arg(long)]
-    pub version: bool,
-
     /// Provide a custom command to launch the editor (the rest of the arguments
     /// are consumed). An additional project ID argument is appended when this
     /// is invoked.
@@ -50,6 +48,11 @@ pub struct Args {
     /// `debug_assertions` are enabled.
     #[arg(long, conflicts_with = "no_debug_logging")]
     pub debug_error_log_panics: bool,
+
+    /// Print the version and exit. A path can optionally be provided if you
+    /// want to print to a file.
+    #[arg(long, value_name = "OUTPUT_FILE")]
+    pub version: Option<Option<PathBuf>>,
 }
 
 impl Default for Args {

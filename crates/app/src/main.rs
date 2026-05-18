@@ -6,20 +6,17 @@ mod components;
 mod launcher_comm;
 mod windows_resize;
 
+use std::process::ExitCode;
+
 use util::version;
 
 use app_area::AppArea;
 use clap::Parser;
 
-fn main() -> Result<(), eframe::Error> {
+fn main() -> ExitCode {
     util::crash_reporting::init();
 
     let args = args::Args::parse();
-
-    if args.version {
-        println!("{} {} (Editor)", version::APP_NAME, version::APP_VERSION);
-        return Ok(());
-    }
 
     #[cfg(debug_assertions)]
     {
@@ -29,6 +26,18 @@ fn main() -> Result<(), eframe::Error> {
         } else if !args.debug_error_log_panics {
             debug_log::panic_on_errors::disable();
         }
+    }
+
+    // TODO: Enable stop signal polling and handle stop signals gracefully.
+
+    if let Some(version_outfile) = args.version {
+        return match version::print(version_outfile) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                util::debug_log_error!("Failed to print version: {e}");
+                ExitCode::FAILURE
+            }
+        };
     }
 
     // Configure the native window with custom title bar
@@ -50,7 +59,7 @@ fn main() -> Result<(), eframe::Error> {
         ..Default::default()
     };
 
-    eframe::run_native(
+    let ui_result = eframe::run_native(
         version::APP_NAME,
         native_options,
         Box::new(|cc| {
@@ -58,5 +67,13 @@ fn main() -> Result<(), eframe::Error> {
             windows_resize::setup_borderless_resize(cc);
             Ok(Box::new(AppArea::new(cc, args.clone())))
         }),
-    )
+    );
+
+    match ui_result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            util::debug_log_error!("ui failed: {e}");
+            ExitCode::FAILURE
+        }
+    }
 }

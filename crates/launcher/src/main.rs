@@ -19,11 +19,6 @@ const GENERIC_ERROR_MSG: &str = "Something went wrong.";
 fn main() -> ExitCode {
     let args = Args::default();
 
-    if args.version {
-        println!("{} {} (Launcher)", version::APP_NAME, version::APP_VERSION);
-        return ExitCode::SUCCESS;
-    }
-
     #[cfg(debug_assertions)]
     {
         use util::debug_log;
@@ -38,6 +33,17 @@ fn main() -> ExitCode {
         util::debug_log_error!("Failed enable stop signal polling: {e}");
         eprintln!("{GENERIC_ERROR_MSG}");
         return ExitCode::FAILURE;
+    }
+
+    if let Some(version_outfile) = args.version {
+        return match version::print(version_outfile) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                util::debug_log_error!("Failed to print version: {e}");
+                eprintln!("{GENERIC_ERROR_MSG}");
+                ExitCode::FAILURE
+            }
+        };
     }
 
     match InstanceLock::<PersistedData>::from_default() {
