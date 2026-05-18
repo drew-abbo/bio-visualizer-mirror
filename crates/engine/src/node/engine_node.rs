@@ -179,7 +179,6 @@ pub enum NoiseKind {
     Sin,
 }
 
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum BuiltInHandler {
     ImageSource,

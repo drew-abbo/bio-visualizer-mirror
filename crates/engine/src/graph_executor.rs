@@ -5,14 +5,15 @@ mod errors;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
+use crate::engine_outpost::EngineOutpostEvent;
 use crate::graph_executor_effects::EffectStage;
 use crate::node::NodeDefinition;
 use crate::node::NodeLibrary;
 use crate::node::engine_node::{AlgorithmStageBackend, BuiltInHandler, NodeExecutionPlan};
 use crate::node::handler::{
-    FrameStreamHandler, MidiStreamHandler, NodeFrameStreamRequest, NodeMidiStreamRequest,
-    NodeNoiseStreamRequest, NodeSignalEnvelopeRequest, NoiseStreamHandler, SignalEnvelopeHandler,
-    StreamKind,
+    FrameStreamHandler, FrameStreamHandlerError, MidiStreamHandler, NodeFrameStreamRequest,
+    NodeMidiStreamRequest, NodeNoiseStreamRequest, NodeSignalEnvelopeRequest, NoiseStreamHandler,
+    SignalEnvelopeHandler, StreamKind,
 };
 use crate::node_graph::EngineNodeId;
 use crate::node_graph::{InputValue, NodeGraph, NodeInstance};
@@ -48,6 +49,9 @@ pub struct GraphExecutor {
 
     /// Cache of shader output targets reused per node instance.
     render_target_cache: HashMap<EngineNodeId, CachedRenderTarget>,
+
+    /// Cache of intermediate render stage targets reused per node/stage.
+    render_stage_target_cache: HashMap<(EngineNodeId, usize), CachedRenderTarget>,
 
     /// Cache of compute stage output targets reused per node stage instance.
     compute_stage_target_cache: HashMap<(EngineNodeId, usize, String), CachedRenderTarget>,
@@ -107,27 +111,6 @@ struct CachedNodeOutput {
     input_signature: u64,
     outputs: HashMap<String, NodeValue>,
 }
-/// NOTE: This will change depending on the Media producer API changes in the future.
-/// Execution context supplied by the app for time-based playback control.
-///
-/// This context provides the timeline state and frame advancement control
-/// for video and time-based nodes. It allows the executor to know the current
-/// playback position and whether to advance to the next frame.
-#[derive(Debug, Clone, Copy)]
-pub struct ExecutionContext {
-    pub advance_frame: bool,
-    pub playback_running: bool,
-}
-
-impl Default for ExecutionContext {
-    fn default() -> Self {
-        Self {
-            advance_frame: true,
-            playback_running: true,
-        }
-    }
-}
-
 impl GraphExecutor {
     fn collect_required_nodes_for_target(
         graph: &NodeGraph,
@@ -162,6 +145,7 @@ impl GraphExecutor {
             pipeline_cache: HashMap::new(),
             compute_pipeline_cache: HashMap::new(),
             render_target_cache: HashMap::new(),
+            render_stage_target_cache: HashMap::new(),
             compute_stage_target_cache: HashMap::new(),
             frame_stream_handler: FrameStreamHandler::new(),
             noise_stream_handler: NoiseStreamHandler::new(),
@@ -220,16 +204,39 @@ impl GraphExecutor {
         library: &NodeLibrary,
         node_id: EngineNodeId,
     ) -> Option<media::fps::Fps> {
-        let instance = graph.get_instance(node_id)?;
-        let definition = library.get_definition(&instance.definition_name)?;
+        let candidate_node_id = {
+            let instance = graph.get_instance(node_id)?;
+            let definition = library.get_definition(&instance.definition_name)?;
 
-        if !matches!(
-            definition.node.executor,
-            NodeExecutionPlan::BuiltIn(BuiltInHandler::VideoSource)
-        ) {
-            return None;
-        }
+            if matches!(
+                definition.node.executor,
+                NodeExecutionPlan::BuiltIn(BuiltInHandler::VideoSource)
+            ) {
+                Some(node_id)
+            } else {
+                let required = Self::collect_required_nodes_for_target(graph, node_id);
+                graph
+                    .execution_order()
+                    .ok()?
+                    .into_iter()
+                    .find(|candidate_id| {
+                        required.contains(candidate_id)
+                            && graph
+                                .get_instance(*candidate_id)
+                                .and_then(|candidate_instance| {
+                                    library.get_definition(&candidate_instance.definition_name)
+                                })
+                                .is_some_and(|candidate_definition| {
+                                    matches!(
+                                        candidate_definition.node.executor,
+                                        NodeExecutionPlan::BuiltIn(BuiltInHandler::VideoSource)
+                                    )
+                                })
+                    })
+            }
+        }?;
 
+        let instance = graph.get_instance(candidate_node_id)?;
         let path = instance.input_values.values().find_map(|input| {
             if let InputValue::File(path) = input {
                 Some(path)
@@ -239,7 +246,7 @@ impl GraphExecutor {
         })?;
 
         let request = NodeFrameStreamRequest {
-            node_id,
+            node_id: candidate_node_id,
             file_path: path.clone(),
             stream_kind: StreamKind::Video,
         };
@@ -247,18 +254,20 @@ impl GraphExecutor {
         self.frame_stream_handler.get_recommended_fps(&request).ok()
     }
 
-    /// Execute the node graph with an execution context.
+    /// Execute the node graph with the provided parameters.
     /// Supply an optional target node id to execute only up to that node (for partial execution).
-    /// You should always be calling this no matter what is happening
-    /// if you want to pause use [GraphExecutor::pause_streams]
-    pub fn execute<'a>(
+    pub fn execute<'a, F>(
         &'a mut self,
         graph: &NodeGraph,
         library: &NodeLibrary,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        target_node_id: Option<EngineNodeId>, // runs a graph up to this node
-    ) -> Result<ExecutionResult<'a>, ExecutionError> {
+        target_node_id: Option<EngineNodeId>,
+        mut on_event: F,
+    ) -> Result<ExecutionResult<'a>, ExecutionError>
+    where
+        F: FnMut(EngineOutpostEvent),
+    {
         if let Some(target) = target_node_id
             && graph.get_instance(target).is_none()
         {
@@ -318,6 +327,8 @@ impl GraphExecutor {
         let live_node_ids: HashSet<EngineNodeId> = order.iter().copied().collect();
         self.render_target_cache
             .retain(|node_id, _| live_node_ids.contains(node_id));
+        self.render_stage_target_cache
+            .retain(|(node_id, _), _| live_node_ids.contains(node_id));
         self.compute_stage_target_cache
             .retain(|(node_id, _, _), _| live_node_ids.contains(node_id));
         self.output_cache
@@ -368,6 +379,7 @@ impl GraphExecutor {
                     device,
                     queue,
                     definition,
+                    &mut on_event,
                 )?,
             };
 
@@ -536,7 +548,8 @@ impl GraphExecutor {
 
     /// Execute a built-in node
     ///
-    fn execute_builtin_node(
+    #[allow(clippy::too_many_arguments)]
+    fn execute_builtin_node<F>(
         &mut self,
         node_id: EngineNodeId,
         handler_type: &BuiltInHandler,
@@ -544,7 +557,11 @@ impl GraphExecutor {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         definition: &NodeDefinition,
-    ) -> Result<HashMap<String, NodeValue>, ExecutionError> {
+        emit_event: &mut F,
+    ) -> Result<HashMap<String, NodeValue>, ExecutionError>
+    where
+        F: FnMut(EngineOutpostEvent),
+    {
         let output_values = match *handler_type {
             BuiltInHandler::ImageSource => {
                 let path = inputs
@@ -562,12 +579,15 @@ impl GraphExecutor {
                 };
 
                 self.frame_stream_handler
-                    .execute_handler(&request, device, queue, &mut self.upload_stager)
-                    .map_err(|e| {
-                        ExecutionError::TextureUploadError(format!(
+                    .execute_handler(&request, device, queue, &mut self.upload_stager, emit_event)
+                    .map_err(|error| match error {
+                        FrameStreamHandlerError::Loading { path } => {
+                            ExecutionError::FrameStreamNotReady(path)
+                        }
+                        other => ExecutionError::TextureUploadError(format!(
                             "Image source stream execution failed: {:?}",
-                            e
-                        ))
+                            other
+                        )),
                     })?
             }
             BuiltInHandler::VideoSource => {
@@ -586,12 +606,15 @@ impl GraphExecutor {
                 };
 
                 self.frame_stream_handler
-                    .execute_handler(&request, device, queue, &mut self.upload_stager)
-                    .map_err(|e| {
-                        ExecutionError::VideoStreamError(
+                    .execute_handler(&request, device, queue, &mut self.upload_stager, emit_event)
+                    .map_err(|error| match error {
+                        FrameStreamHandlerError::Loading { path } => {
+                            ExecutionError::FrameStreamNotReady(path)
+                        }
+                        other => ExecutionError::VideoStreamError(
                             path.clone(),
-                            format!("Video source stream execution failed: {:?}", e),
-                        )
+                            format!("Video source stream execution failed: {:?}", other),
+                        ),
                     })?
             }
             BuiltInHandler::Noise(noise_kind) => {
@@ -674,6 +697,57 @@ impl GraphExecutor {
             });
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
             cached.view = std::sync::Arc::new(view);
+            cached.size = output_size;
+        }
+
+        cached.view.clone()
+    }
+
+    pub(crate) fn get_or_create_render_stage_target(
+        &mut self,
+        device: &wgpu::Device,
+        node_id: EngineNodeId,
+        stage_index: usize,
+        output_size: wgpu::Extent3d,
+    ) -> std::sync::Arc<wgpu::TextureView> {
+        let target_format = self.target_format;
+        let cached = self
+            .render_stage_target_cache
+            .entry((node_id, stage_index))
+            .or_insert_with(|| {
+                let texture = device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("render_stage_intermediate"),
+                    size: output_size,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: target_format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                });
+                CachedRenderTarget {
+                    view: std::sync::Arc::new(
+                        texture.create_view(&wgpu::TextureViewDescriptor::default()),
+                    ),
+                    size: output_size,
+                }
+            });
+
+        if cached.size != output_size {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("render_stage_intermediate"),
+                size: output_size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: target_format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            cached.view =
+                std::sync::Arc::new(texture.create_view(&wgpu::TextureViewDescriptor::default()));
             cached.size = output_size;
         }
 

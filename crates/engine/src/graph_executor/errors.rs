@@ -92,6 +92,9 @@ pub enum ExecutionError {
     #[error("Video stream error for {0:?}: {1}")]
     VideoStreamError(PathBuf, String),
 
+    #[error("Frame stream is not ready for {0:?}")]
+    FrameStreamNotReady(PathBuf),
+
     #[error("Texture upload error: {0}")]
     TextureUploadError(String),
 }

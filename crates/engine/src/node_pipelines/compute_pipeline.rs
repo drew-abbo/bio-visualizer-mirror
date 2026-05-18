@@ -15,11 +15,11 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
 
+use super::helpers::{align_to, uniform_param_size};
 use crate::engine_errors::EngineError;
 use crate::graph_executor::NodeValue;
 use crate::node::NodeDefinition;
 use crate::node::engine_node::NodeInputKind;
-use super::helpers::{align_to, uniform_param_size};
 
 /// Runtime compute pipeline constructed from WGSL and a [NodeDefinition].
 /// Responsible for creating the [wgpu::ComputePipeline], bind group layout,
@@ -82,9 +82,9 @@ impl ComputePipeline {
         let params_buf_size = param_layout.last().map(|p| p.offset + 16).unwrap_or(0) as u64;
 
         // Create bind group layout
-        // Binding 0: storage for output (unused for now; compute reads/writes via function)
-        // Binding 1+: input textures
-        // Last binding: uniform parameter buffer
+        // Binding 0-N: input textures
+        // Binding N: storage output texture
+        // Binding N+1: uniform parameter buffer
         let bgl_entries = Self::build_bgl_entries(texture_input_count, storage_format);
         let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some(&format!("{} compute bgl", definition.node.name)),
@@ -312,7 +312,7 @@ impl ComputePipeline {
             });
         }
 
-        // Output storage texture binding (for scatter/output stages)
+        // Output storage texture binding (for scatter/output stages).
         entries.push(wgpu::BindGroupLayoutEntry {
             binding: texture_count as u32,
             visibility: wgpu::ShaderStages::COMPUTE,

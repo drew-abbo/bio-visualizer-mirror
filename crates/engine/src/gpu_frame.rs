@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use media::frame::Uid;
+use std::sync::Arc;
 
 /// GPU frame handle with its dimensions. Holds a texture view plus its size so
 /// downstream consumers can size new textures correctly.

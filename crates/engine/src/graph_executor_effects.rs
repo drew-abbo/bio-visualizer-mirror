@@ -10,6 +10,7 @@ use crate::node::engine_node::{
 };
 use crate::node_graph::EngineNodeId;
 use crate::node_pipelines::{ComputePipeline, RenderPipeline};
+use std::path::PathBuf;
 
 #[derive(Clone, Copy)]
 pub(crate) struct EffectStage<'a> {
@@ -49,14 +50,7 @@ impl GraphExecutor {
             })
             .collect();
 
-        self.execute_effect_stages(
-            node_id,
-            device,
-            queue,
-            definition,
-            inputs,
-            &stage_plan,
-        )
+        self.execute_effect_stages(node_id, device, queue, definition, inputs, &stage_plan)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -92,14 +86,15 @@ impl GraphExecutor {
             return Err(ExecutionError::UnsupportedNodeOutputCombination);
         }
 
-        let output_size = frame_inputs
-            .first()
-            .map(|frame| frame.size())
-            .unwrap_or(wgpu::Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
-            });
+        let output_size =
+            frame_inputs
+                .first()
+                .map(|frame| frame.size())
+                .unwrap_or(wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                });
 
         let fallback_primary_texture = frame_inputs.is_empty().then(|| {
             device.create_texture(&wgpu::TextureDescriptor {
@@ -185,32 +180,25 @@ impl GraphExecutor {
                         &format!("{stage_name} shader"),
                     )?;
                     let cache_key = format!("{}::{}", stage_name, stage.source.display());
+
+                    let is_final_stage = stage_index + 1 == stages.len();
+                    let stage_output_view = if is_final_stage {
+                        actual_output_view.clone()
+                    } else {
+                        self.get_or_create_render_stage_target(
+                            device,
+                            node_id,
+                            stage_index,
+                            output_size,
+                        )
+                    };
+
                     let pipeline = self.get_or_create_cached_shader_pipeline(
                         cache_key,
                         device,
                         &shader_code,
                         &stage_definition,
                     )?;
-
-                    let is_final_stage = stage_index + 1 == stages.len();
-                    let stage_output_view = if is_final_stage {
-                        actual_output_view.clone()
-                    } else {
-                        let texture = device.create_texture(&wgpu::TextureDescriptor {
-                            label: Some("multi_pass_intermediate"),
-                            size: output_size,
-                            mip_level_count: 1,
-                            sample_count: 1,
-                            dimension: wgpu::TextureDimension::D2,
-                            format: target_format,
-                            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                                | wgpu::TextureUsages::TEXTURE_BINDING,
-                            view_formats: &[],
-                        });
-                        std::sync::Arc::new(
-                            texture.create_view(&wgpu::TextureViewDescriptor::default()),
-                        )
-                    };
 
                     pipeline
                         .apply(
@@ -235,11 +223,13 @@ impl GraphExecutor {
                         &format!("{stage_name} shader"),
                     )?;
                     let is_final_stage = stage_index + 1 == stages.len();
+
                     let storage_format = if is_final_stage {
-                        target_format
+                        wgpu::TextureFormat::Rgba8Unorm
                     } else {
                         wgpu::TextureFormat::Rgba16Float
                     };
+
                     let cache_key = format!(
                         "{}::{}::{:?}",
                         stage_name,
@@ -335,7 +325,81 @@ impl GraphExecutor {
                         .map_err(|e| ExecutionError::PipelineCreationError(e.to_string()))?;
 
                     if is_final_stage {
-                        actual_output_view = stage_output_view;
+                        // If compute storage format doesn't match the engine target format
+                        // (display/swapchain format), we must blit the compute output
+                        // into a render target with `self.target_format`.
+                        if storage_format != target_format {
+                            // Ensure we have a render target view with the correct format
+                            let final_render_view =
+                                self.get_or_create_render_target(device, node_id, output_size);
+
+                            // Load blit shader from external file under the crate's shaders/ folder.
+                            let blit_node = crate::node::node_definition::NodeDefinition {
+                                node: crate::node::engine_node::EngineNode {
+                                    name: "__internal_blit".to_string(),
+                                    inputs: vec![crate::node::engine_node::NodeInput {
+                                        name: "input".to_string(),
+                                        kind: crate::node::engine_node::NodeInputKind::Frame,
+                                        show_pin: true,
+                                    }],
+                                    outputs: vec![crate::node::engine_node::NodeOutput {
+                                        name: "output".to_string(),
+                                        kind: crate::node::engine_node::NodeOutputKind::Frame,
+                                        show_pin: true,
+                                    }],
+                                    executor: crate::node::engine_node::NodeExecutionPlan::Shader {
+                                        source: PathBuf::from("internal_blit.wgsl"),
+                                        passes: vec![],
+                                    },
+                                    short_description: String::new(),
+                                    long_description: String::new(),
+                                    category: String::new(),
+                                    subcategories: vec![],
+                                    search_keywords: vec![],
+                                },
+                                shader_path: None,
+                                folder_path: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                                    .join("shaders"),
+                            };
+
+                            let blit_cache_key = format!(
+                                "internal_blit::{}::{}x{}",
+                                node_id, output_size.width, output_size.height
+                            );
+
+                            let blit_shader_code = self.load_shader_source(
+                                &blit_node,
+                                std::path::Path::new("internal_blit.wgsl"),
+                                "internal blit shader",
+                            )?;
+
+                            let blit_pipeline = self.get_or_create_cached_shader_pipeline(
+                                blit_cache_key,
+                                device,
+                                &blit_shader_code,
+                                &blit_node,
+                            )?;
+
+                            // Blit: primary input is the compute stage output
+                            blit_pipeline
+                                .apply(
+                                    device,
+                                    queue,
+                                    &mut encoder,
+                                    stage_output_view.as_ref(),
+                                    &[],
+                                    final_render_view.as_ref(),
+                                    &std::collections::HashMap::<
+                                        String,
+                                        crate::graph_executor::NodeValue,
+                                    >::new(),
+                                )
+                                .map_err(ExecutionError::RenderError)?;
+
+                            actual_output_view = final_render_view;
+                        } else {
+                            actual_output_view = stage_output_view;
+                        }
                     } else {
                         intermediate_views.push(stage_output_view);
                     }
@@ -346,16 +410,20 @@ impl GraphExecutor {
         let output_frame = GpuFrame {
             view: actual_output_view.clone(),
             size: output_size,
-            frame_id: frame_inputs.first().map(|f| f.frame_id()).unwrap_or_else(media::frame::Uid::generate_new),
+            frame_id: frame_inputs
+                .first()
+                .map(|f| f.frame_id())
+                .unwrap_or_else(media::frame::Uid::generate_new),
         };
 
         let mut scalar_data: Option<[f32; 4]> = None;
         if has_scalar_output {
-            let scalar_texture = scalar_output_texture
-                .as_ref()
-                .ok_or(ExecutionError::GpuReadbackError(
-                    "scalar output texture missing".to_string(),
-                ))?;
+            let scalar_texture =
+                scalar_output_texture
+                    .as_ref()
+                    .ok_or(ExecutionError::GpuReadbackError(
+                        "scalar output texture missing".to_string(),
+                    ))?;
             let bytes_per_pixel = 4_u32;
             // WebGPU requires bytes_per_row alignment for copy_texture_to_buffer.
             let bytes_per_row = 256_u32;
@@ -444,7 +512,10 @@ impl GraphExecutor {
                     })?;
                     let channel = rgba[scalar_channel_idx.min(3)];
                     scalar_channel_idx = scalar_channel_idx.saturating_add(1);
-                    outputs.insert(output_def.name.clone(), NodeValue::Int(channel.round() as i32));
+                    outputs.insert(
+                        output_def.name.clone(),
+                        NodeValue::Int(channel.round() as i32),
+                    );
                 }
                 NodeOutputKind::Bool => {
                     let rgba = scalar_data.ok_or_else(|| {

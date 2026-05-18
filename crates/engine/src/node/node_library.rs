@@ -64,15 +64,16 @@ impl NodeLibrary {
     /// - Categories contain direct_nodes (nodes not in any subcategory)
     ///
     /// Example for UI:
-    /// ```
-    /// Color/
-    ///   ├─ Brightness
-    ///   └─ Invert
-    /// Distortion/
-    ///   ├─ Glitch/          (subcategory, if used)
-    ///   │  └─ RGB Delay
-    ///   └─ Chromatic Aberration  (direct node)
-    /// ```
+    /// doesn't look good in docs
+    /// ``
+    /// Color (folder)
+    ///    ─ Brightness
+    ///    ─ Invert
+    /// Distortion (folder)
+    ///    ─ Glitch (subcategory, if used)
+    ///      ─ RGB Delay (sub cat node)
+    ///    ─ Chromatic Aberration
+    /// ``
     pub fn get_all_category_info(&self) -> Vec<CategoryInfo> {
         let categories = self.get_all_categories();
 

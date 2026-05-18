@@ -1,3 +1,4 @@
+use crate::engine_outpost::EngineOutpostEvent;
 use crate::node_graph::EngineNodeId;
 use crate::{gpu_frame::GpuFrame, graph_executor::NodeValue, upload_stager::UploadStager};
 use media::fps::{Fps, consts::FPS_30};
@@ -5,9 +6,16 @@ use media::frame::streams::{FrameStream, FrameStreamError, StillFrameStream, Vid
 use media::frame::{Frame, FromImgFileError};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::thread;
 use util::channels::ChannelError;
+use util::channels::message_channel::{self, Inbox, Outbox};
 
 use super::timed_stream_handler::TimedStreamHandler;
+
+type LoadResultInbox = Inbox<(
+    NodeFrameStreamKey,
+    Result<Box<dyn FrameStream + Send>, FrameStreamHandlerError>,
+)>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum FrameStreamHandlerError {
@@ -37,6 +45,8 @@ pub enum FrameStreamHandlerError {
     },
     #[error("Failed to upload frame texture for '{path}': {error}")]
     TextureUpload { path: PathBuf, error: String },
+    #[error("Frame stream is still loading for '{path}'")]
+    Loading { path: PathBuf },
 }
 
 #[derive(Clone, Copy, Hash, Eq, PartialEq)]
@@ -60,7 +70,11 @@ struct NodeFrameStreamKey {
 
 pub struct FrameStreamHandler {
     /// Cache of video and image streams keyed by node id + file path + stream kind.
-    stream_cache: HashMap<NodeFrameStreamKey, Box<dyn FrameStream>>,
+    stream_cache: HashMap<NodeFrameStreamKey, Box<dyn FrameStream + Send>>,
+    pending_streams: HashSet<NodeFrameStreamKey>,
+    loading_announced: HashSet<NodeFrameStreamKey>,
+    load_request_tx: Outbox<(NodeFrameStreamKey, NodeFrameStreamRequest)>,
+    load_result_rx: LoadResultInbox,
     paused: bool,
 }
 
@@ -72,8 +86,24 @@ impl Default for FrameStreamHandler {
 
 impl FrameStreamHandler {
     pub fn new() -> Self {
+        let (load_request_rx, load_request_tx) = message_channel::new();
+        let (load_result_rx, load_result_tx) = message_channel::new();
+
+        thread::spawn(move || {
+            while let Ok((key, request)) = load_request_rx.wait() {
+                let result = Self::build_stream(&request);
+                if load_result_tx.send((key, result)).is_err() {
+                    break;
+                }
+            }
+        });
+
         Self {
             stream_cache: HashMap::new(),
+            pending_streams: HashSet::new(),
+            loading_announced: HashSet::new(),
+            load_request_tx,
+            load_result_rx,
             paused: false,
         }
     }
@@ -139,7 +169,7 @@ impl FrameStreamHandler {
         &mut self,
         request: &NodeFrameStreamRequest,
     ) -> Result<Fps, FrameStreamHandlerError> {
-        let stream = self.create_stream(request)?;
+        let stream = self.create_stream(request, None)?;
         Ok(stream.target_fps())
     }
 
@@ -147,7 +177,7 @@ impl FrameStreamHandler {
         &mut self,
         request: &NodeFrameStreamRequest,
     ) -> Result<Fps, FrameStreamHandlerError> {
-        let stream = self.create_stream(request)?;
+        let stream = self.create_stream(request, None)?;
         let any = stream.as_ref() as &dyn std::any::Any;
 
         if let Some(video_stream) = any.downcast_ref::<VideoFrameStream>() {
@@ -161,7 +191,10 @@ impl FrameStreamHandler {
     fn create_stream(
         &mut self,
         request: &NodeFrameStreamRequest,
-    ) -> Result<&mut Box<dyn FrameStream>, FrameStreamHandlerError> {
+        mut emit_event: Option<&mut dyn FnMut(EngineOutpostEvent)>,
+    ) -> Result<&mut Box<dyn FrameStream + Send>, FrameStreamHandlerError> {
+        self.poll_completed_streams();
+
         let key = NodeFrameStreamKey {
             node_id: request.node_id,
             file_path: request.file_path.clone(),
@@ -180,20 +213,71 @@ impl FrameStreamHandler {
             self.stream_cache.remove(&stale_key);
         }
 
+        self.pending_streams
+            .retain(|cached_key| cached_key.node_id != request.node_id || *cached_key == key);
+        self.loading_announced
+            .retain(|cached_key| cached_key.node_id != request.node_id || *cached_key == key);
+
         if !self.stream_cache.contains_key(&key) {
-            let mut stream = Self::build_stream(request)?;
-            if self.paused {
-                stream.pause();
-            } else {
-                stream.play();
+            if self.pending_streams.contains(&key) {
+                if let Some(emit_event) = emit_event.as_mut()
+                    && self.loading_announced.insert(key.clone())
+                {
+                    emit_event(EngineOutpostEvent::StreamLoading(request.node_id));
+                }
+                return Err(FrameStreamHandlerError::Loading {
+                    path: request.file_path.clone(),
+                });
             }
-            self.stream_cache.insert(key.clone(), stream);
+
+            if let Some(emit_event) = emit_event.as_mut()
+                && self.loading_announced.insert(key.clone())
+            {
+                emit_event(EngineOutpostEvent::StreamLoading(request.node_id));
+            }
+
+            self.pending_streams.insert(key.clone());
+            let loading_path = request.file_path.clone();
+            let request = NodeFrameStreamRequest {
+                node_id: request.node_id,
+                file_path: request.file_path.clone(),
+                stream_kind: request.stream_kind,
+            };
+
+            let _ = self.load_request_tx.send((key, request));
+
+            return Err(FrameStreamHandlerError::Loading { path: loading_path });
         }
 
         Ok(self
             .stream_cache
             .get_mut(&key)
             .expect("stream inserted above"))
+    }
+
+    fn poll_completed_streams(&mut self) {
+        loop {
+            match self.load_result_rx.check_non_blocking() {
+                Ok(Some((key, result))) => {
+                    self.pending_streams.remove(&key);
+                    self.loading_announced.remove(&key);
+
+                    if let Ok(mut stream) = result {
+                        if self.paused {
+                            stream.pause();
+                        } else {
+                            stream.play();
+                        }
+                        self.stream_cache.insert(key, stream);
+                    }
+                }
+                Ok(None) => break,
+                Err(err) => {
+                    util::debug_log_warning!("Frame stream load result channel error: {err}");
+                    break;
+                }
+            }
+        }
     }
 
     /// Execute stream retrieval for a built-in source node.
@@ -206,8 +290,9 @@ impl FrameStreamHandler {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         upload_stager: &mut UploadStager,
+        emit_event: &mut dyn FnMut(EngineOutpostEvent),
     ) -> Result<Vec<NodeValue>, FrameStreamHandlerError> {
-        let stream = self.create_stream(request)?;
+        let stream = self.create_stream(request, Some(emit_event))?;
 
         let frame = stream
             .fetch()
@@ -233,7 +318,7 @@ impl FrameStreamHandler {
                 height,
                 depth_or_array_layers: 1,
             },
-            frame.uid()
+            frame.uid(),
         );
 
         stream.recycle(frame);
@@ -243,7 +328,7 @@ impl FrameStreamHandler {
 
     fn build_stream(
         request: &NodeFrameStreamRequest,
-    ) -> Result<Box<dyn FrameStream>, FrameStreamHandlerError> {
+    ) -> Result<Box<dyn FrameStream + Send>, FrameStreamHandlerError> {
         match request.stream_kind {
             StreamKind::Video => {
                 let mut video_request = VideoFrameStream::builder()
@@ -302,7 +387,7 @@ impl FrameStreamHandler {
 }
 
 impl TimedStreamHandler for FrameStreamHandler {
-    type Stream = Box<dyn FrameStream>;
+    type Stream = Box<dyn FrameStream + Send>;
 
     fn for_each_stream_mut<F>(&mut self, mut f: F)
     where
@@ -323,6 +408,8 @@ impl TimedStreamHandler for FrameStreamHandler {
 
     fn clear_stream_cache(&mut self) {
         self.stream_cache.clear();
+        self.pending_streams.clear();
+        self.loading_announced.clear();
     }
 
     fn stream_pause(stream: &mut Self::Stream) {

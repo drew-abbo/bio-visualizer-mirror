@@ -1,11 +1,12 @@
 pub mod editor;
 mod main_output;
 mod title_bar;
-
 use super::args::Args;
 use super::launcher_comm;
 use editor::{EditorArea, NodeGraphState};
+use engine::engine_outpost::{EngineOutpostHandle, EventFilter, EventKind};
 use main_output::MainOutputArea;
+use std::sync::Arc;
 use title_bar::Command;
 use util::local_data::project::{Project, ProjectId};
 use util::ui::popup_window;
@@ -17,6 +18,7 @@ pub struct AppArea {
     title_bar: title_bar::TitleBarArea,
     editor_area: EditorArea,
     main_output: MainOutputArea,
+    engine_handle: Option<EngineOutpostHandle>,
     show_exit_confirmation: bool,
     /// Flag to indicate we're exiting, prevents re-checking for changes
     is_exiting: bool,
@@ -52,6 +54,7 @@ impl AppArea {
             title_bar: title_bar::TitleBarArea::new(),
             editor_area,
             main_output: MainOutputArea::new(),
+            engine_handle: None,
             show_exit_confirmation: false,
             is_exiting: false,
             startup_maximized_requested: false,
@@ -127,6 +130,35 @@ impl eframe::App for AppArea {
         self.request_startup_maximized(ctx);
         self.process_pending_commands();
 
+        // Spawn engine and wire up per-area senders/receivers once render_state is available
+        if self.engine_handle.is_none()
+            && let Some(render_state) = frame.wgpu_render_state()
+        {
+            // Only spawn once; EditorArea will set its local command sender via spawn_engine
+            if self.editor_area.engine_command_sender().is_none() {
+                util::debug_log_info!("Spawning engine");
+                let handle = self.editor_area.spawn_engine(
+                    Arc::new(render_state.device.clone()),
+                    Arc::new(render_state.queue.clone()),
+                    render_state.target_format,
+                );
+                util::debug_log_info!("Engine spawned, setting up subscriptions");
+
+                // Subscribe main output to a filtered event stream and provide it with a command sender
+                let output_rx = handle.subscribe(EventFilter::Only(vec![
+                    EventKind::FrameReady,
+                    EventKind::StreamState,
+                    EventKind::FpsChanged,
+                    EventKind::InfoResponse,
+                ]));
+                let output_tx = handle.command_sender();
+                self.main_output.init_engine(output_tx, output_rx);
+
+                util::debug_log_info!("Engine handle stored");
+                self.engine_handle = Some(handle);
+            }
+        }
+
         // Check if the user is trying to close the window
         if ctx.input(|i| i.viewport().close_requested()) {
             // Only check for unsaved changes if we're not already exiting
@@ -159,13 +191,26 @@ impl eframe::App for AppArea {
         }
 
         self.show_top_bar(ctx);
-        self.main_output.show(ctx);
-        self.editor_area
-            .show_with_main_output(ctx, frame, &mut self.main_output);
+        self.editor_area.show(
+            ctx,
+            frame,
+            self.main_output.preview_selected_node_enabled(),
+            self.main_output.has_frame(),
+            self.main_output.playback_enabled(),
+        );
+        if let Some(render_state) = frame.wgpu_render_state() {
+            self.main_output.show(ctx, render_state);
+        }
 
-        let fps = self.editor_area.current_target_fps();
-        if let Some(fps) = fps {
-            ctx.request_repaint_after(fps.interval());
+        // Doing this instead of the recommended frame rate of the video
+        // We want to repaint as fast as possible during playback
+        // If we are paused we can slow down the repaint rate to save resources
+        if self.engine_handle.is_some() {
+            if self.main_output.playback_enabled() {
+                ctx.request_repaint();
+            } else {
+                ctx.request_repaint_after(std::time::Duration::from_millis(50));
+            }
         }
     }
 
