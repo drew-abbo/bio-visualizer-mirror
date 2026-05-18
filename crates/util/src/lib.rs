@@ -33,5 +33,5 @@ pub mod ui;
 pub mod uid;
 #[cfg(feature = "version")]
 pub mod version;
-#[cfg(feature = "windows_exe")]
-pub mod windows_exe;
+#[cfg(feature = "windows_build")]
+pub mod windows_build;

@@ -36,6 +36,7 @@ impl Default for DetailsImpl {
         let mut res = winresource::WindowsResource::new();
 
         res.set_language(0x0409 /* English (US) */);
+
         res.set("FileVersion", crate::version::APP_VERSION);
         res.set("ProductVersion", crate::version::APP_VERSION);
 
@@ -57,6 +58,7 @@ impl Details for DetailsImpl {
     }
 
     fn name(mut self, name: impl AsRef<str>) -> Self {
+        self.0.set("FileDescription", name.as_ref());
         self.0.set("ProductName", name.as_ref());
         self
     }

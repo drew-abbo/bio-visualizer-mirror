@@ -8,7 +8,7 @@ editor-core = { workspace = true, optional = true }
 app-core = { workspace = true, optional = true }
 
 [build-dependencies]
-util = { workspace = true, features = ["windows_exe", "version"] }
+util = { workspace = true, features = ["windows_build", "version"] }
 
 [features]
 default = ["link-static"]
