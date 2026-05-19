@@ -185,7 +185,6 @@ def run_cmd(
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,  # Combine stderr and stdout to stdout.
             text=False,
-            bufsize=1,  # Line buffering.
             env=env,
         )
 
