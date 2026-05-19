@@ -5,8 +5,10 @@ pub mod ui;
 
 mod worker;
 
+use std::path::{Path, PathBuf};
 use std::process::{Child, ExitCode, ExitStatus};
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard, OnceLock};
+use std::{env, io};
 
 use serde::{Deserialize, Serialize};
 
@@ -93,41 +95,49 @@ pub fn opened_editors() -> MutexGuard<'static, Vec<Arc<Mutex<Child>>>> {
 /// Get the path to the editor executable.
 ///
 /// This assumes the editor is in the same directory as the current executable
-/// and is named "editor" (or "editor.exe" on Windows).
-fn get_editor_path() -> Result<std::path::PathBuf, std::io::Error> {
-    static EDITOR_PATH: OnceLock<std::path::PathBuf> = OnceLock::new();
+/// and is named `editor` (or `editor.exe` on Windows).
+///
+/// On windows, if the current executable's name is `launcher-with-console`,
+/// this will actually search for an executable called `editor-with-console.exe`
+/// first (falling back to `editor.exe` if it can't find it).
+fn get_editor_path() -> Result<&'static Path, io::Error> {
+    static EDITOR_PATH: OnceLock<PathBuf> = OnceLock::new();
     if let Some(path) = EDITOR_PATH.get() {
-        return Ok(path.clone());
+        return Ok(path);
     }
 
-    let current_exe = std::env::current_exe()?;
-    let current_exe = std::fs::canonicalize(current_exe)?;
-    let exe_dir = current_exe.parent().ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "Could not determine executable directory",
-        )
-    })?;
+    let cache_editor_path = |path: PathBuf| -> &'static Path {
+        let _ = EDITOR_PATH.set(path);
+        EDITOR_PATH.get().expect("just set")
+    };
 
-    #[cfg(windows)]
-    let editor_name = "editor.exe";
-    #[cfg(not(windows))]
-    let editor_name = "editor";
+    let current_exe = env::current_exe()?.canonicalize()?;
 
-    let editor_path = exe_dir.join(editor_name);
+    let look_for_editor_with_console =
+        cfg!(windows) && current_exe.ends_with("launcher-with-console.exe");
 
-    // Verify the editor executable is actually a file.
+    let mut editor_path = current_exe;
+    editor_path.pop();
+
+    if look_for_editor_with_console {
+        editor_path.push("editor-with-console.exe");
+
+        if editor_path.is_file() {
+            return Ok(cache_editor_path(editor_path));
+        }
+        editor_path.pop();
+    };
+
+    editor_path.push(if cfg!(windows) {
+        "editor.exe"
+    } else {
+        "editor"
+    });
     if !editor_path.is_file() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!("Editor executable not found at: {}", editor_path.display()),
-        ));
+        return Err(io::ErrorKind::NotFound.into());
     }
 
-    let editor_path = std::fs::canonicalize(editor_path)?;
-    let _ = EDITOR_PATH.set(editor_path.clone());
-
-    Ok(editor_path)
+    Ok(cache_editor_path(editor_path))
 }
 
 fn wait_on_child_processes(child_processes: &[Arc<Mutex<Child>>], close_editors: bool) {
