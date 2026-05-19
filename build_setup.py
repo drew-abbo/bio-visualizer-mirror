@@ -16,7 +16,7 @@ On Windows, this script:
 - Generates a `.cargo/config.toml` that sets all the needed environment
   variables to build ffmpeg-next.
 
-On MacOS, this script:
+On macOS, this script:
 - Ensures you have Homebrew installed (with an option to install it
   automatically).
 - Uses Homebrew to ensure you have the required ffmpeg and pkg-config packages
@@ -415,12 +415,12 @@ def windows() -> None:
 
 def mac_os() -> None:
     """
-    Handles build setup for MacOS builds.
+    Handles build setup for macOS builds.
     """
 
     arch = sh.get_supported_arch()
     if arch is None:
-        log.fatal("MacOS builds only support x86_64 and arm64")
+        log.fatal("macOS builds only support x86_64 and arm64")
 
     def ensure_brew_is_installed() -> None:
         try:
@@ -518,7 +518,7 @@ def main() -> None:
     system = platform.system().lower()
     if system == "windows":
         windows()
-    elif system == "darwin":  # MacOS
+    elif system == "darwin":  # macOS
         mac_os()
     elif system == "linux":
         log.fatal("unimplemented")

@@ -21,7 +21,7 @@
 3. The build scripts will walk you through installing the build-dependencies you
    need, but installing
    [your platform's necessary dependencies](#buildpackaging-dependencies) ahead
-   of time may speed up the process (especially on MacOS where some of the
+   of time may speed up the process (especially on macOS where some of the
    dependencies can take a *very long time* to install).
 4. Run [build_setup.py](./build_setup.py). This will walk you through any steps
    you need to take before you can build. Run this script until it says you're
@@ -77,10 +77,10 @@ For packaging ([build_package.py](./build_package.py)):
   flag.
 
 </td></tr>
-<tr><td><b>MacOS</b></td><td>
+<tr><td><b>macOS</b></td><td>
 
 Both x86_64 and Arm64 (Apple silicon, e.g. M1) platforms are natively supported
-for MacOS.
+for macOS.
 
 For building ([build_setup.py](./build_setup.py)):
 
@@ -104,7 +104,7 @@ Linux is not officially supported just yet.
 </table>
 
 Cross-compilation support is not currently planned. Builds should only be
-expected to work on other systems with the same kind of OS (Windows, MacOS,
+expected to work on other systems with the same kind of OS (Windows, macOS,
 Linux) and the same architecture (x86_64, Arm64).
 
 ## Development

@@ -437,7 +437,7 @@ def build_and_stage_artifact(
     elif crate_kind in ("dylib", "cdylib"):
         if SYSTEM == "windows":
             ext = ".dll"
-        elif SYSTEM == "darwin":  # MacOS
+        elif SYSTEM == "darwin":  # macOS
             ext = ".dylib"
         elif SYSTEM == "linux":
             ext = ".so"
@@ -644,10 +644,10 @@ def windows(out_dir: str, args: Args) -> None:
 
 def mac_os(staging_dir: str) -> None:
     """
-    Handles MacOS-specific packaging steps.
+    Handles macOS-specific packaging steps.
     """
 
-    log.fatal("MacOS support is currently broken.")
+    log.fatal("macOS support is currently broken.")
 
     def ensure_cli_tools_installed() -> None:
         try:
@@ -738,8 +738,8 @@ def main() -> None:
 
     if SYSTEM == "windows":
         windows(out_dir, args)
-    elif SYSTEM == "darwin":  # MacOS
-        log.fatal("MacOS support is currently unimplemented.")
+    elif SYSTEM == "darwin":  # macOS
+        log.fatal("macOS support is currently unimplemented.")
     elif SYSTEM == "linux":
         log.fatal("Linux support is currently unimplemented.")
     else:
