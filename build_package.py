@@ -613,31 +613,33 @@ def windows(out_dir: str, args: Args) -> None:
     log.info("Staging complete.")
 
     # Create installer.
-    sh.ensure_cmd_exists(
-        "iscc",
-        help_msg="Inno Setup is required to create an installer. "
-        + "Ensure it's installed and the `iscc` command is available.\n"
-        + "Inno Setup: https://jrsoftware.org/isinfo.php",
-    )
-    log.info("Creating installer...")
-    try:
-        sh.run_cmd(
+    if not args.no_installer:
+        sh.ensure_cmd_exists(
             "iscc",
-            f"/DAppVersion={app_version()}",
-            f"/DAppPackagePath={out_dir}",
-            f"/O{out_dir}",
-            ".\\build_util\\windows-installer.iss",
+            help_msg="Inno Setup is required to create an installer. "
+            + "Ensure it's installed and the `iscc` command is available.\n"
+            + "Inno Setup: https://jrsoftware.org/isinfo.php",
         )
-    except sh.CmdException as e:
-        log.fatal(f"{e}")
-    log.info("Installer created.")
+        log.info("Creating installer...")
+        try:
+            sh.run_cmd(
+                "iscc",
+                f"/DAppVersion={app_version()}",
+                f"/DAppPackagePath={out_dir}",
+                f"/O{out_dir}",
+                ".\\build_util\\windows-installer.iss",
+            )
+        except sh.CmdException as e:
+            log.fatal(f"{e}")
+        log.info("Installer created.")
 
     # Create a portable zip.
-    try:
-        shutil.make_archive(f"{staging_dir}-portable", "zip", staging_dir)
-    except:
-        log.fatal(f"Failed to create portable archive.")
-    log.info("Portable archive created.")
+    if not args.no_portable_archive:
+        try:
+            shutil.make_archive(f"{staging_dir}-portable", "zip", staging_dir)
+        except:
+            log.fatal(f"Failed to create portable archive.")
+        log.info("Portable archive created.")
 
 
 def mac_os(staging_dir: str) -> None:
