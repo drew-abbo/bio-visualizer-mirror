@@ -3,6 +3,7 @@
 - [Build Instructions](#build-instructions)
   - [Build Setup](#build-setup)
   - [Packaging a Build for Release](#packaging-a-build-for-release)
+  - [Build/Packaging Dependencies](#buildpackaging-dependencies)
 - [Development](#development)
   - [Binary Crates](#binary-crates)
   - [Core Wrapper Crates](#core-wrapper-crates)
@@ -17,8 +18,11 @@
    `rustup update`). The project may build on older Rust tooling, but only the
    latest stable versions are guaranteed.
 2. Ensure you have Python 3.9 or newer.
-3. Ensure you have the necessary additional dependencies for your platform (see
-   table below).
+3. The build scripts will walk you through installing the build-dependencies you
+   need, but installing
+   [your platform's necessary dependencies](#buildpackaging-dependencies) ahead
+   of time may speed up the process (especially on MacOS where some of the
+   dependencies can take a *very long time* to install).
 4. Run [build_setup.py](./build_setup.py). This will walk you through any steps
    you need to take before you can build. Run this script until it says you're
    all set (you may need to run it multiple times if you're missing
@@ -26,49 +30,6 @@
 
 ```sh
 python3 ./build_setup.py --help
-```
-
-<table>
-<tr><th>Platform</th><th>Details</th></tr>
-</tr><td>Windows</td><td>
-
-Only Windows 11 (x86_64) is supported. The project may be able to build on
-Windows 10, but it is not being intentionally supported.
-
-- Ensure you're using the `x86_64-pc-windows-msvc` toolchain for Rust (the
-  default).
-- Ensure you have the
-  [Visual Studio Installer](https://visualstudio.microsoft.com/downloads/) (2022
-  or 2026, *Community* is fine).
-- The [7z command-line utility](https://www.7-zip.org/download.html) is
-  optional, but it may make the build setup process easier if you already have
-  it. It's required if you want [build_setup.py](./build_setup.py) to run start
-  to finish without human input (see `-y` flag).
-- [Inno Setup](https://jrsoftware.org/isinfo.php) is required if you want to
-  package the app with an installer (running
-  [build_package.py](./build_package.py) without the `--no-installer` flag).
-
-</td></tr>
-<tr><td>MacOS</td><td>
-
-Only MacOS Monterey and newer is supported. The project may be able to build on
-older versions, but it is not being intentionally supported. Both x86_64 and
-Arm64 (Apple silicon) platforms are natively supported.
-
-</td></tr>
-
-</td></tr>
-<tr><td>Linux</td><td>
-
-Linux is not officially supported just yet.
-
-</td></tr>
-</table>
-
-Once the above is satisfied, you're set to build with `cargo`:
-
-```sh
-cargo build -p editor && cargo run -p launcher
 ```
 
 ### Packaging a Build for Release
@@ -82,6 +43,70 @@ default).
 python3 ./build_package.py --help
 ```
 
+
+
+### Build/Packaging Dependencies
+
+The table below lists the dependencies needed to run the
+[build_setup.py](./build_setup.py) and [build_package.py](./build_package.py)
+scripts for each platform. The build scripts will walk you through installing
+any dependencies you don't have. The table is just for reference.
+
+<table>
+<tr><th>Platform</th><th>Details</th></tr>
+</tr><td><b>Windows</b></td><td>
+
+Windows 10 (x86_64) and Windows 11 (x86_64) are supported. Native Arm64 support
+for Windows is not currently planned.
+
+For building ([build_setup.py](./build_setup.py)):
+
+- Ensure you're using the `x86_64-pc-windows-msvc` toolchain for Rust (default).
+- Ensure you have the
+  [Visual Studio Installer](https://visualstudio.microsoft.com/downloads/) (2022
+  or 2026, *Community* is fine).
+- The [7z command-line utility](https://www.7-zip.org/download.html) is
+  optional but recommended. Without it the script will always require human
+  input (even if you have the above dependencies and provide the `-y` flag).
+
+For packaging ([build_package.py](./build_package.py)):
+
+- [Inno Setup](https://jrsoftware.org/isinfo.php) is required if you want to
+  package the app with an installer. You can skip this dependency (meaning
+  you'll create a package with no installer) by providing the `--no-installer`
+  flag.
+
+</td></tr>
+<tr><td><b>MacOS</b></td><td>
+
+Both x86_64 and Arm64 (Apple silicon, e.g. M1) platforms are natively supported
+for MacOS.
+
+For building ([build_setup.py](./build_setup.py)):
+
+- You'll need the `ffmpeg@8` and `pkg-config` packages installed globally
+  through the [Homebrew](https://brew.sh/) package manager. Note that installing
+  these can sometimes take an *exremely* long time.
+
+For packaging ([build_package.py](./build_package.py)):
+
+- You'll need Xcode's Command Line Tools. You can install these by running
+  `xcode-select --install`.
+
+</td></tr>
+
+</td></tr>
+<tr><td><b>Linux</b></td><td>
+
+Linux is not officially supported just yet.
+
+</td></tr>
+</table>
+
+Cross-compilation support is not currently planned. Builds should only be
+expected to work on other systems with the same kind of OS (Windows, MacOS,
+Linux) and the same architecture (x86_64, Arm64).
+
 ## Development
 
 ### Binary Crates
@@ -92,7 +117,24 @@ starting up editor instances. `editor` is an actual project editor.
 Run a binary like this:
 
 ```sh
-cargo run --bin <BINARY_NAME> -- [ARGUMENTS_FOR_BINARY*]
+cargo run -p <BINARY_NAME> -- [ARGUMENTS_FOR_BINARY*]
+```
+
+Note that when the `launcher` binary goes to spawn an `editor` binary it will
+not automatically be an up-to-date build of the editor. Make sure to always
+manually build the `editor` crate before spawning an editor from the `launcher`.
+To build an up-to-date `editor` and run an up-to-date `launcher` run the
+following command:
+
+```sh
+cargo build -p editor && cargo run -p launcher
+```
+
+Both binaries have arguments that you may find useful. Run them with the
+`--help` flags for more info.
+
+```sh
+cargo run -p <BINARY_NAME> -- --help
 ```
 
 ### Core Wrapper Crates
@@ -112,9 +154,9 @@ the `app-core-dylib` crate will create this shared library.
 Doing dynamic linking like this move's all of the app's code into the shared
 library, leaving the binaries as just thin wrappers. This makes it more
 reasonable to ship many different binaries since each one doesn't need to come
-with everything statically linked (making file sizes huge). For example, on
-Windows we ship 4 different executables (a console and no-console variation of
-both binaries).
+with everything statically linked (making file sizes huge). This is great for
+Windows where we currently ship 4 different executables (a console and
+no-console variation of both binaries).
 
 To reduce compilation times, dynamic linking is not enabled by default.
 
@@ -127,6 +169,6 @@ To reduce compilation times, dynamic linking is not enabled by default.
 
 ### Versioning
 
-The app's version is set by the `version` field in the root
+The app's version is set by the `workspace.package.version` field in the root
 [Cargo.toml](./Cargo.toml) file. This is the single source of truth for the
 entire project (the app's version shouldn't be hard-coded anywhere else).
