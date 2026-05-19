@@ -11,6 +11,10 @@ The `--no-opt` flag can be used to disable optimization and symbol stripping
 (for packaging debug builds). This is really only useful for reducing compile
 times.
 
+The `--no-installer` flag skips creating/packaging an installer.
+
+The `--no-portable-archive` flag skips creating/packaging a portable archive
+
 When the `-o` flag is provided, a file extension can also be provided so that an
 archive is created instead of a directory. For example `-o out` will create a
 directory, but `-o out.zip` or `-o out.tar.xz` will create an archive. The
@@ -26,6 +30,7 @@ import sys
 import os
 import platform
 import json
+import re
 import time
 import shutil
 import tempfile
@@ -43,8 +48,10 @@ SYSTEM = platform.system().lower()
 
 @dataclass
 class Args:
-    no_opt: str
     out: str
+    no_opt: bool
+    no_installer: bool
+    no_portable_archive: bool
     clean: bool
 
 
@@ -59,14 +66,20 @@ Usage:
     {ARG_0}
         [-y|-n]
         [--no-opt]
+        [--no-installer]
+        [--no-portable-archive]
         [-o <OUTPUT_PATH>[.zip|.tar|.tar.gz|.tar.bz|.tar.xz]]
         [--clean]
     {ARG_0} --help
 """.rstrip()
 
     no_opt = False
+    no_installer = False
+    no_portable_archive = False
     out = None
     clean = False
+
+    clean_incompatible_arg = None
 
     args = iter(sys.argv[1:])
     seen_args: set[str] = set()
@@ -113,6 +126,13 @@ Usage:
 
         elif arg == "--no-opt":
             no_opt = True
+            clean_incompatible_arg = clean_incompatible_arg or arg
+        elif arg == "--no-installer":
+            no_installer = True
+            clean_incompatible_arg = clean_incompatible_arg or arg
+        elif arg == "--no-portable-archive":
+            no_portable_archive = True
+            clean_incompatible_arg = clean_incompatible_arg or arg
 
         else:
             log.fatal(f"Unknown argument `{arg}`." + USAGE)
@@ -122,12 +142,74 @@ Usage:
     except:
         log.fatal(f"`{out}` is not a valid path.")
 
-    if no_opt and clean:
+    if clean and clean_incompatible_arg:
         log.fatal(
-            f"Arguments `--no-opt` and `--clean` are incompatible." + USAGE
+            f"Arguments `{clean_incompatible_arg}` "
+            + "and `--clean` are incompatible."
+            + USAGE
         )
 
-    return Args(no_opt, out, clean)
+    return Args(
+        out,
+        no_opt,
+        no_installer,
+        no_portable_archive,
+        clean,
+    )
+
+
+@cache
+def app_version() -> str:
+    """
+    Parses the root `Cargo.toml` file looking for the app's version
+    (`workspace.package.version`). The result is cached so that the command only
+    ever runs once.
+    """
+
+    cargo_toml_path = "./Cargo.toml"
+
+    help_msg = (
+        "Ensure `Cargo.toml` is valid and "
+        + "`workspace.package.version` is defined."
+    )
+
+    try:
+        import tomllib
+    except ImportError:
+        log.warning(
+            "Python module `tomllib` unavailable for version query. "
+            + "Attempting naive version query..."
+        )
+
+        # naive search just looks for lines like `version = "___"`
+        try:
+            with open(cargo_toml_path, "r") as f:
+                version_lines = [
+                    line
+                    for line in f.readlines()
+                    if re.fullmatch(r"\s*version\s*=\s*\"[\w\.\-]+\"\s*", line)
+                ]
+            if len(version_lines) != 1:
+                raise Exception("Expected exactly 1 matching line.")
+        except:
+            log.fatal("Naive version query failed. " + help_msg)
+
+        line = version_lines[0]
+        version = line[line.find('"') + 1 : line.rfind('"')]
+    else:
+        # The non-naive query actually parses the toml file.
+        try:
+            with open(cargo_toml_path, "rb") as f:
+                cargo_toml = tomllib.load(f)
+            version = cargo_toml["workspace"]["package"]["version"]
+        except:
+            log.fatal("Version query failed. " + help_msg)
+
+    log.info(
+        "Found version "
+        + f"`{log.Color.INFO}{version}{log.Color.RESET}` in `Cargo.toml`."
+    )
+    return version
 
 
 def clear_up_path(path: str) -> None:
@@ -154,31 +236,31 @@ def clear_up_path(path: str) -> None:
         log.info(f"Nothing to remove anymore at `{path}`.")
 
 
-def create_staging_dir(path: Optional[str]) -> str:
+def create_out_dir(path: Optional[str]) -> str:
     """
-    Creates an empty staging directory at `path` if it's provided (emptying it
-    if it exists) or in a temporary location. The directory's path is returned.
+    Creates an empty directory at `path` if it's provided (emptying it if it
+    exists) or in a temporary location. The directory's path is returned.
     """
 
     try:
         if path is not None:
             clear_up_path(path)
             os.makedirs(path)
-            log.info(f"Staging directory created (`{path}`).")
-            staging_dir = path
+            log.info(f"Output directory created (`{path}`).")
+            out_dir = path
         else:
-            staging_dir = tempfile.mkdtemp()
-            log.info(f"Temporary staging directory created (`{staging_dir}`).")
+            out_dir = tempfile.mkdtemp()
+            log.info(f"Temporary output directory created (`{out_dir}`).")
     except:
-        log.fatal("Failed to initialize staging directory.")
+        log.fatal("Failed to initialize output directory.")
 
-    ends_with_slash = staging_dir.endswith(os.sep) or (
-        os.altsep and staging_dir.endswith(os.altsep)
+    ends_with_slash = out_dir.endswith(os.sep) or (
+        os.altsep and out_dir.endswith(os.altsep)
     )
     if ends_with_slash:
-        staging_dir = staging_dir[:-1]
+        out_dir = out_dir[:-1]
 
-    return staging_dir
+    return out_dir
 
 
 def file_name(path: str) -> str:
@@ -251,8 +333,14 @@ def try_archive(
 
     try:
         clear_up_path(out_file)
-        log.info("Archiving output.")
-        shutil.make_archive(out_path_without_ext, archive_fmt, src_dir)
+        log.info("Archiving output...")
+        shutil.make_archive(
+            out_path_without_ext,
+            archive_fmt,
+            src_dir,
+            owner="root",
+            group="root",
+        )
     except:
         err_msg = f"Failed to create `.{ext}` archive."
         if user.confirm(
@@ -433,7 +521,22 @@ def fmt_time(secs: float) -> str:
     return secs_str
 
 
-def windows(staging_dir: str, no_opt: bool) -> None:
+def stage_common_files(staging_dir: str) -> None:
+    """
+    Stages files that need to be packaged along with the app.
+    """
+
+    try:
+        with open(f"{staging_dir}/version", "w") as f:
+            f.write(app_version())
+    except:
+        log.fatal("Failed to stage version file.")
+
+    # TODO: Also include a license and README file. You can modify the windows
+    # installer script to show these to the user.
+
+
+def windows(out_dir: str, args: Args) -> None:
     """
     Handles Windows-specific packaging steps.
     """
@@ -441,13 +544,22 @@ def windows(staging_dir: str, no_opt: bool) -> None:
     if sh.get_supported_arch() != "x86_64":
         log.fatal("Windows builds currently only support x86_64.")
 
+    staging_dir = f"{out_dir}\\Substrate-{app_version()}"
+    try:
+        os.makedirs(staging_dir)
+    except:
+        log.fatal(f"Failed to create staging directory `{staging_dir}`.")
+
+    stage_common_files(staging_dir)
+
+    # Build & stage the app-core DLL.
     app_core_dll = build_and_stage_artifact(
         "app-core-dylib",
         staging_dir,
-        no_opt=no_opt,
+        no_opt=args.no_opt,
     )
 
-    # Create a temp dir with the `.lib` file to add to the linker path
+    # Create a temp dir with the app-core `.lib` file to add to the linker path.
     app_core_lib = f"{app_core_dll}.lib"  # "app_core_dylib.dll.lib"
     sh.ensure_path_exists(app_core_lib, kind="file")
     try:
@@ -465,12 +577,12 @@ def windows(staging_dir: str, no_opt: bool) -> None:
                 ["link-dylib"]
                 + ([] if with_console else ["no-windows-console"])
             ),
-            no_opt=no_opt,
+            no_opt=args.no_opt,
             rustflags=f"-L {temp_app_lib_dir}",
         )
 
+    # Build & stage binaries (a console and non-console version for each).
     for bin_name in ("editor", "launcher"):
-        # Create both console and non-console binaries on windows
         build_and_stage_bin(bin_name, with_console=True)
         try:
             shutil.move(
@@ -490,6 +602,42 @@ def windows(staging_dir: str, no_opt: bool) -> None:
         file_ext_filter=".dll",
     )
     log.info(f"Copied {len(dlls_copied)} FFmpeg DLLs into staging directory.")
+
+    # Stage nodes folder.
+    try:
+        shutil.copytree(".\\nodes", f"{staging_dir}\\nodes")
+    except:
+        log.fatal("Failed to stage nodes.")
+    log.info(f"Copied nodes directory into staging directory.")
+
+    log.info("Staging complete.")
+
+    # Create installer.
+    sh.ensure_cmd_exists(
+        "iscc",
+        help_msg="Inno Setup is required to create an installer. "
+        + "Ensure it's installed and the `iscc` command is available.\n"
+        + "Inno Setup: https://jrsoftware.org/isinfo.php",
+    )
+    log.info("Creating installer...")
+    try:
+        sh.run_cmd(
+            "iscc",
+            f"/DAppVersion={app_version()}",
+            f"/DAppPackagePath={out_dir}",
+            f"/O{out_dir}",
+            ".\\build_util\\windows-installer.iss",
+        )
+    except sh.CmdException as e:
+        log.fatal(f"{e}")
+    log.info("Installer created.")
+
+    # Create a portable zip.
+    try:
+        shutil.make_archive(f"{staging_dir}-portable", "zip", staging_dir)
+    except:
+        log.fatal(f"Failed to create portable archive.")
+    log.info("Portable archive created.")
 
 
 def mac_os(staging_dir: str) -> None:
@@ -582,29 +730,24 @@ def main() -> None:
 
     archive_fmt = get_archive_fmt(args.out)
     user_wants_archive = archive_fmt is not None
-    staging_dir = create_staging_dir(None if user_wants_archive else args.out)
+    out_dir = create_out_dir(None if user_wants_archive else args.out)
 
     sh.ensure_cmd_exists("cargo")
 
     if SYSTEM == "windows":
-        windows(staging_dir, args.no_opt)
+        windows(out_dir, args)
     elif SYSTEM == "darwin":  # MacOS
-        mac_os(staging_dir)
+        log.fatal("MacOS support is currently unimplemented.")
     elif SYSTEM == "linux":
         log.fatal("Linux support is currently unimplemented.")
     else:
         log.fatal(f"Unsupported system: `{SYSTEM}`")
 
-    try:
-        shutil.copytree("./nodes", f"{staging_dir}/nodes")
-    except:
-        log.fatal("Failed to stage nodes.")
-
     if not user_wants_archive:
         out_path = args.out
         archive_was_made = False
     else:
-        out_path = try_archive(args.out, staging_dir)
+        out_path = try_archive(args.out, out_dir)
         archive_was_made = out_path == args.out
     out_kind = "archive" if archive_was_made else "directory"
 

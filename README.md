@@ -42,7 +42,11 @@ Windows 10, but it is not being intentionally supported.
   or 2026, *Community* is fine).
 - The [7z command-line utility](https://www.7-zip.org/download.html) is
   optional, but it may make the build setup process easier if you already have
-  it.
+  it. It's required if you want [build_setup.py](./build_setup.py) to run start
+  to finish without human input (see `-y` flag).
+- [Inno Setup](https://jrsoftware.org/isinfo.php) is required if you want to
+  package the app with an installer (running
+  [build_package.py](./build_package.py) without the `--no-installer` flag).
 
 </td></tr>
 <tr><td>MacOS</td><td>
@@ -124,4 +128,5 @@ To reduce compilation times, dynamic linking is not enabled by default.
 ### Versioning
 
 The app's version is set by the `version` field in the root
-[Cargo.toml](./Cargo.toml) file.
+[Cargo.toml](./Cargo.toml) file. This is the single source of truth for the
+entire project (the app's version shouldn't be hard-coded anywhere else).
