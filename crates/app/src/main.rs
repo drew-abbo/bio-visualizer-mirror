@@ -25,14 +25,19 @@ fn main() -> Result<(), eframe::Error> {
         }
     }
 
-    // Configure the native window with custom title bar
+    // Configure the native window with custom title bar.
+    // with_fullscreen is only used on Windows — on Linux/macOS it causes actual
+    // exclusive fullscreen (hides taskbar). On all platforms, app_area sends
+    // ViewportCommand::Maximized(true) on the first frame to start maximized.
     let viewport = egui::ViewportBuilder::default()
         .with_title(APP_NAME)
         .with_decorations(false)
         .with_resizable(true)
         .with_inner_size([1280.0, 720.0])
-        .with_min_inner_size([800.0, 600.0])
-        .with_fullscreen(true);
+        .with_min_inner_size([800.0, 600.0]);
+
+    #[cfg(target_os = "windows")]
+    let viewport = viewport.with_fullscreen(true);
 
     let native_options = eframe::NativeOptions {
         viewport,

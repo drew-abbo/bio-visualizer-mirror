@@ -520,6 +520,116 @@ def mac_os(staging_dir: str, bin_crates: list[str]) -> None:
             )
 
 
+def linux(staging_dir: str, bin_crates: list[str]) -> None:
+    """
+    Handles Linux-specific packaging steps.
+    """
+
+    if sh.get_supported_arch() != "x86_64":
+        log.fatal("Linux builds currently only support x86_64.")
+
+    # patchelf is needed to rewrite the rpath in the staged binaries so they
+    # can find FFmpeg shared libs next to them at runtime ($ORIGIN) rather
+    # than at the absolute dev-time path baked in by build_setup.py.
+    def ensure_patchelf() -> None:
+        try:
+            sh.ensure_cmd_exists("patchelf", non_fatal=True)
+            log.info("Found `patchelf`.")
+            return
+        except sh.DoesntExistException:
+            pass
+
+        pkg_manager: Optional[str] = next(
+            (pm for pm in ("dnf", "apt-get") if shutil.which(pm) is not None),
+            None,
+        )
+        if pkg_manager is None:
+            log.fatal(
+                "`patchelf` is required but not found, and no supported"
+                + " package manager is available. Please install it manually."
+            )
+        if not user.confirm(
+            f"`patchelf` is required. Install with `sudo {pkg_manager}`?"
+        ):
+            log.fatal("`patchelf` is required.")
+        sh.run_cmd("sudo", pkg_manager, "install", "-y", "patchelf")
+        sh.ensure_cmd_exists("patchelf")
+        log.info("`patchelf` installed.")
+
+    def get_ffmpeg_lib_dir() -> str:
+        import configparser
+
+        cfg = configparser.ConfigParser()
+        cfg.read(".cargo/config.toml")
+        ffmpeg_dir = cfg.get("env", "FFMPEG_DIR", fallback="./ffmpeg").strip('"')
+        lib_dir = os.path.join(ffmpeg_dir, "lib")
+        sh.ensure_path_exists(lib_dir, kind="dir")
+        return os.path.realpath(lib_dir)
+
+    def get_ffmpeg_solibs(bin_crate: str, ffmpeg_lib_dir: str) -> list[str]:
+        """Returns the real paths of FFmpeg .so files needed by the binary."""
+        import subprocess
+
+        result = subprocess.run(
+            ["ldd", f"{staging_dir}/{bin_crate}"],
+            capture_output=True,
+            text=True,
+        )
+        libs: list[str] = []
+        for line in result.stdout.splitlines():
+            parts = line.strip().split(" => ")
+            if len(parts) != 2:
+                continue
+            lib_path = parts[1].split(" ")[0]
+            try:
+                real = os.path.realpath(lib_path)
+                if real.startswith(ffmpeg_lib_dir):
+                    libs.append(real)
+            except (ValueError, OSError):
+                continue
+        return libs
+
+    ensure_patchelf()
+    ffmpeg_lib_dir = get_ffmpeg_lib_dir()
+
+    staged_libs: set[str] = set()
+
+    for bin_crate in bin_crates:
+        bin_path = f"{staging_dir}/{bin_crate}"
+        libs = get_ffmpeg_solibs(bin_crate, ffmpeg_lib_dir)
+
+        if not libs:
+            log.info(f"No FFmpeg shared libs required for `{bin_crate}`.")
+        else:
+            log.info(
+                f"Copying {len(libs)} FFmpeg shared lib(s) for `{bin_crate}`."
+            )
+            for lib_real_path in libs:
+                lib_name = os.path.basename(lib_real_path)
+                dest = f"{staging_dir}/{lib_name}"
+                if lib_name not in staged_libs:
+                    try:
+                        shutil.copy(lib_real_path, dest)
+                    except Exception:
+                        log.fatal(
+                            f"Failed to copy `{lib_real_path}` to `{dest}`."
+                        )
+                    staged_libs.add(lib_name)
+
+        # Replace the absolute dev-time RPATH with $ORIGIN so the binary finds
+        # the FFmpeg .so files placed alongside it in the package directory.
+        sh.run_cmd(
+            "patchelf", "--set-rpath", "$ORIGIN", bin_path, show_output=False
+        )
+        log.info(f"Updated rpath for `{bin_crate}`.")
+
+    if staged_libs:
+        log.info(
+            f"Staged {len(staged_libs)} FFmpeg shared lib(s): "
+            + ", ".join(sorted(staged_libs))
+        )
+
+
 def main() -> None:
     start_time = time.time()
 
@@ -549,7 +659,7 @@ def main() -> None:
     elif system == "darwin":  # MacOS
         mac_os(staging_dir, bin_crates)
     elif system == "linux":
-        log.fatal("unimplemented")
+        linux(staging_dir, bin_crates)
     else:
         log.fatal(f"Unsupported system: `{system}`")
 

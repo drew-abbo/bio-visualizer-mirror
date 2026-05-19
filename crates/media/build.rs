@@ -7,7 +7,7 @@ fn main() {
     match target_os.as_str() {
         "windows" => windows(),
         "macos" => {}
-        "linux" => unimplemented!(),
+        "linux" => {}  // rpath handles library lookup; no extra copying needed.
         _ => panic!("Unsupported target OS `{target_os}`."),
     }
 }

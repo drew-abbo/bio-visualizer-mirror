@@ -22,7 +22,17 @@ On MacOS, this script:
 - Uses Homebrew to ensure you have the required ffmpeg and pkg-config packages
   installed.
 
-The compiled executable will depend on shared library files (e.g. dll/dylib
+On Linux (x86_64 only), this script:
+- Ensures you have clang installed (needed by bindgen to generate ffmpeg-next's
+  rust bindings). Uses `dnf` (Fedora/RHEL) or `apt-get` (Debian/Ubuntu).
+- Ensures you have ALSA development headers installed (needed by midir).
+- Downloads FFmpeg 8 pre-built shared libraries from BtbN/FFmpeg-Builds (if not
+  already present locally) and places them in `./ffmpeg/`.
+- Generates a `.cargo/config.toml` that points the build at the local FFmpeg
+  and embeds an rpath so the executables can find the shared libraries at
+  runtime.
+
+The compiled executable will depend on shared library files (e.g. dll/dylib/so
 files).
 """.rstrip()
 
@@ -508,6 +518,185 @@ def mac_os() -> None:
     log.info("Build directory cleaned.")
 
 
+def linux() -> None:
+    """
+    Handles build setup for Linux builds.
+    """
+
+    if sh.get_supported_arch() != "x86_64":
+        log.fatal("Linux builds currently only support x86_64.")
+
+    # Detect package manager.
+    pkg_manager: Optional[str] = None
+    for pm in ("dnf", "apt-get"):
+        if shutil.which(pm) is not None:
+            pkg_manager = pm
+            break
+
+    if pkg_manager is None:
+        log.fatal(
+            "No supported package manager found (tried `dnf` and `apt-get`)."
+            + " Please manually install `clang` and ALSA development headers,"
+            + " then re-run this script."
+        )
+
+    log.info(f"Found package manager `{pkg_manager}`.")
+
+    clang_pkg = "clang" if pkg_manager == "dnf" else "clang"
+    alsa_pkg = "alsa-lib-devel" if pkg_manager == "dnf" else "libasound2-dev"
+
+    def ensure_system_pkg(pkg_name: str, check_fn: typing.Callable[[], bool]) -> None:
+        if check_fn():
+            log.info(f"`{pkg_name}` is already installed.")
+            return
+        if not user.confirm(
+            f"It doesn't look like you have `{pkg_name}` installed."
+            + f" Install with `sudo {pkg_manager}`?"
+        ):
+            log.fatal(f"`{pkg_name}` is required.")
+        sh.run_cmd("sudo", pkg_manager, "install", "-y", pkg_name)
+
+    # clang is required by bindgen to generate ffmpeg-next's rust bindings.
+    ensure_system_pkg(
+        clang_pkg,
+        lambda: shutil.which("clang") is not None,
+    )
+    sh.ensure_cmd_exists("clang")
+    log.info("Found `clang`.")
+
+    # ALSA development headers are required by midir.
+    alsa_header = "/usr/include/alsa/asoundlib.h"
+    ensure_system_pkg(alsa_pkg, lambda: os.path.exists(alsa_header))
+    log.info("Found ALSA development headers.")
+
+    def get_ffmpeg_dir() -> str:
+        FFMPEG_TARBALL_PATH = "./ffmpeg.tar.xz"
+        FFMPEG_DIR = "./ffmpeg"
+
+        FFMPEG_DOWNLOAD_URL = (
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/"
+            "ffmpeg-n8.1-latest-linux64-gpl-shared-8.1.tar.xz"
+        )
+
+        MANUAL_INSTALL_MSG = (
+            "You can still manually install.\n"
+            + "Please re-run this script after downloading and extracting"
+            + f" FFmpeg 8 shared libraries to `{FFMPEG_DIR}`"
+            + f" from:\n{FFMPEG_DOWNLOAD_URL}"
+        )
+
+        def download_ffmpeg_tarball() -> None:
+            if not user.confirm(
+                "You don't have FFmpeg 8 installed locally yet."
+                + " Download it from the internet now?"
+            ):
+                log.fatal(f"Skipping download. {MANUAL_INSTALL_MSG}")
+
+            log.info("Downloading FFmpeg 8. This may take a while... ", end="", flush=True)
+            try:
+                urllib.request.urlretrieve(FFMPEG_DOWNLOAD_URL, FFMPEG_TARBALL_PATH)
+            except KeyboardInterrupt:
+                try:
+                    os.remove(FFMPEG_TARBALL_PATH)
+                except Exception:
+                    pass
+                log.warning(f"\nDownload cancelled. {MANUAL_INSTALL_MSG}")
+                raise
+            except Exception:
+                log.fatal(f"\nDownload failed. {MANUAL_INSTALL_MSG}")
+            print("Done.")
+            log.info("FFmpeg 8 tarball downloaded.")
+
+        def extract_ffmpeg() -> None:
+            sh.ensure_cmd_exists("tar", help_msg="`tar` is required to extract FFmpeg.")
+            log.info("Extracting FFmpeg tarball...")
+            sh.run_cmd("tar", "-xJf", FFMPEG_TARBALL_PATH)
+
+            # BtbN builds extract into a versioned subdirectory — find and rename it.
+            extracted_dirs = [
+                d for d in os.listdir(".")
+                if os.path.isdir(d) and d.startswith("ffmpeg-n") and "linux" in d
+            ]
+            if not extracted_dirs:
+                log.fatal("Could not find extracted FFmpeg directory.")
+
+            extracted_dir = extracted_dirs[0]
+            if os.path.exists(FFMPEG_DIR):
+                shutil.rmtree(FFMPEG_DIR)
+            shutil.move(extracted_dir, FFMPEG_DIR)
+            log.info(f"FFmpeg 8 extracted to `{FFMPEG_DIR}`.")
+
+        if not os.path.exists(FFMPEG_DIR):
+            if not os.path.exists(FFMPEG_TARBALL_PATH):
+                download_ffmpeg_tarball()
+            extract_ffmpeg()
+
+        sh.ensure_path_exists(f"{FFMPEG_DIR}/include", kind="dir")
+        sh.ensure_path_exists(f"{FFMPEG_DIR}/lib", kind="dir")
+        log.info("FFmpeg 8 found locally.")
+
+        if os.path.exists(FFMPEG_TARBALL_PATH) and user.confirm(
+            "Downloaded FFmpeg tarball is no longer needed."
+            + f" Remove it (`{FFMPEG_TARBALL_PATH}`)?"
+        ):
+            os.remove(FFMPEG_TARBALL_PATH)
+
+        return os.path.abspath(FFMPEG_DIR)
+
+    ffmpeg_dir = get_ffmpeg_dir()
+
+    # Find the Clang built-in include directory (from clang-resource-filesystem
+    # on Fedora, or clang on Debian/Ubuntu). This is needed by bindgen so it
+    # can resolve compiler built-in headers like <limits.h>.
+    clang_include_dir: Optional[str] = None
+    for candidate in sorted(
+        (
+            str(p)
+            for p in [
+                *[f"/usr/lib/clang/{v}/include" for v in range(20, 25)],
+                *[f"/usr/lib/llvm-{v}/lib/clang/{v}/include" for v in range(14, 20)],
+            ]
+        ),
+        reverse=True,
+    ):
+        if os.path.isdir(candidate):
+            clang_include_dir = candidate
+            break
+
+    if clang_include_dir is None:
+        log.warning(
+            "Could not find Clang built-in include directory."
+            + " FFmpeg binding generation may fail."
+            + " Try installing `clang` and re-running this script."
+        )
+    else:
+        log.info(f"Found Clang include directory: `{clang_include_dir}`.")
+
+    # FFMPEG_DIR tells ffmpeg-sys-next where to find FFmpeg headers/libs.
+    # LIBCLANG_PATH + BINDGEN_EXTRA_CLANG_ARGS ensure bindgen can generate
+    # the FFmpeg rust bindings without needing the `clang` compiler installed.
+    # The rpath embeds the lib path into the binary so the executables can
+    # find the .so files at runtime without needing LD_LIBRARY_PATH.
+    cargo_config = "[env]\n" + f'FFMPEG_DIR = "{ffmpeg_dir}"\n'
+    cargo_config += 'LIBCLANG_PATH = "/usr/lib64"\n'
+    if clang_include_dir is not None:
+        cargo_config += f'BINDGEN_EXTRA_CLANG_ARGS = "-I{clang_include_dir}"\n'
+    # --disable-new-dtags forces RPATH (not RUNPATH). RUNPATH only applies to
+    # the binary's direct dependencies; RPATH applies transitively, which is
+    # required so that FFmpeg's own shared libs (e.g. libavcodec) can find their
+    # own deps (e.g. libswresample) inside our local ./ffmpeg/lib directory.
+    cargo_config += (
+        "\n"
+        + "[build]\n"
+        + f'rustflags = ["-C", "link-args=-Wl,--disable-new-dtags,-rpath,{ffmpeg_dir}/lib"]\n'
+    )
+
+    create_cargo_config(cargo_config)
+
+    sh.run_cmd("cargo", "clean")
+    log.info("Build directory cleaned.")
+
+
 def main() -> None:
     parse_args()
 
@@ -519,7 +708,7 @@ def main() -> None:
     elif system == "darwin":  # MacOS
         mac_os()
     elif system == "linux":
-        log.fatal("unimplemented")
+        linux()
     else:
         log.fatal(f"Unsupported system: `{system}`")
 

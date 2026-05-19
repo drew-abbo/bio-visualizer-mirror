@@ -13,7 +13,8 @@
 
 1. Ensure you have an up to date version of the Rust toolchain installed (run
    `rustup update`). The project may build on older Rust tooling, but only the
-   latest stable versions are guaranteed.
+   latest stable versions are guaranteed. If Rust is not yet installed, get it
+   from [rustup.rs](https://rustup.rs).
 2. Ensure you have Python 3.9 or newer.
 3. Ensure you have the necessary additional dependencies for your platform (see
    table below).
@@ -50,11 +51,21 @@ older versions, but it is not being intentionally supported. Both x86_64 and
 Arm64 (Apple silicon) platforms are natively supported.
 
 </td></tr>
-
-</td></tr>
 <tr><td>Linux</td><td>
 
-Linux is not supported just yet.
+Only x86_64 is supported. Tested on Nobara/Fedora 43 and similar
+`dnf`-based distros; `apt-get`-based distros (Debian/Ubuntu) should also
+work.
+
+`build_setup.py` will prompt to install any missing system packages (via
+`sudo dnf` or `sudo apt-get`) and will automatically download FFmpeg 8
+pre-built shared libraries from
+[BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds) into `./ffmpeg/`
+(~64 MB). FFmpeg is used at both build-time and runtime.
+
+> **Note:** FFmpeg 8 is not yet available as a system package on most Linux
+> distros, which is why `build_setup.py` downloads it locally rather than
+> relying on the system FFmpeg.
 
 </td></tr>
 </table>
