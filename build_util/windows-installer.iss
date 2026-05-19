@@ -33,7 +33,7 @@ DisableProgramGroupPage=yes
 PrivilegesRequiredOverridesAllowed=dialog
 OutputDir={#AppPackagePath}
 OutputBaseFilename={#AppName}-{#AppVersion}-Setup
-SetupIconFile=..\logo\desktop-ico.ico
+SetupIconFile=..\logo\s-bg.ico
 SolidCompression=yes
 WizardStyle=modern dynamic
 

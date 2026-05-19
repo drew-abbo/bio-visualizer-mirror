@@ -37,7 +37,7 @@ pub fn windows_scroll_fix(ctx: &Context) {
 /// Loads the app's icon as [IconData] so that it can be passed to
 /// [egui::ViewportBuilder::with_icon].
 pub fn load_app_icon() -> IconData {
-    let image = image::load_from_memory(include_bytes!("../../../logo/s-bg-128x128.png"))
+    let image = image::load_from_memory(include_bytes!("../../../logo/s-bg-512x512.png"))
         .expect("app icon loaded")
         .into_rgba8();
 
