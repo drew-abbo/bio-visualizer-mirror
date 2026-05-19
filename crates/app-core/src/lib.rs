@@ -6,27 +6,20 @@ use std::process::ExitCode;
 
 /// Runs the editor portion of the app.
 pub fn editor() -> ExitCode {
-    i32_to_exit_code(unsafe { substrate_editor() })
+    i32_to_exit_code(unsafe { app_core__editor() })
 }
 
 /// Runs the launcher portion of the app.
 pub fn launcher() -> ExitCode {
-    i32_to_exit_code(unsafe { substrate_launcher() })
+    i32_to_exit_code(unsafe { app_core__launcher() })
 }
 
+// Defined in `app-core-dylib`.
 #[link(name = "app_core_dylib")]
 unsafe extern "C" {
-    /// Runs the editor portion of the app.
-    ///
-    /// A return value of `0` maps to [ExitCode::SUCCESS]. Anything else maps to
-    /// [ExitCode::FAILURE].
-    fn substrate_editor() -> i32;
+    fn app_core__editor() -> i32;
 
-    /// Runs the launcher portion of the app.
-    ///
-    /// A return value of `0` maps to [ExitCode::SUCCESS]. Anything else maps to
-    /// [ExitCode::FAILURE].
-    fn substrate_launcher() -> i32;
+    fn app_core__launcher() -> i32;
 }
 
 fn i32_to_exit_code(exit_code: i32) -> ExitCode {

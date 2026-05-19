@@ -1,5 +1,5 @@
 //! Re-exports `editor` and `launcher` from the `editor-core` & `launcher-core`
-//! crates as C ABI symbols [substrate_editor] and [substrate_launcher].
+//! crates as C ABI symbols.
 
 use std::process::ExitCode;
 
@@ -8,7 +8,7 @@ use std::process::ExitCode;
 /// A return value of `0` maps to [ExitCode::SUCCESS]. Anything else maps to
 /// [ExitCode::FAILURE].
 #[unsafe(no_mangle)]
-pub extern "C" fn substrate_editor() -> i32 {
+pub extern "C" fn app_core__editor() -> i32 {
     exit_code_to_i32(editor_core::editor())
 }
 
@@ -17,7 +17,7 @@ pub extern "C" fn substrate_editor() -> i32 {
 /// A return value of `0` maps to [ExitCode::SUCCESS]. Anything else maps to
 /// [ExitCode::FAILURE].
 #[unsafe(no_mangle)]
-pub extern "C" fn substrate_launcher() -> i32 {
+pub extern "C" fn app_core__launcher() -> i32 {
     exit_code_to_i32(launcher_core::launcher())
 }
 
