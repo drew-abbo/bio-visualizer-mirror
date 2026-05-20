@@ -333,7 +333,9 @@ impl NodeLibrary {
 
         let into_library_io_err = |e| LibraryError::IoError(PathBuf::default(), e);
 
-        let mut exe_dir = env::current_exe().map_err(into_library_io_err)?;
+        let mut exe_dir = env::current_exe()
+            .and_then(|path| path.canonicalize())
+            .map_err(into_library_io_err)?;
         exe_dir.pop();
 
         let resources_dir = if cfg!(target_os = "macos") {
