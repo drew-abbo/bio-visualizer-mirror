@@ -7,6 +7,9 @@ machines (with the same OS and architecture).
 The `-y` or `-n` flags can be provided to auto-accept or auto-deny any prompts
 for user confirmation.
 
+The `-o` flag is used to specify an output directory to create. The default is
+`package`.
+
 The `--no-opt` flag can be used to disable optimization and symbol stripping
 (for packaging debug builds). This is really only useful for reducing compile
 times.
@@ -14,11 +17,6 @@ times.
 The `--no-installer` flag skips creating/packaging an installer.
 
 The `--no-portable-archive` flag skips creating/packaging a portable archive
-
-When the `-o` flag is provided, a file extension can also be provided so that an
-archive is created instead of a directory. For example `-o out` will create a
-directory, but `-o out.zip` or `-o out.tar.xz` will create an archive. The
-default (if `-o` is not provided) is to create a directory called `package`.
 
 The `--clean` flag just removes the directory/file specified by `-o` (or its
 default).
@@ -65,10 +63,10 @@ def parse_args() -> Args:
 Usage:
     {ARG_0}
         [-y|-n]
+        [-o <OUTPUT_PATH>]
         [--no-opt]
         [--no-installer]
         [--no-portable-archive]
-        [-o <OUTPUT_PATH>[.zip|.tar|.tar.gz|.tar.bz|.tar.xz]]
         [--clean]
     {ARG_0} --help
 """.rstrip()
@@ -113,9 +111,6 @@ Usage:
             auto_confirm = arg[1]
             user.set_confirm_auto_answer(auto_confirm)
 
-        elif arg == "--clean":
-            clean = True
-
         elif arg == "-o":
             if not (arg := next_arg_or_none()):
                 log.fatal(
@@ -123,6 +118,9 @@ Usage:
                     + USAGE
                 )
             out = arg
+
+        elif arg == "--clean":
+            clean = True
 
         elif arg == "--no-opt":
             no_opt = True
@@ -236,23 +234,18 @@ def clear_up_path(path: str) -> None:
         log.info(f"Nothing to remove anymore at `{path}`.")
 
 
-def create_out_dir(path: Optional[str]) -> str:
+def create_out_dir(path: str) -> str:
     """
-    Creates an empty directory at `path` if it's provided (emptying it if it
-    exists) or in a temporary location. The directory's path is returned.
+    Creates an empty directory at `path`. The directory's path is returned.
     """
 
     try:
-        if path is not None:
-            clear_up_path(path)
-            os.makedirs(path)
-            log.info(f"Output directory created (`{path}`).")
-            out_dir = path
-        else:
-            out_dir = tempfile.mkdtemp()
-            log.info(f"Temporary output directory created (`{out_dir}`).")
+        clear_up_path(path)
+        os.makedirs(path)
+        log.info(f"Output directory created: {path}")
+        out_dir = path
     except:
-        log.fatal("Failed to initialize output directory.")
+        log.fatal("Failed to create output directory.")
 
     ends_with_slash = out_dir.endswith(os.sep) or (
         os.altsep and out_dir.endswith(os.altsep)
@@ -269,96 +262,6 @@ def file_name(path: str) -> str:
     """
 
     return Path(path).name
-
-
-def file_ext(path: str) -> Optional[str]:
-    """
-    The file extension of a path.
-    """
-
-    out_name = file_name(path)
-    return out_name.split(".", 1)[-1] if "." in out_name else None
-
-
-def get_archive_fmt(
-    path: str, ask_on_unknown_ext: bool = True
-) -> Optional[str]:
-    """
-    The archive format to use for `shutil.make_archive` to make a file with the
-    same extension as `path`. `None` is returned if the extension isn't
-    recognized or is missing.
-    """
-
-    ext = file_ext(path)
-    if ext == "zip":
-        return "zip"
-    if ext == "tar":
-        return "tar"
-    if ext == "tar.gz":
-        return "gztar"
-    if ext == "tar.bz":
-        return "bztar"
-    if ext == "tar.xz":
-        return "xztar"
-
-    if (
-        ext is not None
-        and ask_on_unknown_ext
-        and not user.confirm(
-            f"Unsupported archive format `.{ext}`. "
-            + "Would you like to create a directory?"
-        )
-    ):
-        log.fatal(f"Unsupported archive format `.{ext}`.")
-
-    return None
-
-
-def try_archive(
-    out_file: str,
-    src_dir: str,
-) -> str:
-    """
-    Tries to archive `src_dir` into `out_file` and remove `src_dir`. If creating
-    an archive fails, the user will be asked if it's okay to create a directory
-    instead. The path of the archive or directory is returned. The return value
-    will match `out_file` if and only if creating the archive succeeded.
-    """
-
-    archive_fmt = get_archive_fmt(out_file, ask_on_unknown_ext=False)
-    ext = file_ext(out_file)
-    assert ext is not None and archive_fmt is not None
-
-    out_path_without_ext = out_file[: -(len(ext) + 1)]
-
-    try:
-        clear_up_path(out_file)
-        log.info("Archiving output...")
-        shutil.make_archive(
-            out_path_without_ext,
-            archive_fmt,
-            src_dir,
-            owner="root",
-            group="root",
-        )
-    except:
-        err_msg = f"Failed to create `.{ext}` archive."
-        if user.confirm(
-            f"{err_msg} A directory `{out_path_without_ext}`"
-            + " can be created instead. Would you rather exit?"
-        ):
-            log.fatal(err_msg)
-
-        clear_up_path(out_path_without_ext)
-        try:
-            shutil.move(src_dir, out_path_without_ext)
-        except:
-            log.fatal(f"Failed to move staging directory.")
-        return out_path_without_ext
-
-    sh.rm_path(src_dir)
-
-    return out_file
 
 
 class CargoTarget(TypedDict):
@@ -653,8 +556,9 @@ def windows(out_dir: str, args: Args) -> None:
 
     # Create a portable zip.
     if not args.no_portable_archive:
+        log.info("Creating portable archive...")
         try:
-            shutil.make_archive(f"{staging_dir}-portable", "zip", staging_dir)
+            shutil.make_archive(staging_dir, "zip", staging_dir)
         except:
             log.fatal(f"Failed to create portable archive.")
         log.info("Portable archive created.")
@@ -800,9 +704,7 @@ def main() -> None:
             log.success("Nothing changed.")
         return
 
-    archive_fmt = get_archive_fmt(args.out)
-    user_wants_archive = archive_fmt is not None
-    out_dir = create_out_dir(None if user_wants_archive else args.out)
+    out_dir = create_out_dir(args.out)
 
     sh.ensure_cmd_exists("cargo")
 
@@ -815,18 +717,10 @@ def main() -> None:
     else:
         log.fatal(f"Unsupported system: `{SYSTEM}`")
 
-    if not user_wants_archive:
-        out_path = args.out
-        archive_was_made = False
-    else:
-        out_path = try_archive(args.out, out_dir)
-        archive_was_made = out_path == args.out
-    out_kind = "archive" if archive_was_made else "directory"
-
     elapsed_time = time.time() - start_time
     log.success(
         f"Packaging completed in {fmt_time(elapsed_time)}. "
-        + f"See {out_kind}: {out_path}"
+        + f"See directory: {args.out}"
     )
 
 
