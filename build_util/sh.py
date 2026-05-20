@@ -4,6 +4,8 @@ Contains shell and OS utilities.
 
 import os
 import platform
+import re
+import string
 import sys
 import shutil
 import subprocess
@@ -276,6 +278,59 @@ def catch_stop_signal(fn: Callable[[], None]) -> None:
         print(Color.RESET, end="")
         print(Color.RESET, file=sys.stderr)
         log.fatal(f"Stop signal received.", include_run_again_msg=False)
+
+
+def compile_template_file(
+    src_file: str,
+    key_values: dict[str, str],
+    *,
+    dest_file: Optional[str] = None,
+) -> str:
+    """
+    Reads `src_file`, replaces all keys in double braces `{{ }}` with their
+    provided values from `key_values`, returning the result.
+    """
+
+    try:
+        with open(src_file, "r") as f:
+            src_str = f.read()
+    except:
+        log.fatal(f"Failed to read `{src_file}`.")
+
+    unused_keys = set(key_values.keys())
+
+    dest_str_parts = []
+    last_match_end = 0
+    for match in re.finditer(r"\{\{\s*\w+\s*\}\}", src_str):
+        dest_str_parts.append(src_str[last_match_end : match.start()])
+        last_match_end = match.end()
+
+        key = match.group()[2:-2].strip()
+
+        value = key_values.get(key)
+        if value is None:
+            log.fatal(f"Unexpected key `{key}` in template `{src_file}`.")
+        unused_keys.remove(key)
+
+        dest_str_parts.append(value)
+    dest_str_parts.append(src_str[last_match_end:])
+
+    if len(unused_keys) != 0:
+        log.warning(
+            "Template compilation didn't use all input keys "
+            + f"(`{src_file}`)."
+        )
+
+    dest_str = "".join(dest_str_parts)
+
+    if dest_file is not None:
+        try:
+            with open(dest_file, "w") as f:
+                f.write(dest_str)
+        except:
+            log.fatal(f"Failed to write to `{dest_file}`.")
+
+    return dest_str
 
 
 def __format_cmd(

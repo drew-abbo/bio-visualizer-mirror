@@ -573,13 +573,17 @@ def windows(out_dir: str, args: Args) -> None:
     )
     log.info("Creating installer...")
     try:
+        inno_file = shutil.copy(
+            ".\\build_util\\resources\\inno-setup-config.iss",
+            out_dir,
+        )
         sh.run_cmd(
             "iscc",
             f"/DAppVersion={app_version()}",
-            f"/DAppPackagePath={out_dir}",
             f"/O{out_dir}",
-            ".\\build_util\\windows-installer.iss",
+            inno_file,
         )
+        os.remove(inno_file)
     except sh.CmdException as e:
         log.fatal(f"{e}")
     log.info("Installer created.")
@@ -626,14 +630,15 @@ def mac_os(out_dir: str, args: Args) -> None:
     #           libappcore.dylib
     #           (ffmpeg dylibs)...
     try:
-        os.mkdir(f"{staging_dir}/Contents")
+        contents_staging_dir = f"{staging_dir}/Contents"
+        os.mkdir(contents_staging_dir)
         bin_staging_dir = f"{staging_dir}/Contents/MacOS"
         os.mkdir(bin_staging_dir)
         resources_staging_dir = f"{staging_dir}/Contents/Resources"
         os.mkdir(resources_staging_dir)
         frameworks_staging_dir = f"{staging_dir}/Contents/Frameworks"
         os.mkdir(frameworks_staging_dir)
-    except:
+    except Exception:
         log.fatal("Failed to initialize staging directory.")
 
     dump_common_resources(resources_staging_dir)
@@ -699,7 +704,10 @@ def mac_os(out_dir: str, args: Args) -> None:
         log.info(f"Staged {len(ffmpeg_dylibs)} FFmpeg dylibs.")
 
     log.info(f"Remapping dylib dependencies for `{appcore_dylib_name}`...")
-    sh.run_cmd("install_name_tool", *appcore_remap_args, show_output=False)
+    sh.run_cmd(
+        *("install_name_tool", *appcore_remap_args, appcore_dylib),
+        show_output=False,
+    )
 
     # Create a temp dir with the app-core dylib file to add to the linker path.
     try:
@@ -728,6 +736,24 @@ def mac_os(out_dir: str, args: Args) -> None:
         )
 
     sh.rm_path(temp_app_lib_dir)
+
+    # Bundle `Info.plist` (from template).
+    log.info("Compiling and staging `Info.plist`...")
+    sh.compile_template_file(
+        "./build_util/resources/template-Info.plist",
+        {
+            "CFBundleShortVersionString": app_version(),
+            "CFBundleVersion": str(int(time.time())),
+        },
+        dest_file=f"{contents_staging_dir}/Info.plist",
+    )
+
+    # Bundle icon.
+    log.info("Bundling icon.")
+    try:
+        shutil.copy("./logo/s-bg.icns", resources_staging_dir)
+    except:
+        log.fatal("Failed to bundle icon.")
 
     if args.no_extras:
         return
