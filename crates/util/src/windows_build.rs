@@ -24,65 +24,67 @@ pub trait Details {
 /// Create a builder for setting Windows exe details at *build-time*. On other
 /// platforms this returns a dummy object where all methods are no-ops.
 pub fn details() -> impl Details {
-    DetailsImpl::default()
+    details_impl::DetailsImpl::default()
 }
 
 #[cfg(windows)]
-#[derive(Debug)]
-struct DetailsImpl(winresource::WindowsResource);
+mod details_impl {
+    use super::*;
 
-impl Default for DetailsImpl {
-    fn default() -> Self {
-        let mut res = winresource::WindowsResource::new();
+    #[derive(Debug)]
+    pub struct DetailsImpl(winresource::WindowsResource);
 
-        res.set_language(0x0409 /* English (US) */);
+    impl Default for DetailsImpl {
+        fn default() -> Self {
+            let mut res = winresource::WindowsResource::new();
 
-        res.set("FileVersion", crate::version::APP_VERSION);
-        res.set("ProductVersion", crate::version::APP_VERSION);
+            res.set_language(0x0409 /* English (US) */);
 
-        Self(res)
-    }
-}
+            res.set("FileVersion", crate::version::APP_VERSION);
+            res.set("ProductVersion", crate::version::APP_VERSION);
 
-#[cfg(windows)]
-impl Details for DetailsImpl {
-    fn apply(self) -> Result<(), impl Error> {
-        self.0.compile()
+            Self(res)
+        }
     }
 
-    fn icon(mut self, icon_path: impl AsRef<str>) -> Self {
-        let icon_path = icon_path.as_ref();
-        self.0.set_icon(icon_path);
-        println!("cargo:rerun-if-changed={icon_path}");
-        self
-    }
+    impl Details for DetailsImpl {
+        fn apply(self) -> Result<(), impl Error> {
+            self.0.compile()
+        }
 
-    fn name(mut self, name: impl AsRef<str>) -> Self {
-        self.0.set("FileDescription", name.as_ref());
-        self.0.set("ProductName", name.as_ref());
-        self
+        fn icon(mut self, icon_path: impl AsRef<str>) -> Self {
+            let icon_path = icon_path.as_ref();
+            self.0.set_icon(icon_path);
+            println!("cargo:rerun-if-changed={icon_path}");
+            self
+        }
+
+        fn name(mut self, name: impl AsRef<str>) -> Self {
+            self.0.set("FileDescription", name.as_ref());
+            self.0.set("ProductName", name.as_ref());
+            self
+        }
     }
 }
 
 #[cfg(not(windows))]
-#[derive(Debug, Default)]
-struct BuilderImpl;
+mod details_impl {
+    use super::*;
 
-#[cfg(not(windows))]
-impl Details for DetailsImpl {
-    fn new() -> Self {
-        Self
-    }
+    #[derive(Debug, Default)]
+    pub struct DetailsImpl;
 
-    fn apply(self) -> Result<(), impl Error> {
-        Result::<(), std::convert::Infallible>::Ok(())
-    }
+    impl Details for DetailsImpl {
+        fn apply(self) -> Result<(), impl Error> {
+            Result::<(), std::convert::Infallible>::Ok(())
+        }
 
-    fn icon(self, _icon_path: impl AsRef<str>) -> Self {
-        self
-    }
+        fn icon(self, _icon_path: impl AsRef<str>) -> Self {
+            self
+        }
 
-    fn name(self, _name: impl AsRef<str>) -> Self {
-        self
+        fn name(self, _name: impl AsRef<str>) -> Self {
+            self
+        }
     }
 }

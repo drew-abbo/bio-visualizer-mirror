@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 
 HELP = """
-This is nasty but it's the nicest solution I could come up with. Run this before
-you try and run `cargo build`. Follow the instructions (possibly re-running it a
-few times) until it says you're done.
+This script verifies that all platform-specific dependencies are available and
+configured properly so that the project can be built with `cargo`.
 
 The `-y` or `-n` flags can be provided to auto-accept or auto-deny any prompts
 for user confirmation.
@@ -13,17 +12,13 @@ On Windows, this script:
   rust bindings.
 - Ensures you have FFmpeg shared libraries/headers (with an option to download
   them automatically).
-- Generates a `.cargo/config.toml` that sets all the needed environment
+- Generates a `.cargo/config.toml` file that sets all the needed environment
   variables to build ffmpeg-next.
 
 On macOS, this script:
-- Ensures you have Homebrew installed (with an option to install it
-  automatically).
-- Uses Homebrew to ensure you have the required ffmpeg and pkg-config packages
-  installed.
-
-The compiled executable will depend on shared library files (e.g. dll/dylib
-files).
+- Ensures you have the `ffmpeg@8` and `pkg-config` packages installed through
+  Homebrew (with an option to automatically install Homebrew and the packages if
+  they're missing).
 """.rstrip()
 
 import json
@@ -495,7 +490,18 @@ def mac_os() -> None:
             + " This can take a very long time."
         )
         last_installed_pkgs = None
-        sh.run_cmd("brew", "install", pkg_name)
+
+        try:
+            sh.run_cmd("brew", "install", pkg_name, non_fatal=True)
+
+        # Sometimes Homebrew likes to return an error exit code even when it
+        # installs correctly. If that happens we'll just log it and move on with
+        # our lives.
+        except sh.CmdException as e:
+            if not is_installed_with_brew(pkg_name):  # recursion!
+                log.fatal(f"{e}")
+            log.warning(f"{e} `{pkg_name}` seems to have installed regardless.")
+
         return True
 
     ensure_brew_is_installed()

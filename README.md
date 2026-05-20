@@ -147,7 +147,7 @@ This is done to enable the `link-dylib` feature for the `editor` and `launcher`
 binary crates. When this feature is enabled (and the `link-static` feature is
 disabled), the binaries will expect to be able to link to a dynamic library
 called `app_core_dylib` (e.g. `app_core_dylib.dll` on Windows,
-`app_core_dylib.dylib` on Unix). This dynamic library re-exports the same
+`libapp_core_dylib.dylib` on macOS). This dynamic library re-exports the same
 things `editor-core` and `launcher-core` export, just through a C-ABI. Building
 the `app-core-dylib` crate will create this shared library.
 

@@ -167,7 +167,7 @@ def run_cmd(
     output.
     """
 
-    __print_running_cmd(cmd)
+    __print_running_cmd(cmd, env_overrides)
 
     if show_output:
         print(f"{Color.COMMAND}{' OUTPUT ':~^80}{Color.RESET}", flush=True)
@@ -201,13 +201,18 @@ def run_cmd(
     except KeyboardInterrupt:
         raise
     except Exception as e:
-        raise CmdException(f"Couldn't run `{__format_cmd(cmd)}`: {e}.")
+        raise CmdException(
+            f"Couldn't run `{__format_cmd(cmd, env_overrides)}`: {e}."
+        )
     finally:
         if show_output:
             print(f"\n{Color.RESET + Color.COMMAND}{'~' * 80}{Color.RESET}")
 
     if (exit_code := process.returncode) != 0:
-        err_msg = f"`{__format_cmd(cmd)}` failed with exit code {exit_code}."
+        err_msg = (
+            f"`{__format_cmd(cmd, env_overrides)}` "
+            + f"failed with exit code {exit_code}."
+        )
         if non_fatal:
             raise CmdException(err_msg)
         log.fatal(err_msg)
@@ -223,7 +228,7 @@ def start_cmd(*cmd: str, shell: bool = False) -> None:
     Like `run_cmd()` except it doesn't wait for the command to finish.
     """
 
-    __print_running_cmd(cmd)
+    __print_running_cmd(cmd, None)
     subprocess.Popen(cmd if not shell else " ".join(cmd), shell=shell)
 
 
@@ -273,16 +278,33 @@ def catch_stop_signal(fn: Callable[[], None]) -> None:
         log.fatal(f"Stop signal received.", include_run_again_msg=False)
 
 
-def __format_cmd(cmd: Iterable[str]) -> str:
+def __format_cmd(
+    cmd: Iterable[str],
+    env_overrides: Optional[dict[str, str]],
+) -> str:
     """
     Joins the command arguments into a single string, naively wrapping arguments
     that contain spaces in double quotes.
     """
 
-    return " ".join(arg if " " not in arg else f'"{arg}"' for arg in cmd)
+    def clean_arg(arg: str) -> str:
+        return f'"{arg}"' if " " in arg else arg
+
+    joined_cmd = " ".join(clean_arg(arg) for arg in cmd)
+
+    if env_overrides is not None and len(env_overrides) != 0:
+        joined_cmd = (
+            " ".join(f"{k}={clean_arg(v)}" for k, v in env_overrides.items())
+            + f" {joined_cmd}"
+        )
+
+    return joined_cmd
 
 
-def __print_running_cmd(cmd: Sequence[str]) -> None:
+def __print_running_cmd(
+    cmd: Sequence[str],
+    env_overrides: Optional[dict[str, str]],
+) -> None:
     """
     Highlight the file name in the first argument.
     """
@@ -296,4 +318,7 @@ def __print_running_cmd(cmd: Sequence[str]) -> None:
         *cmd[1:],
     ]
 
-    print(f"{Color.COMMAND}RUNNING COMMAND{Color.RESET}: `{__format_cmd(cmd)}`")
+    print(
+        f"{Color.COMMAND}RUNNING COMMAND{Color.RESET}: "
+        + f"`{__format_cmd(cmd, env_overrides)}`"
+    )
