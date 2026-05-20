@@ -6,20 +6,20 @@ use std::process::ExitCode;
 
 /// Runs the editor portion of the app.
 pub fn editor() -> ExitCode {
-    i32_to_exit_code(unsafe { app_core__editor() })
+    i32_to_exit_code(unsafe { appcore__editor() })
 }
 
 /// Runs the launcher portion of the app.
 pub fn launcher() -> ExitCode {
-    i32_to_exit_code(unsafe { app_core__launcher() })
+    i32_to_exit_code(unsafe { appcore__launcher() })
 }
 
 // Defined in `app-core-dylib`.
-#[link(name = "app_core_dylib")]
+#[link(name = "appcore")]
 unsafe extern "C" {
-    fn app_core__editor() -> i32;
+    fn appcore__editor() -> i32;
 
-    fn app_core__launcher() -> i32;
+    fn appcore__launcher() -> i32;
 }
 
 fn i32_to_exit_code(exit_code: i32) -> ExitCode {

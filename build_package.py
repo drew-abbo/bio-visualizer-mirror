@@ -14,9 +14,8 @@ The `--no-opt` flag can be used to disable optimization and symbol stripping
 (for packaging debug builds). This is really only useful for reducing compile
 times.
 
-The `--no-installer` flag skips creating/packaging an installer.
-
-The `--no-portable-archive` flag skips creating/packaging a portable archive
+The `--no-extras` flag skips creating/packaging things like installers or zip
+archives.
 
 The `--clean` flag just removes the directory/file specified by `-o` (or its
 default).
@@ -48,8 +47,7 @@ SYSTEM = platform.system().lower()
 class Args:
     out: str
     no_opt: bool
-    no_installer: bool
-    no_portable_archive: bool
+    no_extras: bool
     clean: bool
 
 
@@ -65,15 +63,13 @@ Usage:
         [-y|-n]
         [-o <OUTPUT_PATH>]
         [--no-opt]
-        [--no-installer]
-        [--no-portable-archive]
+        [--no-extras]
         [--clean]
     {ARG_0} --help
 """.rstrip()
 
     no_opt = False
-    no_installer = False
-    no_portable_archive = False
+    no_extras = False
     out = None
     clean = False
 
@@ -125,11 +121,9 @@ Usage:
         elif arg == "--no-opt":
             no_opt = True
             clean_incompatible_arg = clean_incompatible_arg or arg
-        elif arg == "--no-installer":
-            no_installer = True
-            clean_incompatible_arg = clean_incompatible_arg or arg
-        elif arg == "--no-portable-archive":
-            no_portable_archive = True
+
+        elif arg == "--no-extras":
+            no_extras = True
             clean_incompatible_arg = clean_incompatible_arg or arg
 
         else:
@@ -150,8 +144,7 @@ Usage:
     return Args(
         out,
         no_opt,
-        no_installer,
-        no_portable_archive,
+        no_extras,
         clean,
     )
 
@@ -316,11 +309,13 @@ def build_and_stage_artifact(
     crate_name: str,
     staging_dir: str,
     *,
+    artifact_name_override: Optional[str] = None,
     no_default_features: bool = False,
     features: Optional[list[str]] = None,
     no_opt: bool = False,
     link_time_dir: Optional[str] = None,
     return_dest: bool = False,
+    rename: Optional[str] = None,
 ) -> str:
     """
     Builds a package-ready artifact and copies it into to the provided output
@@ -384,8 +379,11 @@ def build_and_stage_artifact(
             + "Ensure `build_setup.py` has been run."
         )
 
+    artifact_name = (
+        artifact_name_override
+        or f"{prefix}{crate_name.replace("-", "_")}{suffix}"
+    )
     target_dir = cargo_metadata()["target_directory"]
-    artifact_name = f"{prefix}{crate_name.replace("-", "_")}{suffix}"
     artifact_path = f"{target_dir}/{profile}/{artifact_name}"
     sh.ensure_path_exists(
         artifact_path,
@@ -393,17 +391,17 @@ def build_and_stage_artifact(
         help_msg="Cargo built an artifact somewhere unexpected.",
     )
 
+    dest = f"{staging_dir}/{artifact_name if rename is None else rename}"
     try:
-        shutil.copy(artifact_path, staging_dir)
+        shutil.copy(artifact_path, dest)
     except:
         log.fatal("Failed to copy artifact to output directory.")
 
     log.info(f"Staged artifact `{artifact_name}`.")
 
-    if not return_dest:
-        return artifact_path
-    else:
-        return f"{staging_dir}/{artifact_name}"
+    if return_dest:
+        return dest
+    return artifact_path
 
 
 def fmt_time(secs: float) -> str:
@@ -477,6 +475,7 @@ def dump_common_resources(dir: str) -> None:
         # windows installer script to show these to the user.
     except:
         log.fatal(f"Failed to stage resources in `{dir}`.")
+    log.info("Common resources staged.")
 
 
 def windows(out_dir: str, args: Args) -> None:
@@ -491,22 +490,25 @@ def windows(out_dir: str, args: Args) -> None:
     dump_common_resources(staging_dir)
 
     # Build & stage the app-core DLL.
-    app_core_dll = build_and_stage_artifact(
+    unstaged_appcore_dll = build_and_stage_artifact(
         "app-core-dylib",
         staging_dir,
+        artifact_name_override="appcore.dll",
         no_opt=args.no_opt,
     )
 
     # Create a temp dir with the app-core `.lib` file to add to the linker path.
-    app_core_lib = f"{app_core_dll}.lib"  # "app_core_dylib.dll.lib"
-    sh.ensure_path_exists(app_core_lib, kind="file")
+    appcore_lib = f"{unstaged_appcore_dll}.lib"
+    sh.ensure_path_exists(appcore_lib, kind="file")
     try:
-        temp_app_lib_dir = tempfile.mkdtemp()
-        shutil.copy(app_core_lib, f"{temp_app_lib_dir}\\app_core_dylib.lib")
+        temp_appcore_lib_dir = tempfile.mkdtemp()
+        shutil.copy(appcore_lib, f"{temp_appcore_lib_dir}\\appcore.lib")
     except:
         log.fatal("Failed to create temporary app-core library directory.")
 
-    def build_and_stage_bin(bin_name: str, *, with_console: bool) -> str:
+    def build_and_stage_bin(
+        bin_name: str, file_name: str, with_console: bool
+    ) -> str:
         return build_and_stage_artifact(
             bin_name,
             staging_dir,
@@ -516,22 +518,16 @@ def windows(out_dir: str, args: Args) -> None:
                 + ([] if with_console else ["no-windows-console"])
             ),
             no_opt=args.no_opt,
-            link_time_dir=temp_app_lib_dir,
+            link_time_dir=temp_appcore_lib_dir,
+            rename=file_name,
         )
 
     # Build & stage binaries (a console and non-console version for each).
     for bin_name in ("editor", "launcher"):
-        build_and_stage_bin(bin_name, with_console=True)
-        try:
-            shutil.move(
-                f"{staging_dir}\\{bin_name}.exe",
-                f"{staging_dir}\\{bin_name}-with-console.exe",
-            )
-        except:
-            log.fatal("Failed to rename executable.")
-        build_and_stage_bin(bin_name, with_console=False)
+        build_and_stage_bin(bin_name, f"{bin_name}-with-console.exe", True)
+        build_and_stage_bin(bin_name, f"{bin_name}.exe", False)
 
-    sh.rm_path(temp_app_lib_dir)
+    sh.rm_path(temp_appcore_lib_dir)
 
     # Stage FFmpeg DLLs.
     dlls_copied = sh.copy_files_dir_to_dir(
@@ -543,35 +539,36 @@ def windows(out_dir: str, args: Args) -> None:
 
     log.info("Staging complete.")
 
+    if args.no_extras:
+        return
+
     # Create installer.
-    if not args.no_installer:
-        sh.ensure_cmd_exists(
+    sh.ensure_cmd_exists(
+        "iscc",
+        help_msg="Inno Setup is required to create an installer. "
+        + "Ensure it's installed and the `iscc` command is available.\n"
+        + "Inno Setup: https://jrsoftware.org/isinfo.php",
+    )
+    log.info("Creating installer...")
+    try:
+        sh.run_cmd(
             "iscc",
-            help_msg="Inno Setup is required to create an installer. "
-            + "Ensure it's installed and the `iscc` command is available.\n"
-            + "Inno Setup: https://jrsoftware.org/isinfo.php",
+            f"/DAppVersion={app_version()}",
+            f"/DAppPackagePath={out_dir}",
+            f"/O{out_dir}",
+            ".\\build_util\\windows-installer.iss",
         )
-        log.info("Creating installer...")
-        try:
-            sh.run_cmd(
-                "iscc",
-                f"/DAppVersion={app_version()}",
-                f"/DAppPackagePath={out_dir}",
-                f"/O{out_dir}",
-                ".\\build_util\\windows-installer.iss",
-            )
-        except sh.CmdException as e:
-            log.fatal(f"{e}")
-        log.info("Installer created.")
+    except sh.CmdException as e:
+        log.fatal(f"{e}")
+    log.info("Installer created.")
 
     # Create a portable zip.
-    if not args.no_portable_archive:
-        log.info("Creating portable archive...")
-        try:
-            shutil.make_archive(staging_dir, "zip", staging_dir)
-        except:
-            log.fatal(f"Failed to create portable archive.")
-        log.info("Portable archive created.")
+    log.info("Creating portable archive...")
+    try:
+        shutil.make_archive(staging_dir, "zip", staging_dir)
+    except:
+        log.fatal(f"Failed to create portable archive.")
+    log.info("Portable archive created.")
 
 
 def mac_os(out_dir: str, args: Args) -> None:
@@ -600,19 +597,19 @@ def mac_os(out_dir: str, args: Args) -> None:
     staging_dir = create_staging_dir(out_dir)
     dump_common_resources(staging_dir)
 
-    app_core_dylib = build_and_stage_artifact(
+    appcore_dylib = build_and_stage_artifact(
         "app-core-dylib",
         staging_dir,
         no_opt=args.no_opt,
         return_dest=True,
     )
-    app_core_dylib_name = file_name(app_core_dylib)
+    appcore_dylib_name = file_name(appcore_dylib)
 
     sh.run_cmd(
         "install_name_tool",
         "-id",
-        f"@loader_path/{app_core_dylib_name}",
-        app_core_dylib,
+        f"@loader_path/{appcore_dylib_name}",
+        appcore_dylib,
         show_output=False,
     )
 
@@ -652,9 +649,9 @@ def mac_os(out_dir: str, args: Args) -> None:
 
     ffmpeg_dylib_dir = find_ffmpeg_dylib_dir()
 
-    # Update `app_core_dylib.dylib` to point to dylibs in the same local
-    # directory instead of pointing at this computer's hard-coded global dylibs.
-    dylibs = get_dylibs_names(ffmpeg_dylib_dir, app_core_dylib)
+    # Update app-core dylib to point to dylibs in the same local directory
+    # instead of pointing at this computer's hard-coded global dylibs.
+    dylibs = get_dylibs_names(ffmpeg_dylib_dir, appcore_dylib)
     if len(dylibs) == 0:
         log.warning(f"No FFmpeg dylibs required for `app-core-dylib`.")
     else:
@@ -667,14 +664,14 @@ def mac_os(out_dir: str, args: Args) -> None:
                 "-change",
                 dylib_src_path,
                 f"@loader_path/{dylib}",
-                app_core_dylib,
+                appcore_dylib,
                 show_output=False,
             )
 
     # Create a temp dir with the app-core dylib file to add to the linker path.
     try:
         temp_app_lib_dir = tempfile.mkdtemp()
-        shutil.copy(app_core_dylib, temp_app_lib_dir)
+        shutil.copy(appcore_dylib, temp_app_lib_dir)
     except:
         log.fatal("Failed to create temporary app-core library directory.")
 
@@ -692,8 +689,8 @@ def mac_os(out_dir: str, args: Args) -> None:
         sh.run_cmd(
             "install_name_tool",
             "-change",
-            f"@rpath/{app_core_dylib_name}",
-            f"@executable_path/{app_core_dylib_name}",
+            f"@rpath/{appcore_dylib_name}",
+            f"@executable_path/{appcore_dylib_name}",
             bin_path,
             show_output=False,
         )

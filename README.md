@@ -73,7 +73,7 @@ For packaging ([build_package.py](./build_package.py)):
 
 - [Inno Setup](https://jrsoftware.org/isinfo.php) is required if you want to
   package the app with an installer. You can skip this dependency (meaning
-  you'll create a package with no installer) by providing the `--no-installer`
+  you'll create a package with no installer) by providing the `--no-extras`
   flag.
 
 </td></tr>
@@ -145,11 +145,11 @@ the `link-dylib` feature is enabled).
 
 This is done to enable the `link-dylib` feature for the `editor` and `launcher`
 binary crates. When this feature is enabled (and the `link-static` feature is
-disabled), the binaries will expect to be able to link to a dynamic library
-called `app_core_dylib` (e.g. `app_core_dylib.dll` on Windows,
-`libapp_core_dylib.dylib` on macOS). This dynamic library re-exports the same
-things `editor-core` and `launcher-core` export, just through a C-ABI. Building
-the `app-core-dylib` crate will create this shared library.
+disabled), the binaries will expect to be able to link to a dynamic library file
+(`appcore.dll` on Windows, `libappcore.dylib` on macOS). This dynamic library
+re-exports the same things `editor-core` and `launcher-core` export, just
+through a C-ABI. Building the `app-core-dylib` crate will create this shared
+library.
 
 Doing dynamic linking like this move's all of the app's code into the shared
 library, leaving the binaries as just thin wrappers. This makes it more
