@@ -765,6 +765,8 @@ def mac_os(out_dir: str, args: Args) -> None:
     except:
         log.fatal("Failed to create `.app` directory.")
 
+    # TODO: Create "installer" dmg.
+
     # Create a portable `.app` zip archive.
     create_archive(staging_dir, name_suffix="-portable.app")
 
