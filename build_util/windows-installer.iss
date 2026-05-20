@@ -4,6 +4,7 @@
 
 #define AppName "Substrate"
 #define AppExeName "launcher.exe"
+#define AppPlatform "Windows-x86_64"
 
 ; NOTE: When running, make sure to define these with the `/D` flag.
 ; #define AppVersion "0.0.0"
@@ -32,7 +33,7 @@ DisableProgramGroupPage=yes
 ;PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 OutputDir={#AppPackagePath}
-OutputBaseFilename={#AppName}-{#AppVersion}-Setup
+OutputBaseFilename={#AppName}-{#AppVersion}-{#AppPlatform}-Setup
 SetupIconFile=..\logo\s-bg.ico
 SolidCompression=yes
 WizardStyle=modern dynamic
@@ -44,8 +45,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "{#AppPackagePath}\{#AppName}-{#AppVersion}\{#AppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#AppPackagePath}\{#AppName}-{#AppVersion}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#AppPackagePath}\{#AppName}-{#AppVersion}-{#AppPlatform}\{#AppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#AppPackagePath}\{#AppName}-{#AppVersion}-{#AppPlatform}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Icons]
