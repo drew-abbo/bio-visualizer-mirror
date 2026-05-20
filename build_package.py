@@ -434,9 +434,8 @@ def fmt_time(secs: float) -> str:
 
 def create_staging_dir(out_dir: str) -> str:
     """
-    Creates a directory with the name `Substrate-{Version}-{OS}-{Arch}` and
-    stages common files that need to be packaged along with the app inside. The
-    new directory's path is returned.
+    Creates a directory inside the output directory where the app's contents can
+    be staged.
     """
 
     arch = sh.get_supported_arch()
@@ -448,26 +447,36 @@ def create_staging_dir(out_dir: str) -> str:
         os_name = "Linux"
     else:
         os_name = None
-    assert arch is not None and os_name is not None
+    if arch is None or os_name is None:
+        log.fatal("Unsupported system or architecture.")
 
     staging_dir = f"{out_dir}{os.sep}Substrate-{app_version()}-{os_name}-{arch}"
 
     try:
         os.makedirs(staging_dir)
+    except:
+        log.fatal("Failed to create staging directory.")
 
+    return staging_dir
+
+
+def dump_common_resources(dir: str) -> None:
+    """
+    Writes/copies resources needed on all platforms into `dir`.
+    """
+
+    try:
         # nodes folder
-        shutil.copytree("./nodes", f"{staging_dir}/nodes")
+        shutil.copytree("./nodes", f"{dir}/nodes")
 
         # version file
-        with open(f"{staging_dir}/version", "w") as f:
+        with open(f"{dir}/version", "w") as f:
             f.write(app_version())
 
         # TODO: Also include a license and README file. You can modify the
         # windows installer script to show these to the user.
     except:
-        log.fatal("Failed to create staging directory.")
-
-    return staging_dir
+        log.fatal(f"Failed to stage resources in `{dir}`.")
 
 
 def windows(out_dir: str, args: Args) -> None:
@@ -479,6 +488,7 @@ def windows(out_dir: str, args: Args) -> None:
         log.fatal("Windows builds currently only support x86_64.")
 
     staging_dir = create_staging_dir(out_dir)
+    dump_common_resources(staging_dir)
 
     # Build & stage the app-core DLL.
     app_core_dll = build_and_stage_artifact(
@@ -588,6 +598,7 @@ def mac_os(out_dir: str, args: Args) -> None:
         sh.ensure_cmd_exists("install_name_tool")
 
     staging_dir = create_staging_dir(out_dir)
+    dump_common_resources(staging_dir)
 
     app_core_dylib = build_and_stage_artifact(
         "app-core-dylib",
