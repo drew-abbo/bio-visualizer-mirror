@@ -451,9 +451,9 @@ def create_staging_dir(out_dir: str) -> str:
     staging_dir = f"{out_dir}{os.sep}Substrate-{app_version()}-{os_name}-{arch}"
 
     try:
-        os.makedirs(staging_dir)
+        os.mkdir(staging_dir)
     except:
-        log.fatal("Failed to create staging directory.")
+        log.fatal(f"Failed to create staging directory `{staging_dir}`.")
 
     return staging_dir
 
@@ -476,6 +476,28 @@ def dump_common_resources(dir: str) -> None:
     except:
         log.fatal(f"Failed to stage resources in `{dir}`.")
     log.info("Common resources staged.")
+
+
+def create_archive(
+    staging_dir: str,
+    *,
+    name_suffix: Optional[str] = None,
+) -> None:
+    """
+    Creates an archive next to `staging_dir` with the contents of `staging_dir`.
+    The file's name is appended with `name_suffix` and `.zip`.
+    """
+
+    log.info("Creating portable archive...")
+    try:
+        shutil.make_archive(
+            f"{staging_dir}{name_suffix or ''}",
+            "zip",
+            staging_dir,
+        )
+    except:
+        log.fatal(f"Failed to create portable archive.")
+    log.info("Portable archive created.")
 
 
 def windows(out_dir: str, args: Args) -> None:
@@ -562,13 +584,8 @@ def windows(out_dir: str, args: Args) -> None:
         log.fatal(f"{e}")
     log.info("Installer created.")
 
-    # Create a portable zip.
-    log.info("Creating portable archive...")
-    try:
-        shutil.make_archive(staging_dir, "zip", staging_dir)
-    except:
-        log.fatal(f"Failed to create portable archive.")
-    log.info("Portable archive created.")
+    # Create a portable zip archive.
+    create_archive(staging_dir, name_suffix="-portable")
 
 
 def mac_os(out_dir: str, args: Args) -> None:
@@ -595,23 +612,40 @@ def mac_os(out_dir: str, args: Args) -> None:
         sh.ensure_cmd_exists("install_name_tool")
 
     staging_dir = create_staging_dir(out_dir)
-    dump_common_resources(staging_dir)
+
+    # Staging directory structure:
+    #   Contents/
+    #       Info.plist
+    #       MacOS/
+    #           editor
+    #           launcher
+    #       Resources/
+    #           nodes/
+    #           ...
+    #       Frameworks/
+    #           libappcore.dylib
+    #           (ffmpeg dylibs)...
+    try:
+        os.mkdir(f"{staging_dir}/Contents")
+        bin_staging_dir = f"{staging_dir}/Contents/MacOS"
+        os.mkdir(bin_staging_dir)
+        resources_staging_dir = f"{staging_dir}/Contents/Resources"
+        os.mkdir(resources_staging_dir)
+        frameworks_staging_dir = f"{staging_dir}/Contents/Frameworks"
+        os.mkdir(frameworks_staging_dir)
+    except:
+        log.fatal("Failed to initialize staging directory.")
+
+    dump_common_resources(resources_staging_dir)
 
     appcore_dylib = build_and_stage_artifact(
         "app-core-dylib",
-        staging_dir,
+        frameworks_staging_dir,
+        artifact_name_override="libappcore.dylib",
         no_opt=args.no_opt,
         return_dest=True,
     )
     appcore_dylib_name = file_name(appcore_dylib)
-
-    sh.run_cmd(
-        "install_name_tool",
-        "-id",
-        f"@loader_path/{appcore_dylib_name}",
-        appcore_dylib,
-        show_output=False,
-    )
 
     def find_ffmpeg_dylib_dir() -> str:
         log.info("Locating FFmpeg dylib files...")
@@ -639,34 +673,33 @@ def mac_os(out_dir: str, args: Args) -> None:
             if line.startswith(dylib_dir)
         ]
 
-    def stage_dylib(dylib_path: str) -> None:
+    def stage_ffmpeg_dylib(dylib_path: str) -> None:
         src = os.path.realpath(dylib_path)
-        dest = f"{staging_dir}/{file_name(dylib_path)}"
+        dest = f"{frameworks_staging_dir}/{file_name(dylib_path)}"
         try:
             shutil.copy(src, dest)
         except:
             log.fatal(f"Failed to copy `{src}` to `{dest}`.")
 
-    ffmpeg_dylib_dir = find_ffmpeg_dylib_dir()
+    appcore_remap_args = ["-id", f"@rpath/{appcore_dylib_name}"]
 
-    # Update app-core dylib to point to dylibs in the same local directory
-    # instead of pointing at this computer's hard-coded global dylibs.
-    dylibs = get_dylibs_names(ffmpeg_dylib_dir, appcore_dylib)
-    if len(dylibs) == 0:
-        log.warning(f"No FFmpeg dylibs required for `app-core-dylib`.")
+    # Update app-core dylib to point to ffmpeg dylibs in the same local
+    # directory instead of pointing at this computer's hard-coded global dylibs.
+    ffmpeg_dylib_dir = find_ffmpeg_dylib_dir()
+    ffmpeg_dylibs = get_dylibs_names(ffmpeg_dylib_dir, appcore_dylib)
+    if len(ffmpeg_dylibs) == 0:
+        log.warning(f"No FFmpeg dylibs required for app-core.")
     else:
-        log.info(f"Remapping {len(dylibs)} FFmpeg dylibs for `app-core-dylib`.")
-        for dylib in dylibs:
+        for dylib in ffmpeg_dylibs:
             dylib_src_path = f"{ffmpeg_dylib_dir}/{dylib}"
-            stage_dylib(dylib_src_path)
-            sh.run_cmd(
-                "install_name_tool",
-                "-change",
-                dylib_src_path,
-                f"@loader_path/{dylib}",
-                appcore_dylib,
-                show_output=False,
+            stage_ffmpeg_dylib(dylib_src_path)
+            appcore_remap_args.extend(
+                ("-change", dylib_src_path, f"@loader_path/{dylib}")
             )
+        log.info(f"Staged {len(ffmpeg_dylibs)} FFmpeg dylibs.")
+
+    log.info(f"Remapping dylib dependencies for `{appcore_dylib_name}`...")
+    sh.run_cmd("install_name_tool", *appcore_remap_args, show_output=False)
 
     # Create a temp dir with the app-core dylib file to add to the linker path.
     try:
@@ -678,7 +711,7 @@ def mac_os(out_dir: str, args: Args) -> None:
     for bin_name in ("editor", "launcher"):
         bin_path = build_and_stage_artifact(
             bin_name,
-            staging_dir,
+            bin_staging_dir,
             no_default_features=True,
             features=["link-dylib"],
             no_opt=args.no_opt,
@@ -686,16 +719,28 @@ def mac_os(out_dir: str, args: Args) -> None:
             return_dest=True,
         )
 
+        log.info(f"Updating `{bin_name}` rpath...")
         sh.run_cmd(
             "install_name_tool",
-            "-change",
-            f"@rpath/{appcore_dylib_name}",
-            f"@executable_path/{appcore_dylib_name}",
+            *("-add_rpath", "@executable_path/../Frameworks"),
             bin_path,
             show_output=False,
         )
 
     sh.rm_path(temp_app_lib_dir)
+
+    if args.no_extras:
+        return
+
+    # Create a copy with the `.app` extension.
+    try:
+        shutil.copytree(staging_dir, f"{staging_dir}.app")
+        log.info("Created `.app` directory.")
+    except:
+        log.fatal("Failed to create `.app` directory.")
+
+    # Create a portable `.app` zip archive.
+    create_archive(staging_dir, name_suffix="-portable.app")
 
 
 def main() -> None:
