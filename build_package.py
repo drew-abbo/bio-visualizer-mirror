@@ -567,9 +567,10 @@ def windows(out_dir: str, args: Args) -> None:
     # Create installer.
     sh.ensure_cmd_exists(
         "iscc",
-        help_msg="Inno Setup is required to create an installer. "
-        + "Ensure it's installed and the `iscc` command is available.\n"
-        + "Inno Setup: https://jrsoftware.org/isinfo.php",
+        help_msg="Inno Setup is required to create an installer.\n"
+        + "1. Install Inno Setup 6: https://jrsoftware.org/isinfo.php\n"
+        + "2. Add its install directory to your PATH "
+        + r"(example: C:\Program Files (x86)\Inno Setup 6)",
     )
     log.info("Creating installer...")
     try:
@@ -580,6 +581,7 @@ def windows(out_dir: str, args: Args) -> None:
         sh.run_cmd(
             "iscc",
             f"/DAppVersion={app_version()}",
+            f"/DProjectRoot={os.path.abspath('.')}",
             f"/O{out_dir}",
             inno_file,
         )

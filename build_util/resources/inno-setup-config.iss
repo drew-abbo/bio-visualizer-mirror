@@ -8,6 +8,7 @@
 
 ; NOTE: When running, define with the `/D` flag:
 ; #define AppVersion "0.0.0"
+; #define ProjectRoot "C:\path\to\project"
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
@@ -33,7 +34,7 @@ DisableProgramGroupPage=yes
 PrivilegesRequiredOverridesAllowed=dialog
 OutputDir=.
 OutputBaseFilename={#AppName}-{#AppVersion}-{#AppPlatform}-Setup
-SetupIconFile=..\logo\s-bg.ico
+SetupIconFile={#ProjectRoot}\logo\s-bg.ico
 SolidCompression=yes
 WizardStyle=modern dynamic
 
