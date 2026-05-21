@@ -505,6 +505,8 @@ def windows(out_dir: str, args: Args) -> None:
     Handles Windows-specific packaging steps.
     """
 
+    from build_util.platforms import win
+
     if sh.get_supported_arch() != "x86_64":
         log.fatal("Windows builds currently only support x86_64.")
 
@@ -564,14 +566,33 @@ def windows(out_dir: str, args: Args) -> None:
     if args.no_extras:
         return
 
-    # Create installer.
-    sh.ensure_cmd_exists(
+    # We need Inno Setup to create an installer.
+    log.info("Looking for Inno Setup to create installer...")
+    iscc = None
+    for possible_iscc in (
         "iscc",
-        help_msg="Inno Setup is required to create an installer.\n"
-        + "1. Install Inno Setup 6: https://jrsoftware.org/isinfo.php\n"
-        + "2. Add its install directory to your PATH "
-        + r"(example: C:\Program Files (x86)\Inno Setup 6)",
-    )
+        "ISCC.exe",
+        f"{win.program_files(x86=True)}\\Inno Setup 6\\ISCC.exe",
+        f"{win.program_files(x86=True)}\\Inno Setup 7\\ISCC.exe",
+    ):
+        try:
+            sh.ensure_cmd_exists(possible_iscc, non_fatal=True)
+            iscc = possible_iscc
+            break
+        except sh.DoesntExistException as e:
+            continue
+    if iscc is None:
+        log.fatal(
+            "Inno Setup 6+ is required to create an installer.\n\n"
+            + "You can install Inno Setup here: "
+            + "https://jrsoftware.org/isinfo.php\n"
+            + "If the script still fails here after installing Inno Setup try "
+            + "adding `ISCC.exe` to your path.\n"
+            + "You can skip creating an installer with the `--no-extras` flag."
+        )
+    log.info(f"Found Inno Setup (`{iscc}`).")
+
+    # Create installer.
     log.info("Creating installer...")
     try:
         inno_file = shutil.copy(
@@ -579,7 +600,7 @@ def windows(out_dir: str, args: Args) -> None:
             out_dir,
         )
         sh.run_cmd(
-            "iscc",
+            iscc,
             f"/DAppVersion={app_version()}",
             f"/DProjectRoot={os.path.abspath('.')}",
             f"/O{out_dir}",
