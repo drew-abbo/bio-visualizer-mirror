@@ -74,7 +74,7 @@ pub fn run_ui(instance_lock: &mut InstanceLock<PersistedData>, worker: &Worker) 
         &window_title,
         NativeOptions {
             viewport: ViewportBuilder::default()
-                // TODO: add .with_icon(...)
+                .with_icon(util::ui::load_app_icon())
                 .with_title(&window_title)
                 .with_min_inner_size(ui_manager::MIN_WINDOW_SIZE)
                 .with_inner_size(

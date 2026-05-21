@@ -1,14 +1,23 @@
 [package]
 name = "engine"
-version = "0.1.0"
 edition = "2024"
+version = { workspace = true }
 
 [dependencies]
 winit = "0.30"
-wgpu = { version = "27", default-features = false, features = ["vulkan", "metal", "wgsl"] }
+wgpu = { version = "27", default-features = false, features = [
+    "vulkan",
+    "metal",
+    "wgsl",
+] }
 pollster = "0.4"
 rand = "0.10"
-util = { workspace = true }
+util = { workspace = true, features = [
+    "uid",
+    "debug_log",
+    "local_data",
+    "channels",
+] }
 media = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }

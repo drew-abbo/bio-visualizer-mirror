@@ -324,27 +324,51 @@ impl NodeLibrary {
         })
     }
 
+    /// Looks for nodes in the expected
     fn resolve_nodes_path() -> Result<PathBuf, LibraryError> {
-        // Look next to the running executable for Release builds
-        if let Ok(mut exe_path) = env::current_exe() {
-            exe_path.pop(); // Remove the executable file name, leaving just the directory
-            let nodes_path = exe_path.join("nodes");
-            if nodes_path.exists() && nodes_path.is_dir() {
-                return Ok(nodes_path);
-            }
+        fn find_inner_nodes_dir(mut path: PathBuf) -> Option<PathBuf> {
+            path.push("nodes");
+            path.is_dir().then_some(path)
         }
 
-        // Development
-        #[cfg(debug_assertions)]
-        {
-            if let Ok(cwd) = env::current_dir() {
-                let nodes_path = cwd.join("nodes");
-                if nodes_path.exists() && nodes_path.is_dir() {
-                    return Ok(nodes_path);
-                }
-            }
+        let into_library_io_err = |e| LibraryError::IoError(PathBuf::default(), e);
+
+        let mut exe_dir = env::current_exe()
+            .and_then(|path| path.canonicalize())
+            .map_err(into_library_io_err)?;
+        exe_dir.pop();
+
+        let resources_dir = if cfg!(target_os = "macos") {
+            // The folder structure on macOS looks sorta like this:
+            //  Contents/
+            //      MacOS/          <- exe_dir
+            //          editor
+            //          launcher
+            //      Resources/      <- resources_dir
+            //          nodes/
+            //          ...
+            //      ...
+            exe_dir.pop();
+            exe_dir.push("Resources");
+            exe_dir
+        } else {
+            // Resources live with the executables on other platforms.
+            exe_dir
+        };
+
+        if let Some(nodes_path) = find_inner_nodes_dir(resources_dir) {
+            return Ok(nodes_path);
         }
 
+        // If we can't find the nodes folder where we expected it we'll check
+        // the working directory.
+        let cwd = env::current_dir().map_err(into_library_io_err)?;
+        if let Some(nodes_path) = find_inner_nodes_dir(cwd) {
+            util::debug_log_warning!("Using nodes found in working directory.");
+            return Ok(nodes_path);
+        }
+
+        util::debug_log_error!("Nodes not found.");
         Err(LibraryError::NodesFolderNotFound(PathBuf::from("nodes")))
     }
 }

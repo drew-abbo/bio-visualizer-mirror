@@ -1,5 +1,7 @@
 //! Contains [Args], which are parsed command-line flags.
 
+use std::path::PathBuf;
+
 use clap::{Parser, ValueEnum};
 
 /// Parsed command line arguments.
@@ -46,6 +48,11 @@ pub struct Args {
     /// `debug_assertions` are enabled.
     #[arg(long, conflicts_with = "no_debug_logging")]
     pub debug_error_log_panics: bool,
+
+    /// Print the version and exit. A path can optionally be provided if you
+    /// want to print to a file.
+    #[arg(long, value_name = "OUTPUT_FILE")]
+    pub version: Option<Option<PathBuf>>,
 }
 
 impl Default for Args {

@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 fn main() {
-    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     match target_os.as_str() {
         "windows" => windows(),
         "macos" => {}

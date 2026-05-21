@@ -1,10 +1,10 @@
 [package]
-name = "launcher"
+name = "editor"
 edition = "2024"
 version = { workspace = true }
 
 [dependencies]
-launcher-core = { workspace = true, optional = true }
+editor-core = { workspace = true, optional = true }
 app-core = { workspace = true, optional = true }
 
 [build-dependencies]
@@ -12,6 +12,6 @@ util = { workspace = true, features = ["windows_build", "version"] }
 
 [features]
 default = ["link-static"]
-link-static = ["dep:launcher-core"]
+link-static = ["dep:editor-core"]
 link-dylib = ["dep:app-core"]
 no-windows-console = []

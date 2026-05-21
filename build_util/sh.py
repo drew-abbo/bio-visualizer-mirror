@@ -4,10 +4,13 @@ Contains shell and OS utilities.
 
 import os
 import platform
+import re
+import string
 import sys
 import shutil
 import subprocess
 import typing
+from pathlib import Path
 from typing import Literal, Iterable, Sequence, Optional, Callable
 
 from . import log
@@ -158,31 +161,40 @@ def run_cmd(
     shell: bool = False,
     non_fatal: bool = False,
     show_output: bool = True,
+    env_overrides: Optional[dict[str, str]] = None,
 ) -> str:
     """
     Runs a shell command and returns its output (minus a trailing newline if it
-    has one).
+    has one). All CRLF newlines are replaced with LF newlines in the returned
+    output.
     """
 
-    __print_running_cmd(cmd)
+    __print_running_cmd(cmd, env_overrides)
 
     if show_output:
         print(f"{Color.COMMAND}{' OUTPUT ':~^80}{Color.RESET}", flush=True)
 
     try:
+        if env_overrides is None:
+            env_overrides = {}
+        env = os.environ.copy()
+        for k, v in env_overrides.items():
+            env[k] = v
+
         process = subprocess.Popen(
             cmd if not shell else " ".join(cmd),
             shell=shell,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,  # Combine stderr and stdout to stdout.
-            text=True,
-            bufsize=1,  # Line buffering.
+            text=False,
+            env=env,
         )
 
         # Capture lines as they come in.
         output = ""
         if process.stdout is not None:
             for line in process.stdout:
+                line = line.decode("utf-8", errors="replace")
                 output += line
                 if show_output:
                     print(line, end="", flush=True)
@@ -190,17 +202,27 @@ def run_cmd(
 
     except KeyboardInterrupt:
         raise
+    except Exception as e:
+        raise CmdException(
+            f"Couldn't run `{__format_cmd(cmd, env_overrides)}`: {e}."
+        )
     finally:
         if show_output:
             print(f"\n{Color.RESET + Color.COMMAND}{'~' * 80}{Color.RESET}")
 
     if (exit_code := process.returncode) != 0:
-        err_msg = f"`{__format_cmd(cmd)}` failed with exit code {exit_code}."
+        err_msg = (
+            f"`{__format_cmd(cmd, env_overrides)}` "
+            + f"failed with exit code {exit_code}."
+        )
         if non_fatal:
             raise CmdException(err_msg)
         log.fatal(err_msg)
 
-    return output[:-1] if output.endswith("\n") else output
+    output = output.replace("\r\n", "\n")
+    if output.endswith("\n"):
+        output = output[:-1]
+    return output
 
 
 def start_cmd(*cmd: str, shell: bool = False) -> None:
@@ -208,8 +230,27 @@ def start_cmd(*cmd: str, shell: bool = False) -> None:
     Like `run_cmd()` except it doesn't wait for the command to finish.
     """
 
-    __print_running_cmd(cmd)
+    __print_running_cmd(cmd, None)
     subprocess.Popen(cmd if not shell else " ".join(cmd), shell=shell)
+
+
+def require_script_in_working_dir() -> None:
+    """
+    Exits if the caller isn't running the script from the same directory as the
+    script.
+    """
+
+    try:
+        script_dir = str(Path(os.path.realpath(sys.argv[0])).parent)
+        working_dir = os.path.realpath(os.getcwd())
+    except:
+        log.fatal("Failed to compare script directory with working directory.")
+
+    if script_dir != working_dir:
+        log.fatal(
+            "This script cannot be run from another directory. "
+            + f"Run from `{script_dir}`."
+        )
 
 
 class CmdException(Exception):
@@ -239,16 +280,86 @@ def catch_stop_signal(fn: Callable[[], None]) -> None:
         log.fatal(f"Stop signal received.", include_run_again_msg=False)
 
 
-def __format_cmd(cmd: Iterable[str]) -> str:
+def compile_template_file(
+    src_file: str,
+    key_values: dict[str, str],
+    *,
+    dest_file: Optional[str] = None,
+) -> str:
+    """
+    Reads `src_file`, replaces all keys in double braces `{{ }}` with their
+    provided values from `key_values`, returning the result.
+    """
+
+    try:
+        with open(src_file, "r") as f:
+            src_str = f.read()
+    except:
+        log.fatal(f"Failed to read `{src_file}`.")
+
+    unused_keys = set(key_values.keys())
+
+    dest_str_parts = []
+    last_match_end = 0
+    for match in re.finditer(r"\{\{\s*\w+\s*\}\}", src_str):
+        dest_str_parts.append(src_str[last_match_end : match.start()])
+        last_match_end = match.end()
+
+        key = match.group()[2:-2].strip()
+
+        value = key_values.get(key)
+        if value is None:
+            log.fatal(f"Unexpected key `{key}` in template `{src_file}`.")
+        unused_keys.remove(key)
+
+        dest_str_parts.append(value)
+    dest_str_parts.append(src_str[last_match_end:])
+
+    if len(unused_keys) != 0:
+        log.warning(
+            "Template compilation didn't use all input keys "
+            + f"(`{src_file}`)."
+        )
+
+    dest_str = "".join(dest_str_parts)
+
+    if dest_file is not None:
+        try:
+            with open(dest_file, "w") as f:
+                f.write(dest_str)
+        except:
+            log.fatal(f"Failed to write to `{dest_file}`.")
+
+    return dest_str
+
+
+def __format_cmd(
+    cmd: Iterable[str],
+    env_overrides: Optional[dict[str, str]],
+) -> str:
     """
     Joins the command arguments into a single string, naively wrapping arguments
     that contain spaces in double quotes.
     """
 
-    return " ".join(arg if " " not in arg else f'"{arg}"' for arg in cmd)
+    def clean_arg(arg: str) -> str:
+        return f'"{arg}"' if " " in arg else arg
+
+    joined_cmd = " ".join(clean_arg(arg) for arg in cmd)
+
+    if env_overrides is not None and len(env_overrides) != 0:
+        joined_cmd = (
+            " ".join(f"{k}={clean_arg(v)}" for k, v in env_overrides.items())
+            + f" {joined_cmd}"
+        )
+
+    return joined_cmd
 
 
-def __print_running_cmd(cmd: Sequence[str]) -> None:
+def __print_running_cmd(
+    cmd: Sequence[str],
+    env_overrides: Optional[dict[str, str]],
+) -> None:
     """
     Highlight the file name in the first argument.
     """
@@ -262,4 +373,7 @@ def __print_running_cmd(cmd: Sequence[str]) -> None:
         *cmd[1:],
     ]
 
-    print(f"{Color.COMMAND}RUNNING COMMAND{Color.RESET}: `{__format_cmd(cmd)}`")
+    print(
+        f"{Color.COMMAND}RUNNING COMMAND{Color.RESET}: "
+        + f"`{__format_cmd(cmd, env_overrides)}`"
+    )

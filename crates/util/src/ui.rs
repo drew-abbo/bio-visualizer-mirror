@@ -10,7 +10,7 @@ use std::process::Command;
 
 use egui::gui_zoom::{self, kb_shortcuts};
 use egui::load::{ImagePoll, LoadError};
-use egui::{Context, ImageSource, Key, Modal, Modifiers, RichText, SizeHint, Ui, Vec2};
+use egui::{Context, IconData, ImageSource, Key, Modal, Modifiers, RichText, SizeHint, Ui, Vec2};
 
 /// A hacky fix to make scrolling smooth on trackpads w/ Windows. See issue:
 /// <https://github.com/emilk/egui/issues/4350>
@@ -32,6 +32,22 @@ pub fn windows_scroll_fix(ctx: &Context) {
     fn inner(_ctx: &Context) {}
 
     inner(ctx);
+}
+
+/// Loads the app's icon as [IconData] so that it can be passed to
+/// [egui::ViewportBuilder::with_icon].
+pub fn load_app_icon() -> IconData {
+    let image = image::load_from_memory(include_bytes!("../../../logo/s-bg-512x512.png"))
+        .expect("app icon loaded")
+        .into_rgba8();
+
+    let (width, height) = image.dimensions();
+    let rgba = image.into_raw();
+    IconData {
+        rgba,
+        width,
+        height,
+    }
 }
 
 /// Tries to load an image using [Context::try_load_image]. `true` is returned

@@ -7,13 +7,15 @@ machines (with the same OS and architecture).
 The `-y` or `-n` flags can be provided to auto-accept or auto-deny any prompts
 for user confirmation.
 
-The `--profile` flag can be used to build with a different profile than
-`release-plus`.
+The `-o` flag is used to specify an output directory to create. The default is
+`package`.
 
-When the `-o` flag is provided, a file extension can also be provided so that an
-archive is created instead of a directory. For example `-o out` will create a
-directory, but `-o out.zip` or `-o out.tar.xz` will create an archive. The
-default (if `-o` is not provided) is to create a directory called `package`.
+The `--no-opt` flag can be used to disable optimization and symbol stripping
+(for packaging debug builds). This is really only useful for reducing compile
+times.
+
+The `--no-extras` flag skips creating/packaging things like installers or zip
+archives.
 
 The `--clean` flag just removes the directory/file specified by `-o` (or its
 default).
@@ -25,6 +27,7 @@ import sys
 import os
 import platform
 import json
+import re
 import time
 import shutil
 import tempfile
@@ -37,11 +40,14 @@ import build_util.log as log
 import build_util.sh as sh
 import build_util.user as user
 
+SYSTEM = platform.system().lower()
+
 
 @dataclass
 class Args:
-    profile: str
     out: str
+    no_opt: bool
+    no_extras: bool
     clean: bool
 
 
@@ -53,22 +59,26 @@ def parse_args() -> Args:
     ARG_0 = sys.argv[0]
     USAGE = f"""
 Usage:
-    {ARG_0:<60}\\
-        [-y|-n]                                                 \\
-        [--profile <BUILD_PROFILE>]                             \\
-        [-o <OUTPUT_PATH>[.zip|.tar|.tar.gz|.tar.bz|.tar.xz]]   \\
+    {ARG_0}
+        [-y|-n]
+        [-o <OUTPUT_PATH>]
+        [--no-opt]
+        [--no-extras]
         [--clean]
     {ARG_0} --help
 """.rstrip()
 
-    profile = None
+    no_opt = False
+    no_extras = False
     out = None
     clean = False
+
+    clean_incompatible_arg = None
 
     args = iter(sys.argv[1:])
     seen_args: set[str] = set()
 
-    def next_arg_or_none() -> str | None:
+    def next_arg_or_none() -> Optional[str]:
         try:
             arg = next(args)
         except StopIteration:
@@ -97,9 +107,6 @@ Usage:
             auto_confirm = arg[1]
             user.set_confirm_auto_answer(auto_confirm)
 
-        elif arg == "--clean":
-            clean = True
-
         elif arg == "-o":
             if not (arg := next_arg_or_none()):
                 log.fatal(
@@ -108,13 +115,16 @@ Usage:
                 )
             out = arg
 
-        elif arg == "--profile":
-            if not (arg := next_arg_or_none()):
-                log.fatal(
-                    f"Missing argument parameter `<BUILD_PROFILE>` for `{arg}`."
-                    + USAGE
-                )
-            profile = arg
+        elif arg == "--clean":
+            clean = True
+
+        elif arg == "--no-opt":
+            no_opt = True
+            clean_incompatible_arg = clean_incompatible_arg or arg
+
+        elif arg == "--no-extras":
+            no_extras = True
+            clean_incompatible_arg = clean_incompatible_arg or arg
 
         else:
             log.fatal(f"Unknown argument `{arg}`." + USAGE)
@@ -124,14 +134,73 @@ Usage:
     except:
         log.fatal(f"`{out}` is not a valid path.")
 
-    if profile is None:
-        profile = "release-plus"
-    elif clean:
+    if clean and clean_incompatible_arg:
         log.fatal(
-            f"Arguments `--profile` and `--clean` are incompatible." + USAGE
+            f"Arguments `{clean_incompatible_arg}` "
+            + "and `--clean` are incompatible."
+            + USAGE
         )
 
-    return Args(profile, out, clean)
+    return Args(
+        out,
+        no_opt,
+        no_extras,
+        clean,
+    )
+
+
+@cache
+def app_version() -> str:
+    """
+    Parses the root `Cargo.toml` file looking for the app's version
+    (`workspace.package.version`). The result is cached so that the command only
+    ever runs once.
+    """
+
+    cargo_toml_path = "./Cargo.toml"
+
+    help_msg = (
+        "Ensure `Cargo.toml` is valid and "
+        + "`workspace.package.version` is defined."
+    )
+
+    try:
+        import tomllib
+    except ImportError:
+        log.warning(
+            "Python module `tomllib` unavailable for version query. "
+            + "Attempting naive version query..."
+        )
+
+        # naive search just looks for lines like `version = "___"`
+        try:
+            with open(cargo_toml_path, "r") as f:
+                version_lines = [
+                    line
+                    for line in f.readlines()
+                    if re.fullmatch(r"\s*version\s*=\s*\"[\w\.\-]+\"\s*", line)
+                ]
+            if len(version_lines) != 1:
+                raise Exception("Expected exactly 1 matching line.")
+        except:
+            log.fatal("Naive version query failed. " + help_msg)
+
+        line = version_lines[0]
+        version = line[line.find('"') + 1 : line.rfind('"')]
+    else:
+        # The non-naive query actually parses the toml file.
+        try:
+            with open(cargo_toml_path, "rb") as f:
+                cargo_toml = tomllib.load(f)
+            version = cargo_toml["workspace"]["package"]["version"]
+        except:
+            log.fatal("Version query failed. " + help_msg)
+
+    log.info(
+        "Found version "
+        + f"`{log.Color.INFO}{version}{log.Color.RESET}` in `Cargo.toml`."
+    )
+    return version
 
 
 def clear_up_path(path: str) -> None:
@@ -158,31 +227,26 @@ def clear_up_path(path: str) -> None:
         log.info(f"Nothing to remove anymore at `{path}`.")
 
 
-def create_staging_dir(path: Optional[str]) -> str:
+def create_out_dir(path: str) -> str:
     """
-    Creates an empty staging directory at `path` if it's provided (emptying it
-    if it exists) or in a temporary location. The directory's path is returned.
+    Creates an empty directory at `path`. The directory's path is returned.
     """
 
     try:
-        if path is not None:
-            clear_up_path(path)
-            os.makedirs(path)
-            log.info(f"Staging directory created (`{path}`).")
-            staging_dir = path
-        else:
-            staging_dir = tempfile.mkdtemp()
-            log.info(f"Temporary staging directory created (`{staging_dir}`).")
+        clear_up_path(path)
+        os.makedirs(path)
+        log.info(f"Output directory created: {path}")
+        out_dir = path
     except:
-        log.fatal("Failed to initialize staging directory.")
+        log.fatal("Failed to create output directory.")
 
-    ends_with_slash = staging_dir.endswith(os.sep) or (
-        os.altsep and staging_dir.endswith(os.altsep)
+    ends_with_slash = out_dir.endswith(os.sep) or (
+        os.altsep and out_dir.endswith(os.altsep)
     )
     if ends_with_slash:
-        staging_dir = staging_dir[:-1]
+        out_dir = out_dir[:-1]
 
-    return staging_dir
+    return out_dir
 
 
 def file_name(path: str) -> str:
@@ -191,90 +255,6 @@ def file_name(path: str) -> str:
     """
 
     return Path(path).name
-
-
-def file_ext(path: str) -> Optional[str]:
-    """
-    The file extension of a path.
-    """
-
-    out_name = file_name(path)
-    return out_name.split(".", 1)[-1] if "." in out_name else None
-
-
-def get_archive_fmt(
-    path: str, ask_on_unknown_ext: bool = True
-) -> Optional[str]:
-    """
-    The archive format to use for `shutil.make_archive` to make a file with the
-    same extension as `path`. `None` is returned if the extension isn't
-    recognized or is missing.
-    """
-
-    ext = file_ext(path)
-    if ext == "zip":
-        return "zip"
-    if ext == "tar":
-        return "tar"
-    if ext == "tar.gz":
-        return "gztar"
-    if ext == "tar.bz":
-        return "bztar"
-    if ext == "tar.xz":
-        return "xztar"
-
-    if (
-        ext is not None
-        and ask_on_unknown_ext
-        and not user.confirm(
-            f"Unsupported archive format `.{ext}`. "
-            + "Would you like to create a directory?"
-        )
-    ):
-        log.fatal(f"Unsupported archive format `.{ext}`.")
-
-    return None
-
-
-def try_archive(
-    out_file: str,
-    src_dir: str,
-) -> str:
-    """
-    Tries to archive `src_dir` into `out_file` and remove `src_dir`. If creating
-    an archive fails, the user will be asked if it's okay to create a directory
-    instead. The path of the archive or directory is returned. The return value
-    will match `out_file` if and only if creating the archive succeeded.
-    """
-
-    archive_fmt = get_archive_fmt(out_file, ask_on_unknown_ext=False)
-    ext = file_ext(out_file)
-    assert ext is not None and archive_fmt is not None
-
-    out_path_without_ext = out_file[: -(len(ext) + 1)]
-
-    try:
-        clear_up_path(out_file)
-        log.info("Archiving output.")
-        shutil.make_archive(out_path_without_ext, archive_fmt, src_dir)
-    except:
-        err_msg = f"Failed to create `.{ext}` archive."
-        if user.confirm(
-            f"{err_msg} A directory `{out_path_without_ext}`"
-            + " can be created instead. Would you rather exit?"
-        ):
-            log.fatal(err_msg)
-
-        clear_up_path(out_path_without_ext)
-        try:
-            shutil.move(src_dir, out_path_without_ext)
-        except:
-            log.fatal(f"Failed to move staging directory.")
-        return out_path_without_ext
-
-    sh.rm_path(src_dir)
-
-    return out_file
 
 
 class CargoTarget(TypedDict):
@@ -312,62 +292,116 @@ def cargo_metadata() -> CargoMetadata:
     )
 
 
-def get_bin_crates() -> list[str]:
+@cache
+def get_crate_kind(crate_name: str) -> str:
     """
-    The names of all binary (executable) crates from Cargo.
+    Returns the kind of a crate by looking at the metadata from Cargo (e.g.
+    `bin`, `lib`, `cdylib`).
     """
 
-    return [
-        package["name"]
-        for package in cargo_metadata()["packages"]
-        if any("bin" in target["kind"] for target in package["targets"])
-    ]
+    for package in cargo_metadata()["packages"]:
+        if package["name"] == crate_name:
+            return package["targets"][0]["kind"][0]
+    log.fatal(f"Unknown crate `{crate_name}`.")
 
 
-def build_and_stage_bin(crate_name: str, out_dir: str, profile: str):
+def build_and_stage_artifact(
+    crate_name: str,
+    staging_dir: str,
+    *,
+    artifact_name_override: Optional[str] = None,
+    no_default_features: bool = False,
+    features: Optional[list[str]] = None,
+    no_opt: bool = False,
+    link_time_dir: Optional[str] = None,
+    return_dest: bool = False,
+    rename: Optional[str] = None,
+) -> str:
     """
-    Builds a package-ready binary and copies it into to the provided output
+    Builds a package-ready artifact and copies it into to the provided output
     directory.
+
+    The path of the unstaged artifact (that was copied from) is returned if
+    `return_dest` is `false`. Otherwise the staged artifact's path is returned.
+
+    Binaries use the `package-small` profile and dylibs use the `package-fast`
+    profile (unless `no_opt` is `True`, in which case the `debug` is used).
     """
 
-    if profile == "debug":
+    log.info(f"Building artifact for crate `{crate_name}`.")
+
+    crate_kind = get_crate_kind(crate_name)
+
+    if crate_kind == "bin":
+        prefix, suffix = "", (".exe" if SYSTEM == "windows" else "")
+        profile = "package-small"
+    elif crate_kind in ("dylib", "cdylib"):
+        if SYSTEM == "windows":
+            prefix, suffix = "", ".dll"
+        elif SYSTEM == "darwin":  # macOS
+            prefix, suffix = "lib", ".dylib"
+        elif SYSTEM == "linux":
+            prefix, suffix = "", ".so"
+        profile = "package-fast"
+    else:
+        log.fatal(f"Unexpected crate kind  `{crate_kind}` for `{crate_name}`.")
+
+    if no_opt:
+        profile = "debug"
         profile_args = []
-    elif profile == "release":
-        profile_args = ["--release"]
     else:
         profile_args = ["--profile", profile]
 
+    features_args = []
+    if no_default_features:
+        features_args.append("--no-default-features")
+    if features is not None and len(features) > 0:
+        features_args.extend(("--features", " ".join(features)))
+
     try:
         sh.run_cmd(
-            "cargo",
-            "build",
-            "--bin",
-            crate_name,
-            *profile_args,
-            "--features",
-            "no-console",
+            *(
+                *("cargo", "build"),
+                *("-p", crate_name),
+                *profile_args,
+                *features_args,
+                *("--color", "always" if log.Color.ENABLED else "never"),
+            ),
             non_fatal=True,
+            env_overrides=(
+                {"RUSTFLAGS": f"-L {link_time_dir}"} if link_time_dir else None
+            ),
         )
     except sh.CmdException as e:
-        log.warning(f"{e}")
+        log.error(f"{e}")
         log.fatal(
-            f"Failed to build binary `{crate_name}`. "
+            f"Failed to build `{crate_name}`. "
             + "Ensure `build_setup.py` has been run."
         )
 
+    artifact_name = (
+        artifact_name_override
+        or f"{prefix}{crate_name.replace("-", "_")}{suffix}"
+    )
     target_dir = cargo_metadata()["target_directory"]
-    ext = ".exe" if platform.system().lower() == "windows" else ""
-    bin_path = f"{target_dir}/{profile}/{crate_name}{ext}"
+    artifact_path = f"{target_dir}/{profile}/{artifact_name}"
     sh.ensure_path_exists(
-        bin_path,
+        artifact_path,
         kind="file",
-        help_msg="Cargo built a binary somewhere unexpected.",
+        help_msg="Cargo built an artifact somewhere unexpected.",
     )
 
+    dest = f"{staging_dir}/{artifact_name if rename is None else rename}"
     try:
-        shutil.copy(bin_path, out_dir)
+        shutil.copy(artifact_path, dest)
     except:
-        log.fatal("Failed to copy binary to output directory.")
+        log.fatal("Failed to copy artifact to output directory.")
+
+    log.info(f"Staged artifact `{artifact_name}`.")
+
+    if return_dest:
+        return dest
+    return artifact_path
 
 
 def fmt_time(secs: float) -> str:
@@ -396,7 +430,77 @@ def fmt_time(secs: float) -> str:
     return secs_str
 
 
-def windows(staging_dir: str, bin_crates: list[str]) -> None:
+def create_staging_dir(out_dir: str) -> str:
+    """
+    Creates a directory inside the output directory where the app's contents can
+    be staged.
+    """
+
+    arch = sh.get_supported_arch()
+    if SYSTEM == "windows":
+        os_name = "Windows"
+    elif SYSTEM == "darwin":
+        os_name = "macOS"
+    elif SYSTEM == "linux":
+        os_name = "Linux"
+    else:
+        os_name = None
+    if arch is None or os_name is None:
+        log.fatal("Unsupported system or architecture.")
+
+    staging_dir = f"{out_dir}{os.sep}Substrate-{app_version()}-{os_name}-{arch}"
+
+    try:
+        os.mkdir(staging_dir)
+    except:
+        log.fatal(f"Failed to create staging directory `{staging_dir}`.")
+
+    return staging_dir
+
+
+def dump_common_resources(dir: str) -> None:
+    """
+    Writes/copies resources needed on all platforms into `dir`.
+    """
+
+    try:
+        # nodes folder
+        shutil.copytree("./nodes", f"{dir}/nodes")
+
+        # version file
+        with open(f"{dir}/version", "w") as f:
+            f.write(app_version())
+
+        # TODO: Also include a license and README file. You can modify the
+        # windows installer script to show these to the user.
+    except:
+        log.fatal(f"Failed to stage resources in `{dir}`.")
+    log.info("Common resources staged.")
+
+
+def create_archive(
+    staging_dir: str,
+    *,
+    name_suffix: Optional[str] = None,
+) -> None:
+    """
+    Creates an archive next to `staging_dir` with the contents of `staging_dir`.
+    The file's name is appended with `name_suffix` and `.zip`.
+    """
+
+    log.info("Creating portable archive...")
+    try:
+        shutil.make_archive(
+            f"{staging_dir}{name_suffix or ''}",
+            "zip",
+            staging_dir,
+        )
+    except:
+        log.fatal(f"Failed to create portable archive.")
+    log.info("Portable archive created.")
+
+
+def windows(out_dir: str, args: Args) -> None:
     """
     Handles Windows-specific packaging steps.
     """
@@ -406,79 +510,189 @@ def windows(staging_dir: str, bin_crates: list[str]) -> None:
     if sh.get_supported_arch() != "x86_64":
         log.fatal("Windows builds currently only support x86_64.")
 
-    FFMPEG_DLL_DIR = ".\\ffmpeg\\bin"
-    ffmpeg_dlls = set(
-        map(
-            file_name,
-            sh.copy_files_dir_to_dir(
-                FFMPEG_DLL_DIR, staging_dir, file_ext_filter=".dll"
-            ),
-        )
+    staging_dir = create_staging_dir(out_dir)
+    dump_common_resources(staging_dir)
+
+    # Build & stage the app-core DLL.
+    unstaged_appcore_dll = build_and_stage_artifact(
+        "app-core-dylib",
+        staging_dir,
+        artifact_name_override="appcore.dll",
+        no_opt=args.no_opt,
     )
-    log.info("Copied FFmpeg DLLs into staging directory.")
 
-    dumpbin = f"{win.vs_msvc_tools_dir()}\\dumpbin.exe"
-    sh.ensure_cmd_exists(dumpbin)
-
-    def get_required_ffmpeg_dlls(bin_crate: str) -> list[str]:
-        dumpbin_lines = [
-            line.strip()
-            for line in sh.run_cmd(
-                dumpbin, "/DEPENDENTS", f"{staging_dir}/{bin_crate}.exe"
-            ).splitlines()
-        ]
-        return [line for line in dumpbin_lines if line in ffmpeg_dlls]
-
-    required_ffmpeg_dlls: set[str] = set()
-    for bin_crate in bin_crates:
-        required_ffmpeg_dlls.update(get_required_ffmpeg_dlls(bin_crate))
-    ffmpeg_dlls_to_remove = ffmpeg_dlls - required_ffmpeg_dlls
+    # Create a temp dir with the app-core `.lib` file to add to the linker path.
+    appcore_lib = f"{unstaged_appcore_dll}.lib"
+    sh.ensure_path_exists(appcore_lib, kind="file")
     try:
-        for dll in ffmpeg_dlls_to_remove:
-            os.remove(f"{staging_dir}\\{dll}")
+        temp_appcore_lib_dir = tempfile.mkdtemp()
+        shutil.copy(appcore_lib, f"{temp_appcore_lib_dir}\\appcore.lib")
     except:
-        log.fatal("Failed to remove unneeded FFmpeg DLLs.")
-    log.info(
-        f"Removed {len(ffmpeg_dlls_to_remove)} unneeded FFmpeg DLLs "
-        + f"from staging directory ({len(required_ffmpeg_dlls)} remain)."
+        log.fatal("Failed to create temporary app-core library directory.")
+
+    def build_and_stage_bin(
+        bin_name: str, file_name: str, with_console: bool
+    ) -> str:
+        return build_and_stage_artifact(
+            bin_name,
+            staging_dir,
+            no_default_features=True,
+            features=(
+                ["link-dylib"]
+                + ([] if with_console else ["no-windows-console"])
+            ),
+            no_opt=args.no_opt,
+            link_time_dir=temp_appcore_lib_dir,
+            rename=file_name,
+        )
+
+    # Build & stage binaries (a console and non-console version for each).
+    for bin_name in ("editor", "launcher"):
+        build_and_stage_bin(bin_name, f"{bin_name}-with-console.exe", True)
+        build_and_stage_bin(bin_name, f"{bin_name}.exe", False)
+
+    sh.rm_path(temp_appcore_lib_dir)
+
+    # Stage FFmpeg DLLs.
+    dlls_copied = sh.copy_files_dir_to_dir(
+        ".\\ffmpeg\\bin",
+        staging_dir,
+        file_ext_filter=".dll",
     )
+    log.info(f"Copied {len(dlls_copied)} FFmpeg DLLs into staging directory.")
 
+    log.info("Staging complete.")
 
-def mac_os(staging_dir: str, bin_crates: list[str]) -> None:
-    """
-    Handles MacOS-specific packaging steps.
-    """
+    if args.no_extras:
+        return
 
-    def ensure_cli_tools_installed() -> None:
+    # We need Inno Setup to create an installer.
+    log.info("Looking for Inno Setup to create installer...")
+    iscc = None
+    for possible_iscc in (
+        "iscc",
+        "ISCC.exe",
+        f"{win.program_files(x86=True)}\\Inno Setup 6\\ISCC.exe",
+        f"{win.program_files(x86=True)}\\Inno Setup 7\\ISCC.exe",
+    ):
         try:
-            sh.ensure_cmd_exists("otool", non_fatal=True)
-            sh.ensure_cmd_exists("install_name_tool", non_fatal=True)
-        except sh.DoesntExistException:
-            if not user.confirm(
-                "It doesn't look like Xcode's Command Line Tools are installed."
-                + " Would you like to install them?"
-            ):
-                log.fatal("Xcode's Command Line Tools are required.")
+            sh.ensure_cmd_exists(possible_iscc, non_fatal=True)
+            iscc = possible_iscc
+            break
+        except sh.DoesntExistException as e:
+            continue
+    if iscc is None:
+        log.fatal(
+            "Inno Setup 6+ is required to create an installer.\n\n"
+            + "You can install Inno Setup here: "
+            + "https://jrsoftware.org/isinfo.php\n"
+            + "If the script still fails here after installing Inno Setup try "
+            + "adding `ISCC.exe` to your path.\n"
+            + "You can skip creating an installer with the `--no-extras` flag."
+        )
+    log.info(f"Found Inno Setup (`{iscc}`).")
 
-            sh.ensure_cmd_exists("xcode-select")
-            sh.run_cmd("xcode-select", "--install")
+    # Create installer.
+    log.info("Creating installer...")
+    try:
+        inno_file = shutil.copy(
+            ".\\build_util\\resources\\inno-setup-config.iss",
+            out_dir,
+        )
+        sh.run_cmd(
+            iscc,
+            f"/DAppVersion={app_version()}",
+            f"/DProjectRoot={os.path.abspath('.')}",
+            f"/O{out_dir}",
+            inno_file,
+        )
+        os.remove(inno_file)
+    except sh.CmdException as e:
+        log.fatal(f"{e}")
+    log.info("Installer created.")
 
-            sh.ensure_cmd_exists("otool")
-            sh.ensure_cmd_exists("install_name_tool")
+    # Create a portable zip archive.
+    create_archive(staging_dir, name_suffix="-portable")
+
+
+def mac_os(out_dir: str, args: Args) -> None:
+    """
+    Handles macOS-specific packaging steps.
+    """
+
+    if sh.get_supported_arch() is None:
+        log.fatal("macOS builds only support x86_64 and arm64")
+
+    # Ensure Xcode's Command Line Tools are installed.
+    try:
+        sh.ensure_cmd_exists("otool", non_fatal=True)
+        sh.ensure_cmd_exists("install_name_tool", non_fatal=True)
+    except sh.DoesntExistException:
+        if not user.confirm(
+            "It doesn't look like Xcode's Command Line Tools are installed."
+            + " Would you like to install them?"
+        ):
+            log.fatal("Xcode's Command Line Tools are required.")
+        sh.ensure_cmd_exists("xcode-select")
+        sh.run_cmd("xcode-select", "--install")
+        sh.ensure_cmd_exists("otool")
+        sh.ensure_cmd_exists("install_name_tool")
+
+    staging_dir = create_staging_dir(out_dir)
+
+    # Staging directory structure:
+    #   Contents/
+    #       Info.plist
+    #       MacOS/
+    #           editor
+    #           launcher
+    #       Resources/
+    #           nodes/
+    #           ...
+    #       Frameworks/
+    #           libappcore.dylib
+    #           (ffmpeg dylibs)...
+    try:
+        contents_staging_dir = f"{staging_dir}/Contents"
+        os.mkdir(contents_staging_dir)
+        bin_staging_dir = f"{staging_dir}/Contents/MacOS"
+        os.mkdir(bin_staging_dir)
+        resources_staging_dir = f"{staging_dir}/Contents/Resources"
+        os.mkdir(resources_staging_dir)
+        frameworks_staging_dir = f"{staging_dir}/Contents/Frameworks"
+        os.mkdir(frameworks_staging_dir)
+    except Exception:
+        log.fatal("Failed to initialize staging directory.")
+
+    dump_common_resources(resources_staging_dir)
+
+    appcore_dylib = build_and_stage_artifact(
+        "app-core-dylib",
+        frameworks_staging_dir,
+        artifact_name_override="libappcore.dylib",
+        no_opt=args.no_opt,
+        return_dest=True,
+    )
+    appcore_dylib_name = file_name(appcore_dylib)
 
     def find_ffmpeg_dylib_dir() -> str:
-        log.info("Locating FFmpeg dylib files.")
+        log.info("Locating FFmpeg dylib files...")
         sh.ensure_cmd_exists("brew")
-        ffmpeg_dylib_dir = f"{sh.run_cmd('brew', '--prefix', 'ffmpeg@8')}/lib"
+        ffmpeg_dir = sh.run_cmd(
+            *("brew", "--prefix", "ffmpeg@8"),
+            show_output=False,
+        )
+        ffmpeg_dylib_dir = f"{ffmpeg_dir}/lib"
         sh.ensure_path_exists(ffmpeg_dylib_dir, kind="dir")
         log.info(f"Found FFmpeg dylib files in `{ffmpeg_dylib_dir}`.")
         return ffmpeg_dylib_dir
 
-    def get_dylibs_names(dylib_dir: str, bin_crate: str) -> list[str]:
+    def get_dylibs_names(dylib_dir: str, file: str) -> list[str]:
         otool_lines = [
             line.lstrip()
             for line in sh.run_cmd(
-                "otool", "-L", f"{staging_dir}/{bin_crate}"
+                *("otool", "-L", file),
+                show_output=False,
             ).splitlines()
         ]
         return [
@@ -487,43 +701,105 @@ def mac_os(staging_dir: str, bin_crates: list[str]) -> None:
             if line.startswith(dylib_dir)
         ]
 
-    def stage_dylib(dylib_path: str) -> None:
+    def stage_ffmpeg_dylib(dylib_path: str) -> None:
         src = os.path.realpath(dylib_path)
-        dest = f"{staging_dir}/{file_name(dylib_path)}"
+        dest = f"{frameworks_staging_dir}/{file_name(dylib_path)}"
         try:
             shutil.copy(src, dest)
         except:
             log.fatal(f"Failed to copy `{src}` to `{dest}`.")
 
-    ensure_cli_tools_installed()
+    appcore_remap_args = ["-id", f"@rpath/{appcore_dylib_name}"]
+
+    # Update app-core dylib to point to ffmpeg dylibs in the same local
+    # directory instead of pointing at this computer's hard-coded global dylibs.
     ffmpeg_dylib_dir = find_ffmpeg_dylib_dir()
-
-    for bin_crate in bin_crates:
-        bin_path = f"{staging_dir}/{bin_crate}"
-
-        dylibs = get_dylibs_names(ffmpeg_dylib_dir, bin_crate)
-        if len(dylibs) == 0:
-            log.info(f"No FFmpeg dylibs required for `{bin_crate}`")
-            continue
-
-        log.info(f"Remapping {len(dylibs)} FFmpeg dylibs for `{bin_crate}`.")
-        for dylib in dylibs:
+    ffmpeg_dylibs = get_dylibs_names(ffmpeg_dylib_dir, appcore_dylib)
+    if len(ffmpeg_dylibs) == 0:
+        log.warning(f"No FFmpeg dylibs required for app-core.")
+    else:
+        for dylib in ffmpeg_dylibs:
             dylib_src_path = f"{ffmpeg_dylib_dir}/{dylib}"
-            stage_dylib(dylib_src_path)
-            sh.run_cmd(
-                "install_name_tool",
-                "-change",
-                dylib_src_path,
-                f"@executable_path/{dylib}",
-                bin_path,
-                show_output=False,
+            stage_ffmpeg_dylib(dylib_src_path)
+            appcore_remap_args.extend(
+                ("-change", dylib_src_path, f"@loader_path/{dylib}")
             )
+        log.info(f"Staged {len(ffmpeg_dylibs)} FFmpeg dylibs.")
+
+    log.info(f"Remapping dylib dependencies for `{appcore_dylib_name}`...")
+    sh.run_cmd(
+        *("install_name_tool", *appcore_remap_args, appcore_dylib),
+        show_output=False,
+    )
+
+    # Create a temp dir with the app-core dylib file to add to the linker path.
+    try:
+        temp_app_lib_dir = tempfile.mkdtemp()
+        shutil.copy(appcore_dylib, temp_app_lib_dir)
+    except:
+        log.fatal("Failed to create temporary app-core library directory.")
+
+    for bin_name in ("editor", "launcher"):
+        bin_path = build_and_stage_artifact(
+            bin_name,
+            bin_staging_dir,
+            no_default_features=True,
+            features=["link-dylib"],
+            no_opt=args.no_opt,
+            link_time_dir=temp_app_lib_dir,
+            return_dest=True,
+        )
+
+        log.info(f"Updating `{bin_name}` rpath...")
+        sh.run_cmd(
+            "install_name_tool",
+            *("-add_rpath", "@executable_path/../Frameworks"),
+            bin_path,
+            show_output=False,
+        )
+
+    sh.rm_path(temp_app_lib_dir)
+
+    # Bundle `Info.plist` (from template).
+    log.info("Compiling and staging `Info.plist`...")
+    sh.compile_template_file(
+        "./build_util/resources/template-Info.plist",
+        {
+            "CFBundleShortVersionString": app_version(),
+            "CFBundleVersion": str(int(time.time())),
+        },
+        dest_file=f"{contents_staging_dir}/Info.plist",
+    )
+
+    # Bundle icon.
+    log.info("Bundling icon.")
+    try:
+        shutil.copy("./logo/s-bg.icns", resources_staging_dir)
+    except:
+        log.fatal("Failed to bundle icon.")
+
+    if args.no_extras:
+        return
+
+    # Create a copy with the `.app` extension.
+    try:
+        shutil.copytree(staging_dir, f"{staging_dir}.app")
+        log.info("Created `.app` directory.")
+    except:
+        log.fatal("Failed to create `.app` directory.")
+
+    # TODO: Create "installer" dmg.
+
+    # Create a portable `.app` zip archive.
+    create_archive(staging_dir, name_suffix="-portable.app")
 
 
 def main() -> None:
     start_time = time.time()
 
     args = parse_args()
+
+    sh.require_script_in_working_dir()
 
     if args.clean:
         if sh.rm_path(args.out, allow_missing=True):
@@ -532,39 +808,23 @@ def main() -> None:
             log.success("Nothing changed.")
         return
 
-    archive_fmt = get_archive_fmt(args.out)
-    user_wants_archive = archive_fmt is not None
-    staging_dir = create_staging_dir(None if user_wants_archive else args.out)
+    out_dir = create_out_dir(args.out)
 
     sh.ensure_cmd_exists("cargo")
-    bin_crates = get_bin_crates()
-    for bin_crate in bin_crates:
-        log.info(f"Building binary crate `{bin_crate}`.")
-        build_and_stage_bin(bin_crate, staging_dir, args.profile)
-        log.info(f"Staged binary `{bin_crate}`.")
 
-    system = platform.system().lower()
-    if system == "windows":
-        windows(staging_dir, bin_crates)
-    elif system == "darwin":  # MacOS
-        mac_os(staging_dir, bin_crates)
-    elif system == "linux":
-        log.fatal("unimplemented")
+    if SYSTEM == "windows":
+        windows(out_dir, args)
+    elif SYSTEM == "darwin":  # macOS
+        mac_os(out_dir, args)
+    elif SYSTEM == "linux":
+        log.fatal("Linux support is currently unimplemented.")
     else:
-        log.fatal(f"Unsupported system: `{system}`")
-
-    if not user_wants_archive:
-        out_path = args.out
-        archive_was_made = False
-    else:
-        out_path = try_archive(args.out, staging_dir)
-        archive_was_made = out_path == args.out
-    out_kind = "archive" if archive_was_made else "directory"
+        log.fatal(f"Unsupported system: `{SYSTEM}`")
 
     elapsed_time = time.time() - start_time
     log.success(
         f"Packaging completed in {fmt_time(elapsed_time)}. "
-        + f"See {out_kind}: {out_path}"
+        + f"See directory: {args.out}"
     )
 
 

@@ -1,14 +1,25 @@
 [workspace]
 members = [
-  "crates/app",
-  "crates/util",
-  "crates/media",
-  "crates/engine",
-  "crates/launcher",
+  "crates/editor",         # bin
+  "crates/launcher",       # bin
+  "crates/app-core",       # lib
+  "crates/app-core-dylib", # cdylib
+  "crates/editor-core",    # lib
+  "crates/launcher-core",  # lib
+  "crates/util",           # lib
+  "crates/media",          # lib
+  "crates/engine",         # lib
 ]
-resolver = "2"
+resolver = "3"
+
+[workspace.package]
+version = "0.3.0"
+edition = "2024"
 
 [workspace.dependencies]
+app-core = { path = "crates/app-core" }
+editor-core = { path = "crates/editor-core" }
+launcher-core = { path = "crates/launcher-core" }
 engine = { path = "crates/engine" }
 media = { path = "crates/media" }
 util = { path = "crates/util" }
@@ -21,6 +32,7 @@ egui = { version = "0.33", features = ["serde"] }
 egui-wgpu = "0.33.3"
 egui_extras = "0.33.3"
 windows-sys = "0.59"
+image = { version = "0.25" }
 
 # If one thread panics, make all the threads panic. This does disable the
 # ability for us to handle a thread panicking, but I don't think there's
@@ -30,10 +42,17 @@ panic = "abort"
 [profile.release]
 panic = "abort"
 
-# Debugging essentially becomes impossible with this profile, but it will
-# generate the best performing code (also at the cost of compile times).
-[profile.release-plus]
+# Speed optimized profile ready for packaging.
+[profile.package-fast]
 inherits = "release"
+lto = "fat"          # Max link-time optimizations
+codegen-units = 1    # One codegen unit per crate (easier optimization)
+strip = "symbols"    # Strip symbols
+
+# Size optimized profile ready for packaging.
+[profile.package-small]
+inherits = "release"
+opt-level = "s"      # optimize for size
 lto = "fat"          # Max link-time optimizations
 codegen-units = 1    # One codegen unit per crate (easier optimization)
 strip = "symbols"    # Strip symbols
