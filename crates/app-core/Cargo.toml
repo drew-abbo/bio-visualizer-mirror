@@ -2,3 +2,4 @@
 name = "app-core"
 edition = "2024"
 version = { workspace = true }
+publish = false

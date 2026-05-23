@@ -2,6 +2,7 @@
 name = "engine"
 edition = "2024"
 version = { workspace = true }
+publish = false
 
 [dependencies]
 winit = "0.30"

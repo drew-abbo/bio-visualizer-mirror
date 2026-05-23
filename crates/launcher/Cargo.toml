@@ -2,6 +2,7 @@
 name = "launcher"
 edition = "2024"
 version = { workspace = true }
+publish = false
 
 [dependencies]
 launcher-core = { workspace = true, optional = true }

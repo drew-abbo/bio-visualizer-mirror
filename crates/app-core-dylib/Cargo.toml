@@ -2,6 +2,7 @@
 name = "app-core-dylib"
 edition = "2024"
 version = { workspace = true }
+publish = false
 
 [lib]
 crate-type = ["cdylib"]

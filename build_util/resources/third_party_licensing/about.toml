@@ -1,0 +1,22 @@
+accepted = [
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "NCSA",
+    "OFL-1.1",
+    "Ubuntu-font-1.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "WTFPL",
+    "Zlib",
+    # Do NOT add LGPL, GPL, or any other restrictive licenses.
+]
+
+private = { ignore = true }      # Ignore local (private) crates
+ignore-build-dependencies = true
+ignore-dev-dependencies = true

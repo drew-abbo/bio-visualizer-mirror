@@ -5,10 +5,10 @@ Contains shell and OS utilities.
 import os
 import platform
 import re
-import string
 import sys
 import shutil
 import subprocess
+import tempfile
 import typing
 from pathlib import Path
 from typing import Literal, Iterable, Sequence, Optional, Callable
@@ -280,15 +280,43 @@ def catch_stop_signal(fn: Callable[[], None]) -> None:
         log.fatal(f"Stop signal received.", include_run_again_msg=False)
 
 
+def temp_dir() -> str:
+    """
+    Creates a temporary directory and returns its path. It's on you to clean it
+    up.
+    """
+
+    try:
+        return tempfile.mkdtemp()
+    except:
+        log.fatal("Failed to create temporary directory.")
+
+
+def copy(src: str, dest: str) -> str:
+    """
+    `shutil.copy` but infallible. `dest` can be a directory.
+    """
+
+    try:
+        return shutil.copy(src, dest)
+    except:
+        log.fatal("Failed to copy file.")
+
+
 def compile_template_file(
     src_file: str,
     key_values: dict[str, str],
     *,
     dest_file: Optional[str] = None,
+    brace_override: tuple[str, str] = (r"{{", r"}}"),
 ) -> str:
     """
     Reads `src_file`, replaces all keys in double braces `{{ }}` with their
     provided values from `key_values`, returning the result.
+
+    If `brace_override` is provided, template values will be inserted into the
+    provided open and close sequences instead of using double braces `{{ }}`.
+    This can be useful when generating a template from another template.
     """
 
     try:
@@ -297,25 +325,33 @@ def compile_template_file(
     except:
         log.fatal(f"Failed to read `{src_file}`.")
 
-    unused_keys = set(key_values.keys())
+    used_keys = set()
+
+    template_pattern = (
+        re.escape(brace_override[0])
+        + r"\s*\w+\s*"
+        + re.escape(brace_override[1])
+    )
 
     dest_str_parts = []
     last_match_end = 0
-    for match in re.finditer(r"\{\{\s*\w+\s*\}\}", src_str):
+    for match in re.finditer(template_pattern, src_str):
         dest_str_parts.append(src_str[last_match_end : match.start()])
         last_match_end = match.end()
 
-        key = match.group()[2:-2].strip()
+        key = match.group()[
+            len(brace_override[0]) : -len(brace_override[1])
+        ].strip()
 
         value = key_values.get(key)
         if value is None:
             log.fatal(f"Unexpected key `{key}` in template `{src_file}`.")
-        unused_keys.remove(key)
+        used_keys.add(key)
 
         dest_str_parts.append(value)
     dest_str_parts.append(src_str[last_match_end:])
 
-    if len(unused_keys) != 0:
+    if len(used_keys) != len(key_values):
         log.warning(
             "Template compilation didn't use all input keys "
             + f"(`{src_file}`)."

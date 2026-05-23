@@ -2,6 +2,7 @@
 name = "editor-core"
 edition = "2024"
 version = { workspace = true }
+publish = false
 
 [dependencies]
 engine = { workspace = true }

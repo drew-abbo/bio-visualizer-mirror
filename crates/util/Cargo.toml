@@ -2,6 +2,7 @@
 name = "util"
 edition = "2024"
 version = { workspace = true }
+publish = false
 
 [dependencies]
 nucleo-matcher = { optional = true, version = "0.3" }

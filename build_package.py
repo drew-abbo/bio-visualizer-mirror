@@ -29,8 +29,8 @@ import platform
 import json
 import re
 import time
+import html
 import shutil
-import tempfile
 from functools import cache
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,6 +39,7 @@ from typing import TypedDict, Optional, Union
 import build_util.log as log
 import build_util.sh as sh
 import build_util.user as user
+import build_util.build_ffmpeg as build_ffmpeg
 
 SYSTEM = platform.system().lower()
 
@@ -257,13 +258,38 @@ def file_name(path: str) -> str:
     return Path(path).name
 
 
+def cache_dir(create: bool = False) -> str:
+    """
+    The path to a cache directory.
+    """
+
+    path = f".{os.sep}build_util.cache"
+
+    if create:
+        if not os.path.exists(path):
+            try:
+                os.mkdir(path)
+            except:
+                log.fatal("Failed to make cache directory.")
+            log.info(f"Created cache directory: {path}")
+        else:
+            sh.ensure_path_exists(path, kind="dir")
+
+    return path
+
+
 class CargoTarget(TypedDict):
     kind: list[str]
 
 
 class CargoPackage(TypedDict):
     name: str
+    version: str
+    id: str
     targets: list[CargoTarget]
+    license: Optional[str]
+    repository: Optional[str]
+    homepage: Optional[str]
 
 
 class CargoMetadata(TypedDict):
@@ -272,7 +298,7 @@ class CargoMetadata(TypedDict):
 
 
 @cache
-def cargo_metadata() -> CargoMetadata:
+def cargo_metadata(no_deps: bool = True) -> CargoMetadata:
     """
     Returns metadata from Cargo. The result is cached so that the command only
     ever runs once.
@@ -280,13 +306,10 @@ def cargo_metadata() -> CargoMetadata:
 
     return json.loads(
         sh.run_cmd(
-            "cargo",
-            "metadata",
-            "--no-deps",
-            "--offline",
+            *("cargo", "metadata"),
+            *(["--no-deps", "--offline"] if no_deps else []),
             "--quiet",
-            "--format-version",
-            "1",
+            *("--format-version", "1"),
             show_output=False,
         )
     )
@@ -303,6 +326,92 @@ def get_crate_kind(crate_name: str) -> str:
         if package["name"] == crate_name:
             return package["targets"][0]["kind"][0]
     log.fatal(f"Unknown crate `{crate_name}`.")
+
+
+def stage_license_info(staging_dir: str) -> None:
+    """
+    Determines what's needed for license compliance and stages in `staging_dir`.
+    """
+
+    cargo_about_name = "cargo-about"
+    if SYSTEM == "windows":
+        cargo_about_name += ".exe"
+    cargo_about = f"{cache_dir()}/{cargo_about_name}"
+
+    try:
+        sh.ensure_path_exists(cargo_about, kind="file", non_fatal=True)
+    except sh.DoesntExistException:
+        log.info("`cargo-about` not found locally. Installing...")
+        temp_install_dir = sh.temp_dir()
+        sh.run_cmd(
+            *("cargo", "install", "cargo-about"),
+            *("--version", "^0.9"),
+            *("--features", "cli"),
+            "--locked",
+            *("--root", temp_install_dir),
+            *("--color", "always" if log.Color.ENABLED else "never"),
+        )
+        sh.copy(
+            f"{temp_install_dir}/bin/{cargo_about_name}",
+            cache_dir(create=True),
+        )
+        sh.rm_path(temp_install_dir)
+    log.info(f"`cargo-about` found locally (`{cargo_about}`).")
+
+    # ------------------------------------------------------------------------ #
+    #                  A Quick Note on Apache-2.0 Compliance                   #
+    #   To adhere to Apache-2.0, we are required to ship any `NOTICE` files    #
+    # any of our dependencies have along with our app. See section 4d here:    #
+    # https://www.apache.org/licenses/LICENSE-2.0.txt                          #
+    #   I manually audited every Apache-2.0 we have right now (about 249) and  #
+    # not a single one has a `NOTICE` file. As far as I am aware there are no  #
+    # `NOTICE` files we need to include in our distributions, so `cargo-about` #
+    # (plus FFmpeg's license) should be enough.                                #
+    # ------------------------------------------------------------------------ #
+
+    log.info("Generating third party license notices...")
+
+    license_dir = "build_util/resources/third_party_licensing"
+
+    try:
+        with open(f"{license_dir}/lgpl-2.1.txt", "r") as f:
+            ffmpeg_license_text = f.read()
+    except:
+        log.fatal("Failed to load FFmpeg's license file.")
+    ffmpeg_license_name = "GNU Lesser General Public License, version 2.1"
+
+    temp_dir = sh.temp_dir()
+    temp_template = f"{temp_dir}/about.hbs"
+
+    sh.compile_template_file(
+        f"{license_dir}/template-about.hbs",
+        {
+            "ffmpeg_license_name": ffmpeg_license_name,
+            "ffmpeg_url": build_ffmpeg.FFMPEG_URL,
+            "ffmpeg_version": build_ffmpeg.FFMPEG_VERSION,
+            "ffmpeg_license_text": html.escape(ffmpeg_license_text),
+        },
+        dest_file=temp_template,
+        # We're templating a template file so we gotta do this:
+        brace_override=("{!{", "}!}"),
+    )
+
+    sh.run_cmd(
+        *(cargo_about, "generate"),
+        *("-o", f"{staging_dir}/third-party-notices.html"),
+        "--locked",
+        "--fail",
+        "--workspace",
+        "--all-features",
+        *("-c", f"{license_dir}/about.toml"),
+        temp_template,
+    )
+
+    sh.rm_path(temp_dir)
+
+    log.info("Third party license notices generated.")
+
+    # TODO: Add our own license file
 
 
 def build_and_stage_artifact(
@@ -367,10 +476,10 @@ def build_and_stage_artifact(
                 *features_args,
                 *("--color", "always" if log.Color.ENABLED else "never"),
             ),
-            non_fatal=True,
             env_overrides=(
                 {"RUSTFLAGS": f"-L {link_time_dir}"} if link_time_dir else None
             ),
+            non_fatal=True,
         )
     except sh.CmdException as e:
         log.error(f"{e}")
@@ -392,10 +501,7 @@ def build_and_stage_artifact(
     )
 
     dest = f"{staging_dir}/{artifact_name if rename is None else rename}"
-    try:
-        shutil.copy(artifact_path, dest)
-    except:
-        log.fatal("Failed to copy artifact to output directory.")
+    sh.copy(artifact_path, dest)
 
     log.info(f"Staged artifact `{artifact_name}`.")
 
@@ -466,13 +572,6 @@ def dump_common_resources(dir: str) -> None:
     try:
         # nodes folder
         shutil.copytree("./nodes", f"{dir}/nodes")
-
-        # version file
-        with open(f"{dir}/version", "w") as f:
-            f.write(app_version())
-
-        # TODO: Also include a license and README file. You can modify the
-        # windows installer script to show these to the user.
     except:
         log.fatal(f"Failed to stage resources in `{dir}`.")
     log.info("Common resources staged.")
@@ -524,11 +623,8 @@ def windows(out_dir: str, args: Args) -> None:
     # Create a temp dir with the app-core `.lib` file to add to the linker path.
     appcore_lib = f"{unstaged_appcore_dll}.lib"
     sh.ensure_path_exists(appcore_lib, kind="file")
-    try:
-        temp_appcore_lib_dir = tempfile.mkdtemp()
-        shutil.copy(appcore_lib, f"{temp_appcore_lib_dir}\\appcore.lib")
-    except:
-        log.fatal("Failed to create temporary app-core library directory.")
+    temp_appcore_lib_dir = sh.temp_dir()
+    sh.copy(appcore_lib, f"{temp_appcore_lib_dir}\\appcore.lib")
 
     def build_and_stage_bin(
         bin_name: str, file_name: str, with_console: bool
@@ -560,6 +656,8 @@ def windows(out_dir: str, args: Args) -> None:
         file_ext_filter=".dll",
     )
     log.info(f"Copied {len(dlls_copied)} FFmpeg DLLs into staging directory.")
+
+    stage_license_info(staging_dir)
 
     log.info("Staging complete.")
 
@@ -594,21 +692,18 @@ def windows(out_dir: str, args: Args) -> None:
 
     # Create installer.
     log.info("Creating installer...")
-    try:
-        inno_file = shutil.copy(
-            ".\\build_util\\resources\\inno-setup-config.iss",
-            out_dir,
-        )
-        sh.run_cmd(
-            iscc,
-            f"/DAppVersion={app_version()}",
-            f"/DProjectRoot={os.path.abspath('.')}",
-            f"/O{out_dir}",
-            inno_file,
-        )
-        os.remove(inno_file)
-    except sh.CmdException as e:
-        log.fatal(f"{e}")
+    inno_file = sh.copy(
+        ".\\build_util\\resources\\inno-setup-config.iss",
+        out_dir,
+    )
+    sh.run_cmd(
+        iscc,
+        f"/DAppVersion={app_version()}",
+        f"/DProjectRoot={os.path.abspath('.')}",
+        f"/O{out_dir}",
+        inno_file,
+    )
+    sh.rm_path(inno_file)
     log.info("Installer created.")
 
     # Create a portable zip archive.
@@ -652,6 +747,7 @@ def mac_os(out_dir: str, args: Args) -> None:
     #       Frameworks/
     #           libappcore.dylib
     #           (ffmpeg dylibs)...
+    #   third-party-notices.html
     try:
         contents_staging_dir = f"{staging_dir}/Contents"
         os.mkdir(contents_staging_dir)
@@ -704,10 +800,7 @@ def mac_os(out_dir: str, args: Args) -> None:
     def stage_ffmpeg_dylib(dylib_path: str) -> None:
         src = os.path.realpath(dylib_path)
         dest = f"{frameworks_staging_dir}/{file_name(dylib_path)}"
-        try:
-            shutil.copy(src, dest)
-        except:
-            log.fatal(f"Failed to copy `{src}` to `{dest}`.")
+        sh.copy(src, dest)
 
     appcore_remap_args = ["-id", f"@rpath/{appcore_dylib_name}"]
 
@@ -733,12 +826,7 @@ def mac_os(out_dir: str, args: Args) -> None:
     )
 
     # Create a temp dir with the app-core dylib file to add to the linker path.
-    try:
-        temp_app_lib_dir = tempfile.mkdtemp()
-        shutil.copy(appcore_dylib, temp_app_lib_dir)
-    except:
-        log.fatal("Failed to create temporary app-core library directory.")
-
+    temp_app_lib_dir = sh.temp_dir()
     for bin_name in ("editor", "launcher"):
         bin_path = build_and_stage_artifact(
             bin_name,
@@ -773,10 +861,9 @@ def mac_os(out_dir: str, args: Args) -> None:
 
     # Bundle icon.
     log.info("Bundling icon.")
-    try:
-        shutil.copy("./logo/s-bg.icns", resources_staging_dir)
-    except:
-        log.fatal("Failed to bundle icon.")
+    sh.copy("./logo/s-bg.icns", resources_staging_dir)
+
+    stage_license_info(staging_dir)
 
     if args.no_extras:
         return

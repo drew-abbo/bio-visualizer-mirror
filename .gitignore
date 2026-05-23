@@ -3,6 +3,7 @@ target/
 .cargo/config.toml
 Cargo.lock
 
+/build_util.cache
 __pycache__
 
 /*ffmpeg/
